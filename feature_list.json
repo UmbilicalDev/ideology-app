@@ -1,0 +1,353 @@
+[
+  {
+    "id": "bootstrap-app-skeleton",
+    "area": "platform",
+    "title": "Runnable FastAPI skeleton with test gate",
+    "user_visible_behavior": "`./init.sh` installs dependencies and runs pytest; the app starts and GET /health returns 200.",
+    "depends_on": [],
+    "status": "not_started",
+    "verification": [
+      "CI=true ./init.sh exits 0 with at least one passing test",
+      "The health endpoint test passes"
+    ],
+    "evidence": [],
+    "notes": "Python + FastAPI per docs/technical-discovery.md. Replace the pre-bootstrap init.sh with the bootstrapped variant."
+  },
+  {
+    "id": "db-schema-elections-parties",
+    "area": "data",
+    "title": "Persist Elections and Parties",
+    "user_visible_behavior": "An Operator can create an Election (country, type, date) and its Parties (ballot tickets) through a CLI command, and list them.",
+    "depends_on": ["bootstrap-app-skeleton"],
+    "status": "not_started",
+    "verification": [
+      "pytest: create an Election and its Parties, then list them",
+      "Migrations apply on an empty database"
+    ],
+    "evidence": [],
+    "notes": "SQLite for local development, PostgreSQL target. A Party is a ballot ticket (CONTEXT.md)."
+  },
+  {
+    "id": "source-document-upload",
+    "area": "ingestion",
+    "title": "Register a Source Document by file upload",
+    "user_visible_behavior": "An Operator attaches a PDF to a Party; its text is extracted with page mapping and the document reaches the `parsed` state.",
+    "depends_on": ["db-schema-elections-parties"],
+    "status": "not_started",
+    "verification": [
+      "pytest with a fixture PDF: extracted text plus page numbers are stored and the state is `parsed`",
+      "A PDF with no text layer ends in the `failed` state with a reason"
+    ],
+    "evidence": [],
+    "notes": "No OCR in the MVP. Store a content hash."
+  },
+  {
+    "id": "source-document-url",
+    "area": "ingestion",
+    "title": "Register a Source Document by URL",
+    "user_visible_behavior": "An Operator registers a manifesto URL; it is fetched, parsed and stored with a content hash.",
+    "depends_on": ["source-document-upload"],
+    "status": "not_started",
+    "verification": [
+      "pytest with a mocked HTTP response: the document reaches `parsed` with its hash",
+      "An HTTP error ends in `failed`"
+    ],
+    "evidence": [],
+    "notes": "Ingestion origin is configurable per document (upload | url)."
+  },
+  {
+    "id": "llm-provider-abstraction",
+    "area": "ai",
+    "title": "Configurable LLM provider with a fake for tests",
+    "user_visible_behavior": "The LLM provider and model are chosen by configuration; a deterministic fake provider is used in tests.",
+    "depends_on": ["bootstrap-app-skeleton"],
+    "status": "not_started",
+    "verification": [
+      "pytest: the provider is resolved from config; the fake returns structured output",
+      "No test makes network calls to an LLM"
+    ],
+    "evidence": [],
+    "notes": "Implement at least one real provider adapter (e.g. Anthropic) behind the interface, with structured output."
+  },
+  {
+    "id": "pipeline-generate-statements",
+    "area": "pipeline",
+    "title": "Pipeline Run generates candidate Statements",
+    "user_visible_behavior": "Running the pipeline for an Election produces a candidate Dataset Version containing topic-tagged Statements derived from the Source Documents.",
+    "depends_on": ["source-document-url", "llm-provider-abstraction"],
+    "status": "not_started",
+    "verification": [
+      "pytest with the fake provider: the run creates a Dataset Version in `candidate` with N Statements",
+      "The Pipeline Run moves through queued → running → validating"
+    ],
+    "evidence": [],
+    "notes": "Prompt rules: neutral wording, a single proposition per Statement. Version the prompts."
+  },
+  {
+    "id": "pipeline-extract-positions",
+    "area": "pipeline",
+    "title": "Pipeline Run extracts Party Positions with Evidence",
+    "user_visible_behavior": "For every Statement and Party, the run stores a position (−2..+2 or no stance) with a verbatim quote and a page or URL locator.",
+    "depends_on": ["pipeline-generate-statements"],
+    "status": "not_started",
+    "verification": [
+      "pytest with the fake provider: every Statement × Party pair has a position, and non-`no stance` positions have Evidence"
+    ],
+    "evidence": [],
+    "notes": "For coalitions, the joint manifesto takes precedence over member manifestos. Chunk long manifestos."
+  },
+  {
+    "id": "validation-evidence-quotes",
+    "area": "validation",
+    "title": "Validation verifies Evidence quotes exist in the source",
+    "user_visible_behavior": "A run fails Validation when any Evidence quote isn't found in its Source Document text (normalized match), and the report names the offending positions.",
+    "depends_on": ["pipeline-extract-positions"],
+    "status": "not_started",
+    "verification": [
+      "pytest: an invented quote → failed with a report entry; real quotes with whitespace or accent differences → pass"
+    ],
+    "evidence": [],
+    "notes": "Check 2 in docs/domain-model.md. The match tolerance is an implementation-time decision."
+  },
+  {
+    "id": "validation-party-coverage",
+    "area": "validation",
+    "title": "Validation enforces minimum Party coverage",
+    "user_visible_behavior": "A run fails if any Party has positions on less than the configured share (default 70%) of Statements.",
+    "depends_on": ["pipeline-extract-positions"],
+    "status": "not_started",
+    "verification": [
+      "pytest: a party with 60% coverage → failed; 70% → pass; the threshold can be configured"
+    ],
+    "evidence": [],
+    "notes": "Check 3. Initial position: fail the whole run."
+  },
+  {
+    "id": "validation-statement-separation",
+    "area": "validation",
+    "title": "Validation rejects Statements that don't separate parties",
+    "user_visible_behavior": "A run fails if any Statement has the same position for every Party.",
+    "depends_on": ["pipeline-extract-positions"],
+    "status": "not_started",
+    "verification": [
+      "pytest: one Statement with every position equal → failed with that Statement named"
+    ],
+    "evidence": [],
+    "notes": "Check 4. Positions of `no stance` are ignored for this check."
+  },
+  {
+    "id": "validation-questionnaire-shape",
+    "area": "validation",
+    "title": "Validation checks Statement count, uniqueness and topic spread",
+    "user_visible_behavior": "A run fails if the Statement count is out of range, Statements are duplicated, or one topic exceeds the configured share.",
+    "depends_on": ["pipeline-generate-statements"],
+    "status": "not_started",
+    "verification": [
+      "pytest: 20 Statements → failed; duplicates → failed; 50% of Statements on one topic → failed; a valid set → pass"
+    ],
+    "evidence": [],
+    "notes": "Checks 1, 5 and 6. Detecting compound propositions can be heuristic."
+  },
+  {
+    "id": "auto-publish-dataset-version",
+    "area": "pipeline",
+    "title": "Passing runs auto-publish; failing runs keep the previous version",
+    "user_visible_behavior": "When every Validation check passes, the Dataset Version becomes Published and the previous one is superseded; when one fails, the previous Published version stays live.",
+    "depends_on": ["validation-evidence-quotes", "validation-party-coverage", "validation-statement-separation", "validation-questionnaire-shape"],
+    "status": "not_started",
+    "verification": [
+      "pytest: pass → published with exactly one Published version per Election; fail → previous version unchanged"
+    ],
+    "evidence": [],
+    "notes": "Superseded versions stay readable for old Share Links."
+  },
+  {
+    "id": "pipeline-run-report",
+    "area": "operations",
+    "title": "Operator can inspect a Pipeline Run report",
+    "user_visible_behavior": "A CLI command shows a run's status, provider, model, prompt version, duration, token or cost estimate, and the Validation report.",
+    "depends_on": ["auto-publish-dataset-version"],
+    "status": "not_started",
+    "verification": [
+      "pytest: the report command prints the stored fields for a passed run and a failed run"
+    ],
+    "evidence": [],
+    "notes": "Observability per docs/technical-discovery.md. Read-only: AI output cannot be edited."
+  },
+  {
+    "id": "live-mode-source-change-trigger",
+    "area": "pipeline",
+    "title": "Live mode starts a run when a Source Document changes",
+    "user_visible_behavior": "With GENERATION_MODE=live, adding a Source Document or changing its hash queues a Pipeline Run; with precomputed, it doesn't.",
+    "depends_on": ["auto-publish-dataset-version"],
+    "status": "not_started",
+    "verification": [
+      "pytest: live + new document → run queued; live + same hash → no run; precomputed → no run"
+    ],
+    "evidence": [],
+    "notes": "Never generates per user."
+  },
+  {
+    "id": "live-mode-url-refetch",
+    "area": "ingestion",
+    "title": "Live mode periodically re-fetches URL sources",
+    "user_visible_behavior": "URL Source Documents are re-fetched at a configured interval; a changed hash updates the document and triggers regeneration.",
+    "depends_on": ["live-mode-source-change-trigger"],
+    "status": "not_started",
+    "verification": [
+      "pytest with a mocked HTTP response and a controlled clock: changed content → new hash + run queued; same content → nothing"
+    ],
+    "evidence": [],
+    "notes": "The interval is configurable (e.g. 6h)."
+  },
+  {
+    "id": "public-dataset-api",
+    "area": "api",
+    "title": "Public API serves a Dataset Version",
+    "user_visible_behavior": "GET endpoints return active Elections, and the Questionnaire plus Party Positions with Evidence for the Published version or a specific version id.",
+    "depends_on": ["auto-publish-dataset-version"],
+    "status": "not_started",
+    "verification": [
+      "pytest: the published version is returned; a superseded version is still returned by id; an unknown id → 404"
+    ],
+    "evidence": [],
+    "notes": "Read-only and cacheable. No voter data in requests."
+  },
+  {
+    "id": "landing-election-picker",
+    "area": "web",
+    "title": "Landing page lets a Voter choose an Election",
+    "user_visible_behavior": "The home page lists active Elections with a short methodology summary and an AI-generated disclosure; choosing one starts the Questionnaire.",
+    "depends_on": ["public-dataset-api"],
+    "status": "not_started",
+    "verification": [
+      "pytest: the page renders the published Election and the disclosure",
+      "Manual check at 375px and desktop widths following DESIGN.md"
+    ],
+    "evidence": [],
+    "notes": "Follow DESIGN.md: neutral palette, no party colours."
+  },
+  {
+    "id": "questionnaire-answer-flow",
+    "area": "web",
+    "title": "Voter answers Statements on the 5-point scale",
+    "user_visible_behavior": "The Voter sees one Statement at a time with a progress bar, picks one of 5 options or skips, and can go back; answers stay in the browser only.",
+    "depends_on": ["landing-election-picker"],
+    "status": "not_started",
+    "verification": [
+      "Browser test: answer, skip and go back across all Statements",
+      "Network check: no request carries the answers"
+    ],
+    "evidence": [],
+    "notes": "The scale is an accessible radio group; no red/green."
+  },
+  {
+    "id": "questionnaire-important-flag",
+    "area": "web",
+    "title": "Voter marks a Statement as Important",
+    "user_visible_behavior": "A star toggle on each Statement marks it Important, and the state survives navigating back and forth.",
+    "depends_on": ["questionnaire-answer-flow"],
+    "status": "not_started",
+    "verification": [
+      "Browser test: toggle the star, navigate, and the state is kept"
+    ],
+    "evidence": [],
+    "notes": "Amber accent is reserved for this (DESIGN.md)."
+  },
+  {
+    "id": "match-score-engine",
+    "area": "matching",
+    "title": "Client-side Match Score calculation",
+    "user_visible_behavior": "Given answers and positions, each Party gets a Match Score following the rule in docs/build-brief.md, with skip and no stance excluded, Important weighted ×2, and low coverage flagged.",
+    "depends_on": ["bootstrap-app-skeleton"],
+    "status": "not_started",
+    "verification": [
+      "Unit tests for exact scores: identical answers → 100%, opposite → 0%, weighting, exclusions, and the low-coverage threshold"
+    ],
+    "evidence": [],
+    "notes": "Runs in the browser; it needs a JS unit-test runner wired into init.sh."
+  },
+  {
+    "id": "results-ranking",
+    "area": "web",
+    "title": "Results page shows the party ranking",
+    "user_visible_behavior": "After the last Statement, the Voter sees Parties ordered by Match Score with percentage bars and a low-coverage badge; ties are alphabetical.",
+    "depends_on": ["questionnaire-important-flag", "match-score-engine"],
+    "status": "not_started",
+    "verification": [
+      "Browser test with fixture data: the order and percentages match the engine's output",
+      "Skipping every Statement shows a prompt instead of a ranking"
+    ],
+    "evidence": [],
+    "notes": "No party colours on the bars."
+  },
+  {
+    "id": "results-breakdown-evidence",
+    "area": "web",
+    "title": "Results breakdown shows each Party's Evidence",
+    "user_visible_behavior": "For each Statement, the Voter sees their answer and each Party's position; expanding a position reveals the quote and a source link, or 'no stance in the manifesto'.",
+    "depends_on": ["results-ranking"],
+    "status": "not_started",
+    "verification": [
+      "Browser test: expanding a position shows the quote and a working locator; no stance is labelled"
+    ],
+    "evidence": [],
+    "notes": "Quotes use a serif font (DESIGN.md)."
+  },
+  {
+    "id": "share-link-create",
+    "area": "sharing",
+    "title": "Voter copies a Share Link of their result",
+    "user_visible_behavior": "A share button copies a URL that encodes the Dataset Version id and the answers in the fragment, with a note that nothing is stored.",
+    "depends_on": ["results-ranking"],
+    "status": "not_started",
+    "verification": [
+      "Unit test: the encode/decode round-trip is lossless, including skip and Important",
+      "The answers appear only after `#`"
+    ],
+    "evidence": [],
+    "notes": "Version the encoding format."
+  },
+  {
+    "id": "share-link-open",
+    "area": "sharing",
+    "title": "Opening a Share Link reproduces the result",
+    "user_visible_behavior": "Opening a Share Link shows the same ranking and breakdown for that Dataset Version; if it has been superseded, a notice offers the current questionnaire.",
+    "depends_on": ["share-link-create", "results-breakdown-evidence"],
+    "status": "not_started",
+    "verification": [
+      "Browser test: the shared URL renders identical scores",
+      "A superseded version shows the notice; a malformed link shows a friendly error"
+    ],
+    "evidence": [],
+    "notes": ""
+  },
+  {
+    "id": "methodology-page",
+    "area": "web",
+    "title": "Methodology page explains AI generation",
+    "user_visible_behavior": "A public page explains how Statements and Positions are generated and validated, the matching rule, the privacy model, and a disclaimer.",
+    "depends_on": ["landing-election-picker"],
+    "status": "not_started",
+    "verification": [
+      "pytest: the page renders and is linked from the landing and results pages"
+    ],
+    "evidence": [],
+    "notes": "Mitigation for the bias and legal risks. Legal wording is to be reviewed before a public launch."
+  },
+  {
+    "id": "e2e-real-2023-election",
+    "area": "validation",
+    "title": "End-to-end run on the real 2023 general election",
+    "user_visible_behavior": "The 2023 manifestos of the parties with seats go through a real-provider run, which is published only if it passes Validation, and a Voter completes the flow and shares a link.",
+    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report"],
+    "status": "not_started",
+    "verification": [
+      "A recorded Pipeline Run report with status passed",
+      "A manual walkthrough on mobile and desktop, recorded in PROGRESS.md",
+      "A sample of 10 positions read against their Evidence (an observation, not editing)"
+    ],
+    "evidence": [],
+    "notes": "MVP success criterion. Needs an LLM API key from the user. Uses the 2023 ballot tickets (e.g. Sumar as one Party)."
+  }
+]
