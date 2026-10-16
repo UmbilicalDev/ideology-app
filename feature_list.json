@@ -25,12 +25,19 @@
     "title": "Persist Elections and Parties",
     "user_visible_behavior": "An Operator can create an Election (country, type, date) and its Parties (ballot tickets) through a CLI command, and list them.",
     "depends_on": ["bootstrap-app-skeleton"],
-    "status": "not_started",
+    "status": "accepted",
     "verification": [
       "pytest: create an Election and its Parties, then list them",
       "Migrations apply on an empty database"
     ],
-    "evidence": [],
+    "evidence": [
+      "2026-10-16 CI=true ./init.sh: ==> install, ==> pytest, 49 passed, All checks passed., exit 0 (Python 3.15.0; sqlalchemy 2.1.4, alembic 1.20.0, click 8.5.0)",
+      "2026-10-16 pytest -W error -p no:cacheprovider: 49 passed; python -X dev -W error -m pytest: 49 passed, no ResourceWarning",
+      "2026-10-16 tests/test_migrations.py: upgrade on empty SQLite -> elections, parties, alembic_version at 0001; second upgrade no-op; downgrade base leaves only alembic_version; compare_metadata no drift; bogus status/type and unknown election_id -> IntegrityError; offline postgresql render has CREATE TABLE elections/parties and ck_elections_election_status, ck_elections_election_type once each (2 CHECKs total)",
+      "2026-10-16 manual CLI smoke in a scratch dir (DATABASE_URL=sqlite:///<scratch>/smoke.db): election list before upgrade -> 'Error: Database is not initialised; run \"ideology db upgrade\".' exit 1; db upgrade x2 exit 0; election create -> 'Created election 1'; party add Sumar/SUMAR, Partido Popular/PP -> 'Created party 1', 'Created party 2'; election list -> '1 ES general 2023-07-23 draft Elecciones generales 2023'; party list -> SUMAR, PP in order; re-create -> 'already exists' exit 1; duplicate party name exit 1; --election 999 -> 'election 999 not found' exit 1; ESP / regional / blank name exit 1 naming the field; 23/07/2023 exit 2; scratch db deleted",
+      "2026-10-16 alembic -c alembic.ini history: '<base> -> 0001 (head), Create the elections and parties tables.'; alembic check on a scratch db: no new upgrade operations; no *.db file in the repo after tests; init.sh unchanged",
+      "2026-10-16 independent validator verdict: accept: CI=true ./init.sh 49 passed exit 0; pytest -W error and -X dev 49 passed, no ResourceWarning; alembic check no drift; offline PostgreSQL render has exactly 2 CHECKs; CLI scenarios 1-5 pass (exit 0/1/2, rows unchanged on rejection); canary DATABASE_URL never created; all 5 implementer deviations accepted. Low: duplicate-party message does not name the clashing field; first command on a missing SQLite file creates an empty file."
+    ],
     "notes": "SQLite for local development, PostgreSQL target. A Party is a ballot ticket (CONTEXT.md)."
   },
   {
