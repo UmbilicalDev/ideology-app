@@ -34,6 +34,20 @@ Before writing code:
 - Update durable repo artifacts instead of relying on chat summaries.
 - Record validation results only as evidence in `feature_list.json` and `PROGRESS.md`; do not create `docs/validations/`.
 
+## Browser Validation For UI Features
+
+A feature that adds or changes anything a user sees in a browser (pages, forms, navigation, client-side behavior) is not `passing` or `accepted` until it has been checked in a real browser. Automated tests and rendered-HTML assertions do not replace this.
+
+- Start the app with the documented start command and open it in a real browser. Any browser automation tool is fine.
+- Walk through every acceptance scenario of the feature's spec as a user would: click, type, navigate, go back.
+- Check at a mobile width (375px) and at desktop width, following `DESIGN.md`.
+- Check that the browser console has no errors and no request failed unexpectedly.
+- For voter flows, confirm that no request carries voter answers (see Project Invariants).
+- Record what was checked and the result as evidence in `feature_list.json` and `PROGRESS.md`. Name the browser and widths, and attach screenshots only if the user asks.
+- If no browser is available, the feature stays `in_progress` or `blocked` with the reason recorded. Do not mark it `passing`.
+
+Both the implementer (self-verification) and the validator (independent check) apply this rule. Features with no browser-visible change (CLI, data, pipeline) are exempt.
+
 ## Project Invariants
 
 - Never store voter answers on the server. Share Links carry them in the URL fragment.
