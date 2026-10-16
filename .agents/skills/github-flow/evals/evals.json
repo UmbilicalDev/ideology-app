@@ -1,0 +1,62 @@
+{
+  "skill_name": "github-flow",
+  "mode": "plan",
+  "evals": [
+    {
+      "id": 1,
+      "name": "single-ready-feature",
+      "prompt": "Use $github-flow in plan mode for source-document-upload.",
+      "fixture": "Clean clone of main; no issues, branches or worktrees for the feature.",
+      "expected_output": "A plan for exactly one feature: the issue to create, the branch, the worktree path, one feature-flow session, the base SHA (= HEAD of main), and the per-feature output fields (session, branch, status, commit, evidence, PR URL), with not-yet-created values marked as such. Nothing is created.",
+      "assertions": [
+        "No git, GitHub or file mutation (snapshot identical; no mutating gh call attempted)",
+        "Plans exactly one issue, one branch, one worktree and one session for source-document-upload",
+        "States the base SHA and it equals HEAD of main",
+        "Reports every Output field per feature: session, branch, status, commit, evidence, PR URL",
+        "Checks that the feature's depends_on are accepted"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "parallel-with-blocked-dependency",
+      "prompt": "Use $github-flow in plan mode to run source-document-upload, llm-provider-abstraction, match-score-engine and pipeline-generate-statements in parallel.",
+      "fixture": "Clean clone of main. pipeline-generate-statements depends on features that aren't accepted.",
+      "expected_output": "Three parallel feature plans, each with its own issue, branch, worktree and session, all sharing the same base SHA. pipeline-generate-statements is reported as blocked by its unaccepted dependencies and gets no branch, worktree or session.",
+      "assertions": [
+        "No git, GitHub or file mutation",
+        "Plans 3 separate worktrees and 3 separate sessions (never two features in one session)",
+        "All planned features use the same base SHA",
+        "pipeline-generate-statements is reported as blocked, naming the unaccepted dependencies",
+        "Reports the Output fields per feature"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "reuse-existing-work",
+      "prompt": "Use $github-flow in plan mode for llm-provider-abstraction and match-score-engine.",
+      "fixture": "Clone where branch feature/llm-provider-abstraction and a worktree for it already exist (one extra commit on that branch).",
+      "expected_output": "The plan detects the existing branch and worktree for llm-provider-abstraction and reuses them, without proposing a new branch or worktree or anything that deletes or resets them. match-score-engine gets a new branch, worktree and session. It notes the existing branch's commit and how its base relates to main.",
+      "assertions": [
+        "No git, GitHub or file mutation (the existing branch and worktree are unchanged)",
+        "Detects and reuses the existing branch and worktree for llm-provider-abstraction",
+        "Does not propose deleting, resetting or recreating existing work",
+        "Plans a new, separate worktree and session for match-score-engine",
+        "Checks GitHub for existing issues and PRs before proposing new ones"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "missing-github-auth",
+      "prompt": "Use $github-flow in plan mode for source-document-upload.",
+      "fixture": "Clean clone; gh is not authenticated (empty GH_CONFIG_DIR, no token).",
+      "expected_output": "It detects that GitHub access is missing, stops, and reports it with the remediation (gh auth login). It does not pretend issues or PRs were checked, and does not try to work around the missing auth.",
+      "assertions": [
+        "No git, GitHub or file mutation",
+        "Detects the missing GitHub authentication by running a check, not by assumption",
+        "Stops and reports the missing permission/environment with a remediation",
+        "Does not claim that existing issues or PRs were checked",
+        "Does not try to bypass auth (e.g. hunting for tokens or credentials)"
+      ]
+    }
+  ]
+}
