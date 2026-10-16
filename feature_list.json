@@ -5,7 +5,7 @@
     "title": "Runnable FastAPI skeleton with test gate",
     "user_visible_behavior": "`./init.sh` installs dependencies and runs pytest; the app starts and GET /health returns 200.",
     "depends_on": [],
-    "status": "passing",
+    "status": "accepted",
     "verification": [
       "CI=true ./init.sh exits 0 with at least one passing test",
       "The health endpoint test passes"
@@ -14,7 +14,8 @@
       "2026-10-16 CI=true ./init.sh: ==> install, ==> pytest, 1 passed, All checks passed., exit 0 (Python 3.15.0, existing .venv)",
       "2026-10-16 pytest -W error: 1 passed, no warnings; init.sh run from /tmp: exit 0",
       "2026-10-16 scratch copy without .venv in a path with a space: venv created with system python3 3.13.9, exit 0; broken assertion: FAILED: pytest, exit 1",
-      "2026-10-16 uvicorn :8000: GET /health -> {\"status\":\"ok\"} 200, /nope -> 404; server stopped. Versions: fastapi 0.143.2, starlette 1.8.0, uvicorn 0.54.0, pytest 9.1.1, httpx2 2.13.1"
+      "2026-10-16 uvicorn :8000: GET /health -> {\"status\":\"ok\"} 200, /nope -> 404; server stopped. Versions: fastapi 0.143.2, starlette 1.8.0, uvicorn 0.54.0, pytest 9.1.1, httpx2 2.13.1",
+      "2026-10-16 independent validator verdict: accept (separate session): scenarios 1-4 re-run (fresh copy on py3.13 and py3.15, path with a space, from another directory, broken test -> FAILED: pytest exit 1), pytest -W error clean, uvicorn /health 200, /nope 404. Low finding: run_step disables set -e inside steps, so a future multi-command step could pass with a failing command."
     ],
     "notes": "Python + FastAPI per docs/technical-discovery.md. Replace the pre-bootstrap init.sh with the bootstrapped variant."
   },

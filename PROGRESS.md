@@ -6,7 +6,7 @@
 - Standard startup path: `./init.sh`
 - Standard verification path: `CI=true ./init.sh` (creates `.venv` if missing, installs `.[dev]`, runs `pytest`)
 - Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
-- Current next ready feature: none until `bootstrap-app-skeleton` (status `passing`) is independently validated; then `db-schema-elections-parties`
+- Current next ready feature: `db-schema-elections-parties` (also ready: `llm-provider-abstraction`, `match-score-engine`)
 - Current blocker: none
 - Last verified at: 2026-10-16 (`CI=true ./init.sh` exit 0, 1 passed)
 
@@ -33,3 +33,13 @@
 - Files or artifacts updated: listed above plus `PROGRESS.md`, `feature_list.json` (status `passing`).
 - Known risk or unresolved issue: no dependency lockfile. `.venv` already held these packages from an earlier attempt, so the clean install was proven only in the scratch copy (with Python 3.13.9).
 - Next best step: independent validation with `$feature-validator`.
+
+### Session 003
+
+- Date: 2026-10-16
+- Goal: Independently validate `bootstrap-app-skeleton`.
+- Completed: validator verdict `accept` in a separate session; feature status set to `accepted`.
+- Verification run: the validator re-ran scenarios 1-4 and extra negative checks (missing dependency -> `FAILED: install`; bad `PYTHON` -> exit 1).
+- Evidence captured: `feature_list.json` -> `bootstrap-app-skeleton.evidence`.
+- Known risk or unresolved issue: Low: `run_step` runs steps inside `if !`, which disables `set -e`, so a multi-command step could pass with a failing command. Fix it in the feature that adds the next verify step (e.g. run the step in a `set -e` subshell and check its exit code). No dependency lockfile.
+- Next best step: plan `db-schema-elections-parties` with `$feature-spec`.
