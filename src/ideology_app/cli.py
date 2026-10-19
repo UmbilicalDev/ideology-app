@@ -286,15 +286,32 @@ def pipeline_run(app: AppContext, election_id: int) -> None:
         if callable(close):
             close()
     # The failed run is committed above; report it as an error afterwards.
-    if outcome.status is PipelineRunStatus.FAILED:
-        raise click.ClickException(
-            f"pipeline run {outcome.run_id} failed: {outcome.failure_reason}"
-        )
+    _raise_if_failed(outcome)
     click.echo(
         f"Pipeline run {outcome.run_id}: {outcome.status.value} "
         f"(dataset version {outcome.dataset_version_id}, "
         f"{outcome.statement_count} statements, {outcome.position_count} party positions)"
     )
+
+
+def _raise_if_failed(outcome: pipelines.RunOutcome) -> None:
+    """Report a committed ``failed`` run as an error, pointing at its checks if any failed."""
+    if outcome.status is not PipelineRunStatus.FAILED:
+        return
+    message = f"pipeline run {outcome.run_id} failed: {outcome.failure_reason}"
+    if outcome.failed_checks:
+        message += f'; see "ideology pipeline checks --run {outcome.run_id}"'
+    raise click.ClickException(message)
+
+
+@pipeline.command("validate")
+@click.option("--run", "run_id", required=True, type=int, help="Pipeline Run id.")
+@requires_db
+def pipeline_validate(app: AppContext, run_id: int) -> None:
+    """Validate a run left in ``validating`` (needs no LLM provider)."""
+    outcome = pipelines.validate_run(app.engine, run_id)
+    _raise_if_failed(outcome)
+    click.echo(f"Pipeline run {outcome.run_id}: {outcome.status.value}")
 
 
 @pipeline.command("list")
@@ -379,3 +396,27 @@ def pipeline_positions(app: AppContext, dataset_version_id: int, party_id: int |
             for p in pipelines.list_positions(session, dataset_version_id, party_id)
         ]
     _print_rows(["statement", "party", "value", "document", "page", "url", "quote"], rows)
+
+
+@pipeline.command("checks")
+@click.option("--run", "run_id", required=True, type=int, help="Pipeline Run id.")
+@requires_db
+def pipeline_checks(app: AppContext, run_id: int) -> None:
+    """List a run's Validation results: one row per passed check or per report entry."""
+    with session_scope(app.engine) as session:
+        rows: list[list[object]] = []
+        for result in pipelines.list_validation_results(session, run_id):
+            label = "passed" if result.passed else "failed"
+            if result.passed or not result.entries:
+                rows.append([result.check_name, label, None, None, None])
+            for entry in result.entries:
+                rows.append(
+                    [
+                        result.check_name,
+                        label,
+                        entry.statement.position if entry.statement else None,
+                        entry.party_id,
+                        _one_line(entry.message),
+                    ]
+                )
+    _print_rows(["check", "result", "statement", "party", "message"], rows)

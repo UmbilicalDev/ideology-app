@@ -1,7 +1,7 @@
 """The AI pipeline: Pipeline Runs that turn Source Documents into a Dataset Version.
 
-Depends on ``models``, ``elections`` (errors) and ``llm.base`` only; a provider
-is always injected, never built here.
+Depends on ``models``, ``elections`` (errors), ``llm.base`` and ``validation``
+only; a provider is always injected, never built here.
 """
 
 from ideology_app.pipeline.generation import (
@@ -47,7 +47,9 @@ from ideology_app.pipeline.runs import (
     get_dataset_version,
     list_positions,
     list_runs,
+    list_validation_results,
     queue_run,
+    validate_run,
 )
 
 __all__ = [
@@ -86,6 +88,8 @@ __all__ = [
     "get_dataset_version",
     "list_positions",
     "list_runs",
+    "list_validation_results",
     "plan_position_calls",
     "queue_run",
+    "validate_run",
 ]

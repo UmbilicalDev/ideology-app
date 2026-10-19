@@ -6,10 +6,10 @@
 - Standard startup path: `./init.sh`
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22 on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `js-test` (`node --test tests/js/*.test.js`))
 - Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
-- Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`, `pipeline run|list|statements|positions`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `validation-questionnaire-shape`; `pipeline-extract-positions` is `passing` and awaits independent validation
+- Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`, `pipeline run|list|statements|positions|validate|checks`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
+- Current next ready features: `validation-party-coverage`, `validation-statement-separation`, `validation-questionnaire-shape` (each plugs into the Validation framework); `validation-evidence-quotes` is `accepted`
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/pipeline-extract-positions`: pytest 455 passed, node --test 41 passed, alembic head `0005`)
+- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/validation-evidence-quotes`: pytest 549 passed, node --test 41 passed, alembic head `0006`)
 
 ## Session Log
 
@@ -212,3 +212,23 @@
 - Evidence captured: `feature_list.json` → `pipeline-extract-positions.evidence` (validator entry).
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md`; two new accepted Low findings added there (one-line candidate quotes in the reduce input; evidence FK cascades on Source Document delete). Migration id: renumber `0005` if another branch lands one first.
 - Next best step: plan the next dependency-ready feature in `feature_list.json` with `$feature-spec`.
+
+### Session 020
+
+- Date: 2026-10-19
+- Goal: Implement `validation-evidence-quotes` (GitHub issue #15) per `docs/specs/validation-evidence-quotes.md` (branch `feature/validation-evidence-quotes`).
+- Completed: new package `src/ideology_app/validation/` (`base.py`: `ValidationInput`, `StatementRow`, `PositionRow`, `RunDocument`, `ReportEntry`, `Check`, `CheckResult`, `load_input`; `evidence_quotes.py`: `normalize_for_match`, `quote_starts_on`, `EVIDENCE_QUOTES`; `__init__.py`: `CHECKS`, `run_checks`); models `ValidationResult` / `ValidationReportEntry` + `PipelineRun.validation_results`; migration `0006_validation_results.py`; `pipeline.runs.validate_run`, `list_validation_results`, `RunOutcome.failed_checks`, and `execute_run` now validates after `validating` (runs end `passed` / `failed`); CLI `pipeline validate --run`, `pipeline checks --run`, new `passed` message and the `; see "ideology pipeline checks --run N"` hint. Tests: new `tests/test_validation_evidence_quotes.py`, `tests/test_validation_runs.py`; `tests/test_pipeline_runs.py`, `tests/test_cli_pipeline.py`, `tests/test_migrations.py` updated. Docs: `ARCHITECTURE.md` (new Validation section, Data Layer, Pipeline, Runtime Surface), `CONSTRAINTS.md` (Validation rules), `docs/domain-model.md` (check 2, failed-Validation lifecycle note), `docs/risks-and-open-questions.md` (match tolerance settled; new quote-matching risk; `validating` runs recoverable).
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 549 passed, node 41 passed); `-X dev -W error` 549 passed; validation/CLI/run tests without `ANTHROPIC_API_KEY` 174 passed; `alembic history` `0005 -> 0006 (head)`, `alembic check` no drift, `downgrade 0005` drops only the two new tables, re-upgrade ok; `validation/` imports no `pipeline`/`llm`/`pdf_text`; offline CLI smoke in a scratch dir (passed run, failed run with hint, `checks` on passed/failed/unvalidated runs, real-binary `validate` on a `validating` run with `LLM_PROVIDER=bogus` and no key → `passed`, error cases exit 1).
+- Evidence captured: `feature_list.json` → `validation-evidence-quotes.evidence` (status `passing`), including the Scenario 1–7 test map.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Quote matching unverified on real manifestos"). Migration id: renumber `0006` if another branch lands one first. Browser validation exempt (CLI and pipeline only).
+- Next best step: independent validation of `validation-evidence-quotes` with `$feature-validator`.
+
+### Session 021
+
+- Date: 2026-10-19
+- Goal: Independent validation of `validation-evidence-quotes` (GitHub issue #15) and acceptance.
+- Completed: validator verdict `accept`; `feature_list.json` status `passing` → `accepted` with validator evidence appended.
+- Verification run (validator, independent, no API key, no network): `CI=true ./init.sh` exit 0 (pytest 549 passed, node 41 passed); focused validation/CLI/runs/migrations pytest 242 passed; `alembic history` `0005 -> 0006 (head)`, `alembic check` no drift, `downgrade 0005` drops only the two new tables, re-upgrade ok; `validation/` imports no `pipeline`/`llm`/`pdf_text`; plain-data probe confirmed normalisation (accents, case, whitespace, NBSP, NFD, ligature, hyphenated line break), the cited-page rule and all locator messages, page text unchanged; offline CLI smoke (passed run, failed run with checks hint, `checks`, `validate` of a `validating` run with no key, error cases exit 1); Dataset Versions stay `candidate`. Browser validation exempt (CLI and pipeline only).
+- Evidence captured: `feature_list.json` → `validation-evidence-quotes.evidence` (validator entry).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Quote matching unverified on real manifestos", owner `e2e-real-2023-election`). Migration id: renumber `0006` if another branch lands one first.
+- Next best step: plan the next dependency-ready feature (`validation-party-coverage`) with `$feature-spec`.

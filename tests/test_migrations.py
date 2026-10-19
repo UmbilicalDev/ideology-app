@@ -39,7 +39,9 @@ TABLES_AT_0003 = {
 PIPELINE_TABLES = {"pipeline_runs", "dataset_versions", "statements"}
 TABLES_AT_0004 = TABLES_AT_0003 | PIPELINE_TABLES
 POSITION_TABLES = {"party_positions", "pipeline_run_source_documents"}
-ALL_TABLES = TABLES_AT_0004 | POSITION_TABLES
+TABLES_AT_0005 = TABLES_AT_0004 | POSITION_TABLES
+VALIDATION_TABLES = {"validation_results", "validation_report_entries"}
+ALL_TABLES = TABLES_AT_0005 | VALIDATION_TABLES
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -48,7 +50,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0005"
+    assert _version(db_url) == "0006"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -56,7 +58,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0005"
+    assert _version(db_url) == "0006"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -138,6 +140,8 @@ def test_is_initialised(db_url: str) -> None:
         run_migrations(db_url, "0003")
         assert not is_initialised(engine)
         run_migrations(db_url, "0004")
+        assert not is_initialised(engine)
+        run_migrations(db_url, "0005")
         assert not is_initialised(engine)
         run_migrations(db_url)
         assert is_initialised(engine)
@@ -272,6 +276,8 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert sql.count("ck_party_positions_value_range") == 1
     assert sql.count("ck_party_positions_evidence_page_positive") == 1
     assert sql.count("ck_party_positions_evidence_matches_value") == 1
+    assert "CREATE TABLE validation_results" in sql
+    assert "CREATE TABLE validation_report_entries" in sql
     assert sql.count("CHECK") == 14
 
 
@@ -529,4 +535,116 @@ def test_deleting_an_election_cascades_to_position_rows(migrated_engine: Engine)
     with migrated_engine.begin() as conn:
         conn.execute(sa.text("DELETE FROM elections"))
         for table in POSITION_TABLES:
+            assert conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar_one() == 0
+
+
+# Migration 0006: validation_results and validation_report_entries.
+
+
+def test_downgrade_to_0005_drops_exactly_the_validation_tables(db_url: str) -> None:
+    run_migrations(db_url)
+    assert VALIDATION_TABLES <= _tables(db_url)
+
+    downgrade(db_url, "0005")
+
+    assert _tables(db_url) == TABLES_AT_0005
+    assert _version(db_url) == "0005"
+
+    run_migrations(db_url)
+    assert _tables(db_url) == ALL_TABLES
+
+
+def test_upgrade_0006_creates_validation_constraints(migrated_engine: Engine) -> None:
+    inspector = sa.inspect(migrated_engine)
+    assert [u["name"] for u in inspector.get_unique_constraints("validation_results")] == [
+        "uq_validation_results_pipeline_run_id_check_name"
+    ]
+    assert [i["name"] for i in inspector.get_indexes("validation_results")] == [
+        "ix_validation_results_pipeline_run_id"
+    ]
+    assert [i["name"] for i in inspector.get_indexes("validation_report_entries")] == [
+        "ix_validation_report_entries_validation_result_id"
+    ]
+    assert {
+        f["name"] for f in inspector.get_foreign_keys("validation_report_entries")
+    } == {
+        "fk_validation_report_entries_validation_result_id_validation_results",
+        "fk_validation_report_entries_statement_id_statements",
+        "fk_validation_report_entries_party_id_parties",
+    }
+    columns = {c["name"]: c for c in inspector.get_columns("validation_report_entries")}
+    assert columns["statement_id"]["nullable"] and columns["party_id"]["nullable"]
+    assert not columns["message"]["nullable"]
+
+
+def _seed_validation(engine: Engine) -> None:
+    _seed_positions(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO validation_results (id, pipeline_run_id, check_name, passed, "
+                "created_at) VALUES (1, 1, 'evidence_quotes', 0, '2026-10-19 00:00:00')"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO validation_report_entries "
+                "(validation_result_id, statement_id, party_id, message) "
+                "VALUES (1, 1, 1, 'quote not found in source document 1')"
+            )
+        )
+
+
+def test_validation_rows_accept_entries_without_statement_or_party(
+    migrated_engine: Engine,
+) -> None:
+    _seed_validation(migrated_engine)
+    with migrated_engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO validation_report_entries (validation_result_id, message) "
+                "VALUES (1, 'run-level problem')"
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "INSERT INTO validation_results (pipeline_run_id, check_name, passed, created_at) "
+        "VALUES (1, 'evidence_quotes', 1, '2026-10-19 00:00:00')",
+        "INSERT INTO validation_results (pipeline_run_id, check_name, passed, created_at) "
+        "VALUES (999, 'other', 1, '2026-10-19 00:00:00')",
+        "INSERT INTO validation_results (pipeline_run_id, check_name, created_at) "
+        "VALUES (1, 'other', '2026-10-19 00:00:00')",
+        "INSERT INTO validation_report_entries (validation_result_id, message) "
+        "VALUES (999, 'x')",
+        "INSERT INTO validation_report_entries (validation_result_id, statement_id, message) "
+        "VALUES (1, 999, 'x')",
+        "INSERT INTO validation_report_entries (validation_result_id, party_id, message) "
+        "VALUES (1, 999, 'x')",
+        "INSERT INTO validation_report_entries (validation_result_id) VALUES (1)",
+    ],
+    ids=[
+        "duplicate-run-check",
+        "unknown-run",
+        "missing-passed",
+        "unknown-result",
+        "unknown-statement",
+        "unknown-party",
+        "missing-message",
+    ],
+)
+def test_validation_constraints_reject_bad_rows(migrated_engine: Engine, statement: str) -> None:
+    _seed_validation(migrated_engine)
+    with pytest.raises(IntegrityError):
+        with migrated_engine.begin() as conn:
+            conn.execute(sa.text(statement))
+
+
+def test_deleting_an_election_cascades_to_validation_rows(migrated_engine: Engine) -> None:
+    _seed_validation(migrated_engine)
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM elections"))
+        for table in VALIDATION_TABLES:
             assert conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar_one() == 0

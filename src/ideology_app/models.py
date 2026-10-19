@@ -170,7 +170,7 @@ class SourceDocumentPage(Base):
 
 
 class PipelineRunStatus(StrEnum):
-    """The full domain lifecycle; later features add ``passed`` and Validation."""
+    """``queued`` -> ``running`` -> ``validating`` -> ``passed`` | ``failed``."""
 
     QUEUED = "queued"
     RUNNING = "running"
@@ -223,6 +223,11 @@ class PipelineRun(Base):
     source_documents: Mapped[list["PipelineRunSourceDocument"]] = relationship(
         back_populates="pipeline_run",
         order_by="PipelineRunSourceDocument.source_document_id",
+        passive_deletes=True,
+    )
+    validation_results: Mapped[list["ValidationResult"]] = relationship(
+        back_populates="pipeline_run",
+        order_by="ValidationResult.id",
         passive_deletes=True,
     )
 
@@ -355,3 +360,49 @@ class PartyPosition(Base):
     def engine_value(self) -> int | Literal["no_stance"]:
         """The value as ``match-score.js`` consumes it: -2..+2 or ``"no_stance"``."""
         return NO_STANCE if self.value is None else self.value
+
+
+class ValidationResult(Base):
+    """The outcome of one Validation check on one Pipeline Run. Insert-only."""
+
+    __tablename__ = "validation_results"
+    __table_args__ = (sa.UniqueConstraint("pipeline_run_id", "check_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pipeline_run_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("pipeline_runs.id", ondelete="CASCADE"), index=True
+    )
+    # ``check`` is an SQL reserved word.
+    check_name: Mapped[str] = mapped_column(sa.String(50))
+    passed: Mapped[bool] = mapped_column(sa.Boolean)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
+    )
+
+    pipeline_run: Mapped[PipelineRun] = relationship(back_populates="validation_results")
+    entries: Mapped[list["ValidationReportEntry"]] = relationship(
+        back_populates="validation_result",
+        order_by="ValidationReportEntry.id",
+        passive_deletes=True,
+    )
+
+
+class ValidationReportEntry(Base):
+    """One offending item of a failed check, e.g. a Party Position. Insert-only."""
+
+    __tablename__ = "validation_report_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    validation_result_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("validation_results.id", ondelete="CASCADE"), index=True
+    )
+    statement_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("statements.id", ondelete="CASCADE")
+    )
+    party_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("parties.id", ondelete="CASCADE")
+    )
+    message: Mapped[str] = mapped_column(sa.String(500))
+
+    validation_result: Mapped[ValidationResult] = relationship(back_populates="entries")
+    statement: Mapped["Statement | None"] = relationship()

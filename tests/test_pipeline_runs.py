@@ -2,7 +2,8 @@
 
 Statement generation (pipeline-generate-statements Scenarios 1, 2, 3, 5, 6) and
 Party Position extraction at the run level (pipeline-extract-positions
-Scenarios 1, 3, 4, 6, 7 and 8).
+Scenarios 1, 3, 4, 6, 7 and 8). Since validation-evidence-quotes a run that
+generates successfully is validated too, so the default fakes end ``passed``.
 """
 
 import datetime as dt
@@ -125,11 +126,11 @@ def test_happy_path_creates_candidate_dataset_version(seeded: Engine) -> None:
 
     outcome = execute_run(seeded, run_id, provider)
 
-    assert outcome.status is PipelineRunStatus.VALIDATING
+    assert outcome.status is PipelineRunStatus.PASSED
     assert outcome.statement_count == 30
     assert outcome.failure_reason is None
     run = read_run(seeded, run_id)
-    assert run.status is PipelineRunStatus.VALIDATING
+    assert run.status is PipelineRunStatus.PASSED
     assert run.llm_provider == "fake"
     assert run.llm_model == "fake-model"
     assert run.generation_mode is GenerationMode.PRECOMPUTED
@@ -184,7 +185,7 @@ def test_statements_are_stored_as_returned_even_if_odd(seeded: Engine) -> None:
     provider = fake_provider(generate_statements=odd)
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    assert outcome.status is PipelineRunStatus.VALIDATING
+    assert outcome.status is PipelineRunStatus.PASSED
     with Session(seeded) as s:
         version = get_dataset_version(s, outcome.dataset_version_id or 0)
         assert [(st.position, st.text) for st in version.statements] == [
@@ -225,8 +226,8 @@ def test_lifecycle_is_observable(seeded: Engine) -> None:
     assert seen["status_during_call"] is PipelineRunStatus.RUNNING
     assert seen["started_at"] is not None
     assert seen["versions_during_call"] == 0
-    assert outcome.status is PipelineRunStatus.VALIDATING
-    assert read_run(seeded, run_id).status is PipelineRunStatus.VALIDATING
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert read_run(seeded, run_id).status is PipelineRunStatus.PASSED
 
 
 # Scenario 3: party-blind and deterministic
@@ -402,7 +403,7 @@ def test_execute_run_rejects_a_run_that_is_not_queued(seeded: Engine) -> None:
     before = read_run(seeded, run_id)
 
     again = fake_provider()
-    with pytest.raises(InvalidInputError, match="is validating, expected queued"):
+    with pytest.raises(InvalidInputError, match="is passed, expected queued"):
         execute_run(seeded, run_id, again)
     assert again.calls == []
     after = read_run(seeded, run_id)
@@ -446,7 +447,7 @@ def test_list_runs_and_get_dataset_version(seeded: Engine) -> None:
     with Session(seeded) as s:
         runs = list_runs(s, 1)
         assert [(r.id, r.status) for r in runs] == [
-            (1, PipelineRunStatus.VALIDATING),
+            (1, PipelineRunStatus.PASSED),
             (2, PipelineRunStatus.FAILED),
         ]
         assert runs[0].dataset_version is not None
@@ -500,7 +501,7 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
 
     outcome = execute_run(seeded, run_id, provider)
 
-    assert outcome.status is PipelineRunStatus.VALIDATING
+    assert outcome.status is PipelineRunStatus.PASSED
     assert outcome.statement_count == 30
     assert outcome.position_count == 60
     run = read_run(seeded, run_id)
@@ -562,8 +563,11 @@ def test_quotes_are_stored_exactly_as_returned(seeded: Engine) -> None:
     provider = fake_provider(
         position_findings=_findings, party_positions=_positions((3, 0, 1))
     )
-    execute_run(seeded, queue(seeded, provider), provider)
+    outcome = execute_run(seeded, queue(seeded, provider), provider)
 
+    # The odd quote is on no page, so Validation fails; the quotes stay as returned.
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: evidence_quotes"
     stances = [r for r in position_rows(seeded) if r.value is not None]
     assert [(r.party_id, r.value, r.evidence_quote, r.evidence_page) for r in stances] == [
         (1, 0, odd, 2),
@@ -587,7 +591,7 @@ def test_document_roles_are_recorded_and_additional_evidence_is_kept(
 
     outcome = execute_run(migrated_engine, run_id, provider)
 
-    assert outcome.status is PipelineRunStatus.VALIDATING
+    assert outcome.status is PipelineRunStatus.PASSED
     assert run_documents(migrated_engine, run_id) == {
         1: SourceDocumentRole.MAIN,
         2: SourceDocumentRole.MAIN,
@@ -642,7 +646,7 @@ def _no_party2_findings(request: LLMRequest[Any]) -> dict[str, Any]:
 
 
 def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
-    assert outcome.status is PipelineRunStatus.VALIDATING
+    assert outcome.status is PipelineRunStatus.PASSED
     assert outcome.position_count == 60
     rows = position_rows(engine)
     party2 = [r for r in rows if r.party_id == 2]
@@ -867,7 +871,7 @@ def test_position_call_budget_at_the_limit_is_allowed(
     monkeypatch.setattr(positions_module, "MAX_POSITION_CALLS_PER_RUN", 4)
     provider = fake_provider()
     outcome = execute_run(seeded, queue(seeded, provider), provider)
-    assert outcome.status is PipelineRunStatus.VALIDATING
+    assert outcome.status is PipelineRunStatus.PASSED
 
 
 # Scenario 8: lifecycle and interruption
@@ -896,7 +900,7 @@ def test_run_is_running_during_position_extraction(seeded: Engine) -> None:
     assert (seen["status"], seen["versions"], seen["statements"], seen["documents"]) == (
         PipelineRunStatus.RUNNING, 0, 0, 2
     )
-    assert outcome.status is PipelineRunStatus.VALIDATING
+    assert outcome.status is PipelineRunStatus.PASSED
 
 
 @pytest.mark.parametrize("task", ["position_findings", "party_positions", "generate_statements"])

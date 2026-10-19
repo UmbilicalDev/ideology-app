@@ -1,10 +1,12 @@
 """Pipeline Run service: queue a run, execute it, list runs and Dataset Versions.
 
-Lifecycle: ``queued`` -> ``running`` -> ``validating``, or ``failed`` when
-Statement generation or Party Position extraction fails (or is interrupted).
-Later features run Validation from ``validating``. Dataset Versions, Statements
-and Party Positions are only ever inserted here, together in one commit; there
-is no update or delete path.
+Lifecycle: ``queued`` -> ``running`` -> ``validating`` -> ``passed`` | ``failed``.
+A run is ``failed`` when Statement generation or Party Position extraction fails
+(or is interrupted), or when a Validation check fails; a run that failed
+Validation keeps its ``candidate`` Dataset Version, which is never published.
+Dataset Versions, Statements and Party Positions are only ever inserted here,
+together in one commit; Validation results are inserted with the run's
+``passed`` / ``failed`` status. There is no update or delete path.
 """
 
 from collections.abc import Sequence
@@ -30,6 +32,8 @@ from ideology_app.models import (
     SourceDocumentRole,
     SourceDocumentStatus,
     Statement,
+    ValidationReportEntry,
+    ValidationResult,
     _utcnow,
 )
 from ideology_app.pipeline.generation import (
@@ -45,6 +49,7 @@ from ideology_app.pipeline.positions import (
     extract_positions,
 )
 from ideology_app.pipeline.prompts import PROMPT_VERSIONS, StatementDraft
+from ideology_app.validation import CHECKS, MESSAGE_MAX, Check, load_input, run_checks
 
 _REASON_MAX = 500
 INTERRUPTED_REASON = "interrupted"
@@ -52,7 +57,10 @@ INTERRUPTED_REASON = "interrupted"
 
 @dataclass(frozen=True)
 class RunOutcome:
-    """What ``execute_run`` ended with (plain data, safe after the session)."""
+    """What ``execute_run`` / ``validate_run`` ended with (plain data, safe after the session).
+
+    ``failed_checks`` names the Validation checks that failed, in registry order.
+    """
 
     run_id: int
     status: PipelineRunStatus
@@ -60,6 +68,7 @@ class RunOutcome:
     statement_count: int
     failure_reason: str | None
     position_count: int = 0
+    failed_checks: tuple[str, ...] = ()
 
 
 def _get_election(session: Session, election_id: int) -> Election:
@@ -245,15 +254,16 @@ def _fail(engine: Engine, run_id: int, usage: Usage, reason: str) -> RunOutcome:
 
 
 def execute_run(engine: Engine, run_id: int, provider: LLMProvider) -> RunOutcome:
-    """Generate Statements and extract Party Positions for a ``queued`` run.
+    """Generate Statements and extract Party Positions for a ``queued`` run, then validate it.
 
-    Commits three times: ``running`` (with the Source Documents it reads)
+    Commits up to four times: ``running`` (with the Source Documents it reads)
     before any LLM call, then (after the calls, made outside any transaction)
     either ``validating`` with a complete ``candidate`` Dataset Version, or
-    ``failed`` with a reason and no Dataset Version. Ctrl-C records ``failed``
-    (``interrupted``) and re-raises. Raises NotFoundError / InvalidInputError,
-    changing nothing, when the run is unknown, not ``queued``, or was queued
-    for another provider or model.
+    ``failed`` with a reason and no Dataset Version. A ``validating`` run is
+    then validated by ``validate_run`` (``passed`` or ``failed``), whose outcome
+    is returned. Ctrl-C records ``failed`` (``interrupted``) and re-raises.
+    Raises NotFoundError / InvalidInputError, changing nothing, when the run is
+    unknown, not ``queued``, or was queued for another provider or model.
     """
     run_input = _start(engine, run_id, provider)
     usage = Usage()
@@ -267,7 +277,7 @@ def execute_run(engine: Engine, run_id: int, provider: LLMProvider) -> RunOutcom
             run_input.party_ids,
             usage,
         )
-        return _finish(engine, run_id, usage, statements, positions, None)
+        outcome = _finish(engine, run_id, usage, statements, positions, None)
     except (LLMError, GenerationError) as exc:
         return _fail(engine, run_id, usage, str(exc))
     except KeyboardInterrupt:
@@ -276,6 +286,113 @@ def execute_run(engine: Engine, run_id: int, provider: LLMProvider) -> RunOutcom
     except Exception as exc:
         _fail(engine, run_id, usage, f"unexpected error: {type(exc).__name__}")
         raise
+    # Outside the try: validate_run records its own errors.
+    if outcome.status is PipelineRunStatus.VALIDATING:
+        return validate_run(engine, run_id)
+    return outcome
+
+
+def _validating_run(session: Session, run_id: int) -> PipelineRun:
+    run = session.get(PipelineRun, run_id)
+    if run is None:
+        raise NotFoundError(f"pipeline run {run_id} not found")
+    if run.status is not PipelineRunStatus.VALIDATING:
+        raise InvalidInputError(
+            f"pipeline run {run_id} is {run.status.value}, expected validating"
+        )
+    if run.dataset_version is None:
+        raise InvalidInputError(f"pipeline run {run_id} has no dataset version")
+    return run
+
+
+def _mark_failed(engine: Engine, run_id: int, reason: str) -> None:
+    with session_scope(engine) as session:
+        run = session.get(PipelineRun, run_id)
+        assert run is not None
+        run.status = PipelineRunStatus.FAILED
+        run.failure_reason = reason[:_REASON_MAX]
+
+
+def validate_run(
+    engine: Engine, run_id: int, checks: Sequence[Check] = CHECKS
+) -> RunOutcome:
+    """Run every Validation check on a ``validating`` run and record the result. Commits.
+
+    In one commit, inserts one ``ValidationResult`` (with its report entries)
+    per check, in order, and sets ``passed`` when every check passed, else
+    ``failed`` with ``validation failed: <names>``. The Dataset Version stays
+    ``candidate`` either way (publishing is a later feature, hooked on the
+    ``passed`` path). If a check raises, nothing is stored, the run is set
+    ``failed`` with ``unexpected error: <ClassName>`` (Ctrl-C: ``interrupted``)
+    and the exception is re-raised. Raises NotFoundError / InvalidInputError,
+    changing nothing, when the run is unknown or not ``validating``. Needs no
+    LLM provider.
+    """
+    checking = False
+    try:
+        with session_scope(engine) as session:
+            run = _validating_run(session, run_id)
+            checking = True
+            data = load_input(session, run)
+            results = run_checks(data, checks)
+            for result in results:
+                session.add(
+                    ValidationResult(
+                        pipeline_run_id=run.id,
+                        check_name=result.name,
+                        passed=result.passed,
+                        entries=[
+                            ValidationReportEntry(
+                                statement_id=entry.statement_id,
+                                party_id=entry.party_id,
+                                message=entry.message[:MESSAGE_MAX],
+                            )
+                            for entry in result.entries
+                        ],
+                    )
+                )
+            failed = tuple(r.name for r in results if not r.passed)
+            if failed:
+                run.status = PipelineRunStatus.FAILED
+                run.failure_reason = ("validation failed: " + ", ".join(failed))[:_REASON_MAX]
+            else:
+                run.status = PipelineRunStatus.PASSED
+                run.failure_reason = None
+            session.flush()
+            version = run.dataset_version
+            assert version is not None
+            outcome = RunOutcome(
+                run_id,
+                run.status,
+                version.id,
+                len(data.statements),
+                run.failure_reason,
+                len(data.positions),
+                failed,
+            )
+    except KeyboardInterrupt:
+        if checking:
+            _mark_failed(engine, run_id, INTERRUPTED_REASON)
+        raise
+    except Exception as exc:
+        if checking:
+            _mark_failed(engine, run_id, f"unexpected error: {type(exc).__name__}")
+        raise
+    return outcome
+
+
+def list_validation_results(session: Session, run_id: int) -> Sequence[ValidationResult]:
+    """A run's Validation results in check order, with their entries. Raises NotFoundError."""
+    if session.get(PipelineRun, run_id) is None:
+        raise NotFoundError(f"pipeline run {run_id} not found")
+    return session.scalars(
+        select(ValidationResult)
+        .where(ValidationResult.pipeline_run_id == run_id)
+        .options(
+            selectinload(ValidationResult.entries).selectinload(ValidationReportEntry.statement)
+        )
+        .order_by(ValidationResult.id)
+    ).all()
 
 
 def list_runs(session: Session, election_id: int) -> Sequence[PipelineRun]:
