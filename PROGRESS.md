@@ -5,11 +5,11 @@
 - Repository root: `/Users/kike/PycharmProjects/ideology-app` (remote: `github.com/UmbilicalDev/ideology-app`, branch `main`)
 - Standard startup path: `./init.sh`
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22 on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `js-test` (`node --test tests/js/*.test.js`))
-- Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
+- Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`; public read-only API under `/api/v1/`, OpenAPI at `/api/openapi.json`; reads `DATABASE_URL`, migrate first with `ideology db upgrade`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`, `pipeline run|list|statements|positions|validate|checks|report`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `live-mode-source-change-trigger`, `public-dataset-api` (`pipeline-run-report` is `accepted`)
+- Current next ready features: `live-mode-source-change-trigger`; `public-dataset-api` is `accepted` (web features also need `web-client-skeleton`)
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/pipeline-run-report`: pytest 810 passed, node --test 41 passed, alembic head `0008`)
+- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/public-dataset-api`: pytest 830 passed, node --test 41 passed, alembic head `0008`)
 
 ## Session Log
 
@@ -328,3 +328,16 @@
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (settled and removed: thresholds not stored, passed-but-`candidate` indistinguishable; new: LLM cost estimate question, Accepted Low on pre-`0008` runs and generation-only duration, and the pre-existing `0003` downgrade that deletes `source_document_pages`).
 - Validation: independent validator **accept** (2026-10-19). Re-ran `CI=true ./init.sh` (810 pytest, 41 node) and the strict `-X dev -W error` run (810); real-CLI reports on a scratch DB for passed+published, passed-but-`candidate`, failed and queued runs (DB byte-identical afterwards); `0008` up/down on a populated scratch DB with no row loss; mutation test confirms the downgrade guard; `0003` downgrade risk reproduced. Status `accepted`.
 - Next best step: pick the next dependency-ready feature in `feature_list.json`.
+
+### Session 031
+
+- Date: 2026-10-19
+- Goal: Implement `public-dataset-api` (issue #27) per `docs/specs/public-dataset-api.md` (branch `feature/public-dataset-api`).
+- Completed: new package `src/ideology_app/api/` (`schemas.py`, `queries.py`, `http_cache.py`, `routes.py`, `__init__.py`); `main.py` (`create_app(database_url=None)` with a lifespan that creates and disposes the Engine, OpenAPI at `/api/openapi.json`, Swagger at `/api/docs`, ReDoc off, `ApiNotFoundError` handler, router; `app = create_app()`; `/health` unchanged); new `tests/test_public_api.py` (20 tests, Scenarios 1-9); docs `ARCHITECTURE.md`, `CONSTRAINTS.md`, `docs/risks-and-open-questions.md`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 830 passed, was 810; node 41 passed); `-X dev -W error` on the API and health tests 21 passed, clean; two mutations caught; manual uvicorn + curl smoke on a scratch SQLite DB with Published, Superseded and Candidate versions (statuses, ETag/304, Cache-Control, 404 no-store, 422, 405, OpenAPI). Browser validation not applicable (API only). Details in `feature_list.json` → `public-dataset-api.evidence`.
+- Evidence captured: `feature_list.json` → `public-dataset-api.evidence` (status `passing`).
+- Deviations: (1) the Swagger OAuth2 redirect moved from FastAPI's default `/docs/oauth2-redirect` to `/api/docs/oauth2-redirect`, so everything the API serves is under `/api/` as the spec intends. (2) FastAPI 0.149 wraps included routers (`app.routes` holds an `_IncludedRouter`), so the GET-only test enumerates `api.routes.router.routes` and checks they equal the app's `/api/` OpenAPI paths. (3) The non-`APIRoute` docs routes (`/api/openapi.json`, `/api/docs`) are FastAPI's own and also answer `HEAD`; they serve no data. (4) `Election.type` is a plain string in the schema (not a `Literal`), so adding an Election type stays additive.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (settled: Party Position encoding; new: uploaded-document Evidence links, archived Elections listing, API caching staleness, query strings in uvicorn access logs, Accepted Low 500 on an unmigrated database).
+- Validation: independent validator **accept** (2026-10-19). Re-ran `CI=true ./init.sh` (830 pytest, 41 node) and the strict `-X dev -W error` API/health run (21); live uvicorn smoke on a scratch DB covering status codes, ETag/304, Cache-Control, byte-identical published vs by-id bodies (also after a later supersede), Party Position encoding and Evidence locators, OpenAPI, SELECT-only SQL, no CORS; scope clean. Low notes: OpenAPI renders the value bounds as `-2.0`/`2.0`; FastAPI's docs routes answer `HEAD`. Status `accepted`.
+- Next best step: pick the next dependency-ready feature in `feature_list.json`.
+

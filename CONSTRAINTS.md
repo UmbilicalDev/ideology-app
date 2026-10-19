@@ -53,6 +53,14 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - `pipeline_runs.validation_settings` MUST be written only by `pipeline.runs.validate_run`, in the commit that stores the run's Validation results (on `passed` and `failed`), and MUST NOT be updated afterwards. Reason: it is the record of the thresholds that produced those results; a later change would make the report lie.
 - `ideology pipeline report` (`pipeline.reports`) MUST stay read-only: no writes, no options that change state. Reason: AI output is never edited by hand, and the report is an observability view.
 
+## Public API
+
+- `/api/` routes MUST be `GET`-only and read-only (SELECT only; the request Session is never committed) and MUST NOT accept Answers (no query or body parameters). Reason: voter answers never reach the server, and the API is a public read surface.
+- The API MUST NOT serve `candidate` Dataset Versions; an unknown and a `candidate` id MUST get the same `404 dataset_version_not_found`. Reason: only versions that passed Validation are published.
+- A `DatasetVersion` response body MUST NOT contain mutable fields (status, the Published pointer). Reason: it is cached `public, max-age=86400, immutable`; the pointer lives in `Election.published_dataset_version_id`.
+- A Party Position's `value` MUST come from `PartyPosition.engine_value`. Reason: one mapping to what `match-score.js` consumes.
+- `/api/v1` changes MUST be additive; a breaking change needs `/api/v2`. Reason: clients and old Share Links depend on the contract.
+
 ## Client-side Matching
 
 - The Match Score MUST be computed only by `src/ideology_app/static/js/match-score.js` in the Voter's browser. The server MUST NOT get an endpoint that receives Answers. Reason: the invariant that voter answers are never stored or sent to the server.
