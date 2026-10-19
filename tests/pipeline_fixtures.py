@@ -24,7 +24,13 @@ from ideology_app.models import (
 from ideology_app.pipeline import TOPICS
 
 LLM_ENV_VARS = ("ANTHROPIC_API_KEY", "LLM_PROVIDER", "LLM_MODEL", "GENERATION_MODE")
-CONFIG_ENV_VARS = (*LLM_ENV_VARS, "VALIDATION_MIN_PARTY_COVERAGE_PERCENT")
+CONFIG_ENV_VARS = (
+    *LLM_ENV_VARS,
+    "VALIDATION_MIN_PARTY_COVERAGE_PERCENT",
+    "VALIDATION_MIN_STATEMENTS",
+    "VALIDATION_MAX_STATEMENTS",
+    "VALIDATION_MAX_TOPIC_SHARE_PERCENT",
+)
 
 PARTIES = (("Partido Alfa", "PA"), ("Bloque Beta", "BB"))
 
@@ -125,14 +131,32 @@ def candidates_response(count: int = 3) -> Callable[[LLMRequest[Any]], dict[str,
     return _respond
 
 
-def statements_payload(count: int = 30) -> dict[str, Any]:
-    return {
-        "statements": [
-            {"text": f"Afirmación {i + 1}: el Estado debe actuar en el ámbito {i + 1}.",
-             "topic": TOPICS[i % len(TOPICS)]}
-            for i in range(count)
-        ]
-    }
+def statements_payload(
+    count: int = 30,
+    *,
+    topic: tuple[str, int] | None = None,
+    duplicate: tuple[int, int] | None = None,
+) -> dict[str, Any]:
+    """``count`` Statements with distinct texts and topics ``TOPICS[i % 18]``.
+
+    ``topic=(name, k)`` puts the first ``k`` Statements on topic ``name`` and
+    the rest on the other topics in turn (so ``name`` has exactly ``k``);
+    ``duplicate=(a, b)`` gives Statement ``b`` (1-based) the text of Statement ``a``.
+    """
+    statements = [
+        {"text": f"Afirmación {i + 1}: el Estado debe actuar en el ámbito {i + 1}.",
+         "topic": TOPICS[i % len(TOPICS)]}
+        for i in range(count)
+    ]
+    if topic is not None:
+        name, k = topic
+        others = [t for t in TOPICS if t != name]
+        for i, s in enumerate(statements):
+            s["topic"] = name if i < k else others[(i - k) % len(others)]
+    if duplicate is not None:
+        a, b = duplicate
+        statements[b - 1]["text"] = statements[a - 1]["text"]
+    return {"statements": statements}
 
 
 _CHUNK_START = "(cada página va precedida de su marcador):\n\n"

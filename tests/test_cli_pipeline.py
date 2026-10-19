@@ -1,7 +1,8 @@
 """``ideology pipeline run|list|statements|positions|validate|checks`` with the fake provider.
 
 pipeline-generate-statements Scenario 7, pipeline-extract-positions Scenario 10,
-validation-evidence-quotes Scenario 7 and validation-party-coverage Scenario 5.
+validation-evidence-quotes Scenario 7, validation-party-coverage Scenario 5 and
+validation-questionnaire-shape Scenario 5.
 """
 
 from typing import Any
@@ -414,11 +415,19 @@ SEPARATION_FAILED_RUN_1 = (
     'Error: pipeline run 1 failed: validation failed: statement_separation; '
     'see "ideology pipeline checks --run 1"\n'
 )
+# validation-questionnaire-shape: the default fake's 30 distinct Statements
+# over 18 topics pass the three checks appended after statement_separation.
+SHAPE_PASSED_ROWS = [
+    "statement_uniqueness\tpassed\t\t\t",
+    "statement_count\tpassed\t\t\t",
+    "topic_spread\tpassed\t\t\t",
+]
 PASSED_CHECKS = (
     f"{CHECKS_HEADER}\n"
     "evidence_quotes\tpassed\t\t\t\n"
     "party_coverage\tpassed\t\t\t\n"
     "statement_separation\tpassed\t\t\t\n"
+    + "".join(f"{row}\n" for row in SHAPE_PASSED_ROWS)
 )
 PARTY2_ZERO = (
     "party_coverage\tfailed\t\t2\t"
@@ -520,6 +529,7 @@ def test_run_failing_validation_is_committed_and_reported(run, seeded, use_fake)
         "evidence_quotes\tfailed\t1\t2\tquote not found in source document 2\n"
         "party_coverage\tpassed\t\t\t\n"
         "statement_separation\tpassed\t\t\t\n"
+        + "".join(f"{row}\n" for row in SHAPE_PASSED_ROWS)
     )
     # The failed run keeps its candidate Dataset Version.
     positions = run("pipeline", "positions", "--dataset-version", "1", "--party", "2")
@@ -565,6 +575,7 @@ def test_checks_list_one_row_per_entry(run, seeded, use_fake) -> None:
             f"statement {n} does not separate parties: no party has a stance"
             for n in range(3, 31)
         ),
+        *SHAPE_PASSED_ROWS,
     ]
 
 
@@ -640,6 +651,7 @@ def test_coverage_failure_is_committed_and_reported(run, seeded, use_fake, db_ur
         "evidence_quotes\tpassed\t\t\t",
         PARTY2_ZERO,
         *ONLY_PARTY1_ROWS,
+        *SHAPE_PASSED_ROWS,
     ]
     # The failed run keeps its candidate Dataset Version and every Party Position.
     positions = run("pipeline", "positions", "--dataset-version", "1")
@@ -663,6 +675,7 @@ def test_configured_threshold_is_used_by_pipeline_run(
         "evidence_quotes\tpassed\t\t\t",
         "party_coverage\tpassed\t\t\t",
         *ONLY_PARTY1_ROWS,
+        *SHAPE_PASSED_ROWS,
     ]
 
 
@@ -776,6 +789,7 @@ def test_separation_failure_is_committed_and_reported(run, seeded, use_fake) -> 
         "evidence_quotes\tpassed\t\t\t",
         "party_coverage\tpassed\t\t\t",
         EQUAL_ON_2_ROW,
+        *SHAPE_PASSED_ROWS,
     ]
     # The failed run keeps its candidate Dataset Version and every Party Position.
     positions = run("pipeline", "positions", "--dataset-version", "1").output.splitlines()
@@ -798,4 +812,148 @@ def test_validate_reports_a_separation_failure(run, seeded, db_url, no_provider)
         "evidence_quotes\tpassed\t\t\t",
         "party_coverage\tpassed\t\t\t",
         EQUAL_ON_2_ROW,
+        *SHAPE_PASSED_ROWS,
     ]
+
+
+# validation-questionnaire-shape Scenario 5: ``pipeline run`` / ``validate`` / ``checks``
+
+COUNT_FAILED_RUN_1 = (
+    'Error: pipeline run 1 failed: validation failed: statement_count; '
+    'see "ideology pipeline checks --run 1"\n'
+)
+COUNT_20_ROW = "statement_count\tfailed\t\t\tquestionnaire has 20 statements; expected 25 to 35"
+
+
+def test_default_run_prints_six_passed_checks(run, seeded, use_fake) -> None:
+    use_fake(fake_provider())
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+
+    result = run("pipeline", "checks", "--run", "1")
+
+    assert result.exit_code == 0, result.output
+    assert result.output == PASSED_CHECKS
+    assert len(result.output.splitlines()) == 7
+
+
+def test_count_failure_is_committed_and_reported(run, seeded, use_fake) -> None:
+    use_fake(fake_provider(generate_statements=statements_payload(20)))
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == COUNT_FAILED_RUN_1
+    row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
+    assert (row[1], row[5], row[6], row[10]) == (
+        "failed", "1", "20", "validation failed: statement_count"
+    )
+    assert run("pipeline", "checks", "--run", "1").output.splitlines() == [
+        CHECKS_HEADER,
+        "evidence_quotes\tpassed\t\t\t",
+        "party_coverage\tpassed\t\t\t",
+        "statement_separation\tpassed\t\t\t",
+        "statement_uniqueness\tpassed\t\t\t",
+        COUNT_20_ROW,
+        "topic_spread\tpassed\t\t\t",
+    ]
+    # The failed run keeps its candidate Dataset Version and its 20 Statements.
+    statements = run("pipeline", "statements", "--dataset-version", "1").output.splitlines()
+    assert len(statements) == 21
+
+
+def test_configured_statement_range_is_used_by_pipeline_run(
+    run, seeded, use_fake, monkeypatch
+) -> None:
+    use_fake(fake_provider(generate_statements=statements_payload(20)))
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "20")
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 0, result.output
+    assert "statement_count\tpassed" in run("pipeline", "checks", "--run", "1").output
+
+
+def test_duplicate_and_topic_failures_are_named(run, seeded, use_fake) -> None:
+    use_fake(
+        fake_provider(
+            generate_statements=statements_payload(topic=("economy", 15), duplicate=(2, 5))
+        )
+    )
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stderr == (
+        "Error: pipeline run 1 failed: validation failed: statement_uniqueness, topic_spread; "
+        'see "ideology pipeline checks --run 1"\n'
+    )
+    assert run("pipeline", "checks", "--run", "1").output.splitlines()[4:] == [
+        "statement_uniqueness\tfailed\t5\t\tstatement 5 duplicates statement 2",
+        "statement_count\tpassed\t\t\t",
+        "topic_spread\tfailed\t\t\t"
+        "topic economy has 15 of 30 statements (50%); maximum is 30%",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "raw", "message"),
+    [
+        (
+            "VALIDATION_MAX_TOPIC_SHARE_PERCENT",
+            "abc",
+            "Invalid VALIDATION_MAX_TOPIC_SHARE_PERCENT 'abc'; expected an integer from 0 to 100",
+        ),
+        (
+            "VALIDATION_MIN_STATEMENTS",
+            "2.5",
+            "Invalid VALIDATION_MIN_STATEMENTS '2.5'; expected a positive integer",
+        ),
+        (
+            "VALIDATION_MIN_STATEMENTS",
+            "40",
+            "Invalid statement count range: VALIDATION_MIN_STATEMENTS (40) is greater than "
+            "VALIDATION_MAX_STATEMENTS (35)",
+        ),
+    ],
+)
+def test_invalid_shape_setting_creates_no_run(
+    run, seeded, use_fake, db_url, monkeypatch, name, raw, message
+) -> None:
+    provider = use_fake(fake_provider())
+    monkeypatch.setenv(name, raw)
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stderr == f"Error: {message}\n"
+    assert run_count(db_url) == 0
+    assert provider.calls == []
+
+
+def test_validate_with_invalid_topic_share_leaves_the_run_validating(
+    run, seeded, db_url, no_provider, monkeypatch
+) -> None:
+    _validating_run(db_url, fake_provider())
+    monkeypatch.setenv("VALIDATION_MAX_TOPIC_SHARE_PERCENT", "abc")
+
+    result = run("pipeline", "validate", "--run", "1")
+
+    assert result.exit_code == 1
+    assert result.stderr == (
+        "Error: Invalid VALIDATION_MAX_TOPIC_SHARE_PERCENT 'abc'; "
+        "expected an integer from 0 to 100\n"
+    )
+    row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
+    assert row[1] == "validating"
+    assert run("pipeline", "checks", "--run", "1").output == f"{CHECKS_HEADER}\n"
+
+
+def test_validate_reports_a_count_failure(run, seeded, db_url, no_provider) -> None:
+    _validating_run(db_url, fake_provider(generate_statements=statements_payload(20)))
+
+    result = run("pipeline", "validate", "--run", "1")
+
+    assert result.exit_code == 1
+    assert result.stderr == COUNT_FAILED_RUN_1
+    assert COUNT_20_ROW in run("pipeline", "checks", "--run", "1").output.splitlines()

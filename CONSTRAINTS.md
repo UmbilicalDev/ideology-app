@@ -41,10 +41,11 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 
 - Validation checks MUST be pure functions of `ValidationInput` (no database, LLM, network or clock). Reason: checks are unit-tested on plain data and give the same result on every re-run; anything a check needs is loaded once in `validation.base.load_input`.
 - Validation results and report entries MUST be written only by `pipeline.runs.validate_run`, in the same commit as the run's `passed` / `failed` status, and MUST NOT be updated or deleted. Reason: the report is the durable record of why a run passed or failed.
-- Evidence quote matching MUST go through `validation.evidence_quotes.normalize_for_match`. Reason: one matching rule for Validation and anything later that shows whether a quote was found.
+- Evidence quote matching and Statement duplicate detection MUST go through `validation.evidence_quotes.normalize_for_match`. Reason: one matching rule for Validation and anything later that shows whether a quote was found.
 - Validation thresholds MUST come from `config.ValidationSettings` (read from the environment by `config.validation_settings()` and passed into `ValidationInput.settings`), never from literals inside a check. Reason: thresholds are configuration, and checks stay pure and testable at any threshold.
 - A Party below the coverage threshold MUST fail the whole run and MUST NOT be excluded from a Dataset Version. Reason: excluding a Party silently changes the Voter's ballot, the UI treats all Parties identically, and AI output is never edited.
 - A Statement that does not separate the Parties (fewer than two different values among its stances) MUST fail the whole run and MUST NOT be dropped from the Dataset Version. Reason: Dataset Versions are immutable, AI output is never edited, and the run is the unit of publication.
+- A Statement set whose count is outside the configured range, that contains duplicate Statements (same text after `normalize_for_match`), or that puts more than the configured share on one topic MUST fail the whole run; Statements MUST NOT be dropped, deduplicated or reordered to make it pass. Reason: the same as for separation; the operator re-runs or changes a threshold deliberately instead.
 - Only `auto-publish-dataset-version` MAY change a Dataset Version's status; Validation MUST NOT. Reason: publishing and superseding are one transition with its own rules (exactly one Published version per Election).
 
 ## Client-side Matching

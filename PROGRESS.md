@@ -7,9 +7,9 @@
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22 on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `js-test` (`node --test tests/js/*.test.js`))
 - Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`, `pipeline run|list|statements|positions|validate|checks`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `validation-questionnaire-shape` (plugs into the Validation framework; threshold checks add a `config.ValidationSettings` field); `validation-evidence-quotes`, `validation-party-coverage` and `validation-statement-separation` are `accepted`
+- Current next ready features: `auto-publish-dataset-version` (all four Validation features `validation-evidence-quotes`, `validation-party-coverage`, `validation-statement-separation` and `validation-questionnaire-shape` are `accepted`)
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/validation-statement-separation`: pytest 632 passed, node --test 41 passed, alembic head `0006`)
+- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/validation-questionnaire-shape`: pytest 750 passed, node --test 41 passed, alembic head `0006`)
 
 ## Session Log
 
@@ -274,3 +274,24 @@
 - Evidence captured: `feature_list.json` → `validation-statement-separation.evidence` (validator acceptance line).
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Separation vs real manifestos"; Accepted Low on double reporting). Single-Party Election is tested on plain data only, as the spec requires.
 - Next best step: plan `validation-questionnaire-shape` with `$feature-spec`.
+
+### Session 026
+
+- Date: 2026-10-19
+- Goal: Implement `validation-questionnaire-shape` per `docs/specs/validation-questionnaire-shape.md` (branch `feature/validation-questionnaire-shape`, issue #21).
+- Completed: `config.py` (`DEFAULT_MIN_STATEMENTS = 25`, `DEFAULT_MAX_STATEMENTS = 35`, `DEFAULT_MAX_TOPIC_SHARE_PERCENT = 30`; `ValidationSettings.min_statements|max_statements|max_topic_share_percent` with `__post_init__` checks; `validation_settings()` reads `VALIDATION_MIN_STATEMENTS`, `VALIDATION_MAX_STATEMENTS`, `VALIDATION_MAX_TOPIC_SHARE_PERCENT` via `_percent_env` / `_positive_int_env`, then the range check; coverage messages unchanged); new checks `validation/statement_uniqueness.py` (reuses `normalize_for_match`, topic ignored), `statement_count.py` (inclusive range, owns zero), `topic_spread.py` (strictly above the share, ceiling percent); `CHECKS` is now the six-tuple, appended in that order. Tests: new `tests/test_validation_questionnaire_shape.py`; run-level and CLI cases in `tests/test_validation_runs.py` and `tests/test_cli_pipeline.py`; `CONFIG_ENV_VARS` and `statements_payload(count, *, topic=, duplicate=)` in `tests/pipeline_fixtures.py`; existing expectations extended with three passed rows. Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md`, `docs/domain-model.md`, `docs/risks-and-open-questions.md`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 750 passed, was 632; node 41 passed); `-X dev -W error` pytest 750 clean with no API key; focused validation/runs/pipeline/CLI pytest 273 passed; check modules import only `collections`, `validation.base`, `validation.evidence_quotes`, no literal thresholds; no diff vs `main` to migrations, `cli.py`, `pipeline/`, `validation/base.py`, `init.sh`, `pyproject.toml`; alembic head `0006`; offline CLI smoke (default passed with six rows; 20 Statements → `validation failed: statement_count`; `VALIDATION_MIN_STATEMENTS=20` → passed; `VALIDATION_MAX_TOPIC_SHARE_PERCENT=abc` → exit 1, no run row, no provider call). Browser validation exempt (CLI and pipeline only).
+- Evidence captured: `feature_list.json` → `validation-questionnaire-shape.evidence` (status `passing`).
+- Deviations: none. `test_statements_are_stored_as_returned_even_if_odd` now expects `FAILED` with `validation failed: statement_uniqueness, statement_count, topic_spread` (as the spec predicted).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (new: compound-proposition detection deferred; "Questionnaire shape vs real output", owner `e2e-real-2023-election`; Accepted Low on separator collisions in the duplicate normaliser).
+- Next best step: independent validation of `validation-questionnaire-shape` with `$feature-validator`.
+
+### Session 027
+
+- Date: 2026-10-19
+- Goal: Independent validation of `validation-questionnaire-shape` (issue #21).
+- Completed: validator verdict `accept`; status set to `accepted` in `feature_list.json`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 750, node 41); `-X dev -W error` pytest 750 with no API key; the four verification tests pass; offline CLI smoke covered count 20/36, `VALIDATION_MIN_STATEMENTS=20`, exact and normalised duplicates, topic 9/30 pass vs 10/30 and 15/30 fail, invalid settings exit 1 with no run row and no provider call. Defaults consistent with generation (target 30, fake 30 Statements over 18 topics). Browser validation exempt (CLI and pipeline only).
+- Evidence captured: `feature_list.json` → `validation-questionnaire-shape.evidence` (validator acceptance entry).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (compound-proposition detection deferred; "Questionnaire shape vs real output", owner `e2e-real-2023-election`). Cosmetic: stray "` , `" spacing in an `ARCHITECTURE.md` Configuration bullet.
+- Next best step: plan `auto-publish-dataset-version` with `$feature-spec`.

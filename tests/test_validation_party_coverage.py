@@ -124,7 +124,7 @@ def test_default_threshold_is_70() -> None:
 
 
 def test_run_checks_reports_party_coverage() -> None:
-    results = run_checks(data(10, {1: 7, 2: 6}))
+    results = run_checks(data(10, {1: 7, 2: 6}), CHECKS[:3])
     assert [(r.name, r.passed) for r in results] == [
         ("evidence_quotes", False),  # plain data has no documents
         ("party_coverage", False),

@@ -73,13 +73,14 @@ def entry(n: int, detail: str) -> ReportEntry:
 
 
 def test_registry_runs_statement_separation_after_party_coverage() -> None:
-    assert CHECKS == (EVIDENCE_QUOTES, PARTY_COVERAGE, STATEMENT_SEPARATION)
+    # Later checks are appended after these three (validation-questionnaire-shape).
+    assert CHECKS[:3] == (EVIDENCE_QUOTES, PARTY_COVERAGE, STATEMENT_SEPARATION)
     assert STATEMENT_SEPARATION.name == "statement_separation"
     assert STATEMENT_SEPARATION.run is check_statement_separation
 
 
 def test_run_checks_returns_three_results_in_order() -> None:
-    results = run_checks(data({1: (1, -1), 2: (1, 1)}))
+    results = run_checks(data({1: (1, -1), 2: (1, 1)}), CHECKS[:3])
     assert [(r.name, r.passed) for r in results] == [
         ("evidence_quotes", False),  # plain data has no documents
         ("party_coverage", True),
