@@ -9,12 +9,12 @@ in the commit that stores its Validation results, unless a newer run's version
 is already Published.
 Dataset Versions, Statements and Party Positions are only ever inserted here,
 together in one commit; Validation results are inserted with the run's
-``passed`` / ``failed`` status. The only update is the Dataset Version status
+``passed`` / ``failed`` status and the ``validation_settings`` it used. The only update is the Dataset Version status
 change made by ``publishing``; there is no delete path.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from sqlalchemy import Engine, Select, exists, select
 from sqlalchemy.orm import Session, selectinload
@@ -352,7 +352,9 @@ def validate_run(
     changing nothing, when the run is unknown or not ``validating``. Needs no
     LLM provider. ``settings`` holds the check thresholds; when ``None`` it is
     read with ``config.validation_settings()`` first, so an invalid value
-    raises ``ConfigError`` before any session and changes nothing.
+    raises ``ConfigError`` before any session and changes nothing. The
+    thresholds are recorded on the run (``validation_settings``) in the commit
+    that stores the results, on both outcomes; never on the rollback path.
     """
     if settings is None:
         settings = config.validation_settings()
@@ -380,6 +382,7 @@ def validate_run(
                     )
                 )
             failed = tuple(r.name for r in results if not r.passed)
+            run.validation_settings = asdict(settings)
             if failed:
                 run.status = PipelineRunStatus.FAILED
                 run.failure_reason = ("validation failed: " + ", ".join(failed))[:_REASON_MAX]

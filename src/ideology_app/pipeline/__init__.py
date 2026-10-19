@@ -45,6 +45,7 @@ from ideology_app.pipeline.publishing import (
     get_published_dataset_version,
     publish_dataset_version,
 )
+from ideology_app.pipeline.reports import RunReport, get_run_report
 from ideology_app.pipeline.runs import (
     INTERRUPTED_REASON,
     RunOutcome,
@@ -83,6 +84,7 @@ __all__ = [
     "PromptSpec",
     "PublishOutcome",
     "RunOutcome",
+    "RunReport",
     "StatementDraft",
     "StatementSet",
     "Usage",
@@ -93,6 +95,7 @@ __all__ = [
     "generate_statements",
     "get_dataset_version",
     "get_published_dataset_version",
+    "get_run_report",
     "list_positions",
     "list_runs",
     "list_validation_results",

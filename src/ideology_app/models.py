@@ -215,6 +215,9 @@ class PipelineRun(Base):
     generation_finished_at: Mapped[dt.datetime | None] = mapped_column(
         sa.DateTime(timezone=True)
     )
+    # The ValidationSettings the run was validated with (field -> value), written
+    # once by ``validate_run`` in the commit that stores its results; null before.
+    validation_settings: Mapped[dict[str, int] | None] = mapped_column(sa.JSON)
 
     election: Mapped[Election] = relationship(back_populates="pipeline_runs")
     dataset_version: Mapped["DatasetVersion | None"] = relationship(

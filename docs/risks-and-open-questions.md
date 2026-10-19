@@ -18,6 +18,7 @@ None.
 - Per-Election coverage thresholds (an override mentioned in `technical-discovery.md`) are not built: `VALIDATION_MIN_PARTY_COVERAGE_PERCENT` is one process-wide value. Add a per-Election override only if a real Election needs it.
 - Compound-proposition detection (the "single proposition, no and/or" half of domain check 1) is deferred by `validation-questionnaire-shape`: a lexical "y/o" heuristic would fail whole runs on legitimate Spanish Statements ("investigación y desarrollo") and still miss real compounds. Only the prompts require single propositions today. Revisit with real output in `e2e-real-2023-election`.
 - Settled (`auto-publish-dataset-version`): publish order is the Pipeline Run id (queue order). A passing run publishes unless the Election's Published version belongs to a run with a higher id; an older passing run never replaces a newer Published version, and its Dataset Version stays `candidate`.
+- LLM cost estimate per run: tokens are recorded and shown by `ideology pipeline report`, but there is no price table, so the report prints `cost: not estimated (no price table)`. Add one with the `live` mode cost cap (`live-mode-source-change-trigger`).
 - The minimum number of answered Statements before showing a ranking.
 - Order in which Statements are shown (random or by topic) to reduce order bias.
 
@@ -66,6 +67,7 @@ None.
 - **Operator cleanup gaps.** A Source Document that ends `failed` can't be retried or deleted; a retry adds a new row. A storage `OSError` can leave an orphan content-addressed file. Multi-line failure reasons (e.g. a redirect loop) break the tab-separated rows of `ideology source list`. Fine for an MVP CLI; revisit before the Operator workflow gets heavier.
 - **Fetching manifests by URL.** There is no host allow-list, so an Operator can point a fetch at a private or loopback address. That's acceptable while fetching is Operator-only via the CLI; add an allow-list before any web or admin surface or `live` mode triggers fetches. Some party sites block non-browser clients or hide the PDF behind a JavaScript page; those end `failed`, and the Operator can fall back to `--file`. AES-encrypted PDFs are reported as encrypted because `cryptography` isn't installed.
 - **Parallel branches and migration ids.** Features developed in parallel can both add the same Alembic revision id (e.g. `0004`). Whichever merges second must renumber its revision and its `down_revision` before merging, then re-run `alembic check`.
+- **SQLite downgrades that recreate a table.** Migrations run with `PRAGMA foreign_keys=ON`, so a batch downgrade that recreates a table referenced by `ON DELETE CASCADE` deletes every child row. `0003`'s downgrade (recreates `source_documents`) deletes all `source_document_pages` (and would delete Party Positions and run links). `0008` avoids it with a native `DROP COLUMN` (see `CONSTRAINTS.md`). Fix `0003` (or disable foreign keys around batch recreates in `env.py`) before anyone relies on downgrading a database with data; no feature owns it yet.
 - **Toolchain.** The `.venv` runs Python 3.15, which is very new, so check that new dependencies have wheels for it. `init.sh` requires Node.js ≥ 22. There's no Python dependency lockfile, so installs aren't reproducible.
 
 ### Accepted Low findings
@@ -81,13 +83,12 @@ Not worth fixing now. Fix one when you touch that code anyway.
 - A body shorter than its `Content-Length` is stored truncated and fails as a PDF.
 - In the JS engine, `lowCoverageThreshold: null` falls back to 5, and `NaN`, `Infinity` and `""` are accepted as Statement ids.
 - In the `party_positions` reduce input each candidate quote sits on one line, so a quote containing a newline or `»` makes the input ambiguous (the stored quote is unaffected). Check in `e2e-real-2023-election`.
-- The coverage threshold a run was validated with is not stored, so a passed run's report doesn't show it (a failed entry does name the minimum). Consider recording it in `pipeline-run-report`.
 - When a Party has no stances, `ideology pipeline checks` lists one `statement_separation` entry per Statement (in a two-Party Election, all of them) as well as the one `party_coverage` entry. Intended: checks stay independent, and each separation message names the cause (`only party P has a stance`).
 - The Statement duplicate check reuses `normalize_for_match`, which drops separators, so different numbers can collide (`2,1 %` vs `21 %`) and a Statement with no letters or digits normalises to `""`. Both can only cause a false failure, never a false pass.
-- A passed run whose version was not published (an older run that finished after a newer one was Published) keeps a `candidate` Dataset Version, and only its run status and ids tell it apart from a failed run's version; `ideology pipeline list` shows no version status. `pipeline-run-report` should show it (`auto-publish-dataset-version`).
 - Runs that passed before migration `0007` are not backfilled: their Dataset Versions stay `candidate`, and the Operator re-runs to publish (`auto-publish-dataset-version`).
 - The Election lock select in `publish_dataset_version` does not use `populate_existing()`, so an `Election` or `DatasetVersion` already loaded in the session could hold stale attributes. Harmless today (the Published-version query filters on database status and `draft` → `active` is idempotent); revisit if more state is read under the lock (`auto-publish-dataset-version`).
 - `party_positions.evidence_source_document_id` cascades on Source Document delete, which would remove Party Positions from an immutable Dataset Version. There is no delete path today; revisit before one is added.
+- Runs validated before migration `0008` have no recorded thresholds and `ideology pipeline report` shows `validation_settings: not recorded` (no backfill). The report's `duration` covers generation only (`started_at` → `generation_finished_at`); Validation time is shown as its own `validated_at` timestamp, which can be much later when the run was finished with `pipeline validate` (`pipeline-run-report`).
 
 ## Research Tasks
 
