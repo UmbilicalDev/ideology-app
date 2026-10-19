@@ -11,7 +11,8 @@ None.
 - The Share Link encoding format and its versioning.
 - Settled: Evidence quote matching (`validation-evidence-quotes`). Normalisation only (case, accents, ligatures, whitespace and punctuation), then an exact substring match; no edit distance. The quote must start on the cited page (it may run onto the next one).
 - The Party Position encoding the browser expects (`public-dataset-api`). `match-score-engine` already uses integers −2..+2 and the string `"no_stance"`, so the API must emit these values or map them once at load. `PartyPosition.engine_value` (`pipeline-extract-positions`) already gives these values.
-- Shipping static assets (the first feature that mounts `/static`, likely `landing-election-picker`). `src/ideology_app/static/` is not in setuptools package-data, so a non-editable install would not include the JS module.
+- Shipping the web build (`web-client-skeleton`). `src/ideology_app/static/` is not in setuptools package-data, so a non-editable install would not include it; decide how the container gets `apps/web/dist` (build stage, mount path, SPA fallback that doesn't shadow the API) and how `init.sh` runs the npm build.
+- Porting `match-score.js` to TypeScript in `packages/core` (`web-client-skeleton`) must keep the exact semantics and the `node:test` scenarios (moved to Vitest), since `match-score-engine` is already accepted.
 - Whether the per-Party unique content hash is right when a URL is re-fetched and its content changes (`live-mode-url-refetch`).
 - Which document is a coalition's joint manifesto: currently the Party's lowest-id parsed document (register it first). An explicit Operator flag is undecided.
 - Settled (`validation-party-coverage`): a Party below the coverage threshold fails the whole run; Parties are never excluded and nothing is published with a notice.
@@ -24,6 +25,7 @@ None.
 
 ## Later / Not MVP
 
+- iOS and Android app: one Expo (React Native) app in `apps/mobile/` reusing `packages/core`. Open: how Share Links open in the app (universal links / deep links with the fragment).
 - Regional, municipal and European elections; other countries.
 - Optional human review, or parties confirming their positions.
 - Anonymous aggregate statistics.
