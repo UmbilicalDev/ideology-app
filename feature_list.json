@@ -46,12 +46,19 @@
     "title": "Register a Source Document by file upload",
     "user_visible_behavior": "An Operator attaches a PDF to a Party; its text is extracted with page mapping and the document reaches the `parsed` state.",
     "depends_on": ["db-schema-elections-parties"],
-    "status": "not_started",
+    "status": "accepted",
     "verification": [
       "pytest with a fixture PDF: extracted text plus page numbers are stored and the state is `parsed`",
       "A PDF with no text layer ends in the `failed` state with a reason"
     ],
-    "evidence": [],
+    "evidence": [
+      "2026-10-19 CI=true ./init.sh: ==> install, ==> pytest, 108 passed, All checks passed., exit 0 (Python 3.15.0, fresh worktree .venv; pypdf 6.21.1 installed as a pure-Python wheel)",
+      "2026-10-19 python -X dev -W error -m pytest -p no:cacheprovider: 108 passed, exit 0, no ResourceWarning",
+      "2026-10-19 alembic -c alembic.ini history: '0001 -> 0002 (head)'; alembic check on a scratch db at head: 'No new upgrade operations detected.'; tests/test_migrations.py: upgrade creates source_documents + source_document_pages at 0002, downgrade 0001 drops them, is_initialised false at 0001, bad status/origin, page_number=0, unknown party/document and duplicate page -> IntegrityError, party delete cascades to documents and pages, offline PostgreSQL render has ck_source_documents_source_document_origin, ck_source_documents_source_document_status, ck_source_document_pages_page_number_positive once each (5 CHECKs total)",
+      "2026-10-19 tests/test_pdf_text.py, test_source_documents.py, test_cli_source.py (fixtures built by tests/pdf_factory.py, no network/LLM): scenarios 1-7 incl. accents, empty page kept as '', blank/shapes-only -> no text layer, corrupt/truncated -> 'could not read PDF:', RC4 password -> 'PDF is encrypted', empty password -> parsed, NUL stripped, 50 MiB limit, duplicate keeps session usable, shared stored file across parties, existing file not overwritten",
+      "2026-10-19 manual CLI smoke in a scratch dir (DATABASE_URL + SOURCE_FILES_DIR there): source list before upgrade -> not initialised exit 1; source add text PDF -> 'Created source document 1: parsed (2 pages)' exit 0; blank 2-page PDF -> 'Error: source document 2 failed: no text layer found (scanned PDF?); OCR is not supported' exit 1 (row committed); re-add -> 'already has a source document with content hash c1bef4df…' exit 1; same file to party 2 -> document 3 parsed; --party 999 exit 1; .txt renamed .pdf -> 'is not a PDF' exit 1; missing path exit 2; source list shows both rows; source text --page 1 and full text show 'mínimo'/'educación'; --page 5 and --document 42 -> not found exit 1; 2 files stored, shasum -a 256 equals listed hashes, cmp identical; scratch dir deleted; no *.db or source_files/ in the repo",
+      "2026-10-19 independent validation (validator): accept. CI=true ./init.sh 108 passed, exit 0; -X dev -W error pytest 108 passed, no ResourceWarning; alembic history 0002 (head), alembic check no drift, offline PostgreSQL render 5 CHECKs each once; only pdf_text.py imports pypdf; no LLM-provider files touched; CLI-only (browser rule n/a); scratch CLI smoke outside the repo: scenarios 1-7 incl. truncated -> 'could not read PDF', RC4 password -> 'PDF is encrypted', 51 MiB/empty/non-PDF/party 999 -> exit 1 with no row or file, duplicate -> exit 1, DB at 0001 -> not initialised; stored <sha256>.pdf files matched shasum -a 256 of their sources."
+    ],
     "notes": "No OCR in the MVP. Store a content hash."
   },
   {

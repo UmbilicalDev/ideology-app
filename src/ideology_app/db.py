@@ -64,7 +64,16 @@ def downgrade(url: str | None, revision: str) -> None:
     command.downgrade(alembic_config(url), revision)
 
 
+_REQUIRED_TABLES = (
+    "alembic_version",
+    "elections",
+    "parties",
+    "source_documents",
+    "source_document_pages",
+)
+
+
 def is_initialised(engine: Engine) -> bool:
-    """True when the migrations have created the domain tables."""
+    """True when the migrations have created every domain table."""
     inspector = inspect(engine)
-    return inspector.has_table("alembic_version") and inspector.has_table("elections")
+    return all(inspector.has_table(name) for name in _REQUIRED_TABLES)
