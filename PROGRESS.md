@@ -7,9 +7,9 @@
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22 on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `js-test` (`node --test tests/js/*.test.js`))
 - Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`, `pipeline run|list|statements|positions|validate|checks`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `validation-party-coverage`, `validation-statement-separation`, `validation-questionnaire-shape` (each plugs into the Validation framework); `validation-evidence-quotes` is `accepted`
+- Current next ready features: `validation-statement-separation`, `validation-questionnaire-shape` (each plugs into the Validation framework; threshold checks add a `config.ValidationSettings` field); `validation-evidence-quotes` is `accepted`; `validation-party-coverage` is `accepted`
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/validation-evidence-quotes`: pytest 549 passed, node --test 41 passed, alembic head `0006`)
+- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/validation-party-coverage`: pytest 605 passed, node --test 41 passed, alembic head `0006`)
 
 ## Session Log
 
@@ -232,3 +232,24 @@
 - Evidence captured: `feature_list.json` → `validation-evidence-quotes.evidence` (validator entry).
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Quote matching unverified on real manifestos", owner `e2e-real-2023-election`). Migration id: renumber `0006` if another branch lands one first.
 - Next best step: plan the next dependency-ready feature (`validation-party-coverage`) with `$feature-spec`.
+
+### Session 022
+
+- Date: 2026-10-19
+- Goal: Implement `validation-party-coverage` per `docs/specs/validation-party-coverage.md` (implementer).
+- Completed: `config.ValidationSettings` / `DEFAULT_MIN_PARTY_COVERAGE_PERCENT = 70` / `validation_settings()` (`VALIDATION_MIN_PARTY_COVERAGE_PERCENT`, integer 0..100); `ValidationInput.settings`, `load_input(session, run, settings)`; `validate_run(..., settings=None)` and `execute_run(..., validation_settings=None)` resolve settings before any write; new check `validation/party_coverage.py` (`CHECKS = (EVIDENCE_QUOTES, PARTY_COVERAGE)`, integer comparison, message `party P has positions on C of N statements (F%); minimum is T%`, no entries for zero Statements); CLI `pipeline run` / `pipeline validate` resolve the threshold first. Test fake: `positions_response(fill=True)` by default so the default run covers every Statement; `offline_guard` also unsets the threshold env var. Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md`, `docs/domain-model.md`, `docs/risks-and-open-questions.md` (coverage question settled: fail the whole run, never exclude).
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 605 passed, node 41 passed); `-X dev -W error` pytest 605 clean; focused party-coverage/validation-runs/pipeline-runs/CLI pytest 187 passed with no API key; `alembic check` no drift (head `0006`, no migration); offline CLI smoke (default run passes with two `passed` rows; invalid threshold exits 1 with no run row; Party 2 without a parsed document fails `party_coverage` with the 0% row; `=0` passes; `pipeline validate` with `=101` leaves the run `validating`, default fails, `=0` passes, all with `LLM_PROVIDER=bogus`). Browser validation exempt (CLI and pipeline only).
+- Evidence captured: `feature_list.json` → `validation-party-coverage.evidence` (status `passing`).
+- Deviation: `execute_run` resolves the settings at its start (before any LLM call), not only when it calls `validate_run`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Coverage threshold vs real manifestos", owner `e2e-real-2023-election`; per-Election override not built; threshold not stored, `pipeline-run-report`).
+- Next best step: independent validation of `validation-party-coverage` with `$feature-validator`.
+
+### Session 023
+
+- Date: 2026-10-19
+- Goal: Independently validate `validation-party-coverage` (validator) and record acceptance (orchestrator).
+- Verification run (validator, independent): `CI=true ./init.sh` exit 0 (pytest 605 passed, node --test 41 passed); focused party-coverage/validation-runs/pipeline-runs/CLI pytest 187 passed with no `ANTHROPIC_API_KEY`; alembic head `0006`, `alembic check` no new operations; `party_coverage.py` imports only `Counter` and `validation.base`, no literal 70; mutation tests on an out-of-repo copy (`<` to `<=`, counting `no stance` rows, hardcoded 70) each caught by the suite; offline CLI smoke (CliRunner, sockets blocked, fake provider): Party 2 at 21/30 passed, 18/30 failed `party_coverage` with `party 2 has positions on 18 of 30 statements (60%); minimum is 70%`, 18/30 with threshold 60 passed, threshold `7O` exit 1 with no run row. Browser validation exempt (no UI change). `docs/validations/` absent.
+- Verdict: accept. The early settings read in `execute_run` is accepted as a documented, safer deviation.
+- Evidence captured: `feature_list.json` → `validation-party-coverage` status `accepted`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md`.
+- Next best step: plan the next dependency-ready feature (`validation-statement-separation`) with `$feature-spec`.

@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from sqlalchemy import Engine, Select, exists, select
 from sqlalchemy.orm import Session, selectinload
 
-from ideology_app.config import GenerationMode
+from ideology_app import config
+from ideology_app.config import GenerationMode, ValidationSettings
 from ideology_app.db import session_scope
 from ideology_app.elections import InvalidInputError, NotFoundError
 from ideology_app.llm.base import LLMError, LLMProvider
@@ -253,7 +254,12 @@ def _fail(engine: Engine, run_id: int, usage: Usage, reason: str) -> RunOutcome:
     return _finish(engine, run_id, usage, None, None, reason)
 
 
-def execute_run(engine: Engine, run_id: int, provider: LLMProvider) -> RunOutcome:
+def execute_run(
+    engine: Engine,
+    run_id: int,
+    provider: LLMProvider,
+    validation_settings: ValidationSettings | None = None,
+) -> RunOutcome:
     """Generate Statements and extract Party Positions for a ``queued`` run, then validate it.
 
     Commits up to four times: ``running`` (with the Source Documents it reads)
@@ -261,10 +267,15 @@ def execute_run(engine: Engine, run_id: int, provider: LLMProvider) -> RunOutcom
     either ``validating`` with a complete ``candidate`` Dataset Version, or
     ``failed`` with a reason and no Dataset Version. A ``validating`` run is
     then validated by ``validate_run`` (``passed`` or ``failed``), whose outcome
-    is returned. Ctrl-C records ``failed`` (``interrupted``) and re-raises.
+    is returned; ``validation_settings`` is passed to it (``None``: read with
+    ``config.validation_settings()`` first, so an invalid value raises
+    ``ConfigError`` before any write or LLM call). Ctrl-C records ``failed``
+    (``interrupted``) and re-raises.
     Raises NotFoundError / InvalidInputError, changing nothing, when the run is
     unknown, not ``queued``, or was queued for another provider or model.
     """
+    if validation_settings is None:
+        validation_settings = config.validation_settings()
     run_input = _start(engine, run_id, provider)
     usage = Usage()
     try:
@@ -288,7 +299,7 @@ def execute_run(engine: Engine, run_id: int, provider: LLMProvider) -> RunOutcom
         raise
     # Outside the try: validate_run records its own errors.
     if outcome.status is PipelineRunStatus.VALIDATING:
-        return validate_run(engine, run_id)
+        return validate_run(engine, run_id, settings=validation_settings)
     return outcome
 
 
@@ -314,7 +325,10 @@ def _mark_failed(engine: Engine, run_id: int, reason: str) -> None:
 
 
 def validate_run(
-    engine: Engine, run_id: int, checks: Sequence[Check] = CHECKS
+    engine: Engine,
+    run_id: int,
+    checks: Sequence[Check] = CHECKS,
+    settings: ValidationSettings | None = None,
 ) -> RunOutcome:
     """Run every Validation check on a ``validating`` run and record the result. Commits.
 
@@ -326,14 +340,18 @@ def validate_run(
     ``failed`` with ``unexpected error: <ClassName>`` (Ctrl-C: ``interrupted``)
     and the exception is re-raised. Raises NotFoundError / InvalidInputError,
     changing nothing, when the run is unknown or not ``validating``. Needs no
-    LLM provider.
+    LLM provider. ``settings`` holds the check thresholds; when ``None`` it is
+    read with ``config.validation_settings()`` first, so an invalid value
+    raises ``ConfigError`` before any session and changes nothing.
     """
+    if settings is None:
+        settings = config.validation_settings()
     checking = False
     try:
         with session_scope(engine) as session:
             run = _validating_run(session, run_id)
             checking = True
-            data = load_input(session, run)
+            data = load_input(session, run, settings)
             results = run_checks(data, checks)
             for result in results:
                 session.add(

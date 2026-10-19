@@ -29,6 +29,8 @@ class GenerationMode(StrEnum):
 
 DEFAULT_GENERATION_MODE = GenerationMode.PRECOMPUTED
 
+DEFAULT_MIN_PARTY_COVERAGE_PERCENT = 70
+
 
 @dataclass(frozen=True)
 class LLMSettings:
@@ -36,6 +38,23 @@ class LLMSettings:
 
     provider: str
     model: str
+
+
+@dataclass(frozen=True)
+class ValidationSettings:
+    """Thresholds the Validation checks read (one value for the whole process).
+
+    ``min_party_coverage_percent``: the minimum share (0..100) of a run's
+    Statements on which every Party must have a position (check
+    ``party_coverage``). A later threshold check adds its field here.
+    """
+
+    min_party_coverage_percent: int = DEFAULT_MIN_PARTY_COVERAGE_PERCENT
+
+    def __post_init__(self) -> None:
+        value = self.min_party_coverage_percent
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+            raise ValueError("min_party_coverage_percent must be an integer from 0 to 100")
 
 
 def database_url() -> str:
@@ -83,3 +102,20 @@ def llm_settings() -> LLMSettings:
         )
     model = _env("LLM_MODEL") or DEFAULT_MODELS[provider]
     return LLMSettings(provider=provider, model=model)
+
+
+def validation_settings() -> ValidationSettings:
+    """Return the Validation thresholds from the environment.
+
+    ``VALIDATION_MIN_PARTY_COVERAGE_PERCENT`` is an integer from 0 to 100
+    (default 70); anything else (decimals, ``%``, signs) raises ``ConfigError``.
+    """
+    raw = _env("VALIDATION_MIN_PARTY_COVERAGE_PERCENT")
+    if raw is None:
+        return ValidationSettings()
+    if not (raw.isascii() and raw.isdigit()) or int(raw) > 100:
+        raise ConfigError(
+            f"Invalid VALIDATION_MIN_PARTY_COVERAGE_PERCENT {raw!r}; "
+            "expected an integer from 0 to 100"
+        )
+    return ValidationSettings(min_party_coverage_percent=int(raw))

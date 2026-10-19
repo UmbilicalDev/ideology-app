@@ -14,7 +14,8 @@ None.
 - Shipping static assets (the first feature that mounts `/static`, likely `landing-election-picker`). `src/ideology_app/static/` is not in setuptools package-data, so a non-editable install would not include the JS module.
 - Whether the per-Party unique content hash is right when a URL is re-fetched and its content changes (`live-mode-url-refetch`).
 - Which document is a coalition's joint manifesto: currently the Party's lowest-id parsed document (register it first). An explicit Operator flag is undecided.
-- What happens when a Party fails coverage: fail the whole run, or exclude the Party and publish with a notice? Initial position: fail the run.
+- Settled (`validation-party-coverage`): a Party below the coverage threshold fails the whole run; Parties are never excluded and nothing is published with a notice.
+- Per-Election coverage thresholds (an override mentioned in `technical-discovery.md`) are not built: `VALIDATION_MIN_PARTY_COVERAGE_PERCENT` is one process-wide value. Add a per-Election override only if a real Election needs it.
 - The minimum number of answered Statements before showing a ranking.
 - Order in which Statements are shown (random or by topic) to reduce order bias.
 
@@ -55,6 +56,7 @@ None.
   - very short quotes (e.g. "no") can match by chance.
 
   If the failure rate is high, relax to document-level matching or tune the prompts. Never edit the output.
+- **Coverage threshold vs real manifestos (`e2e-real-2023-election`).** Since `validation-party-coverage` any Party below 70% coverage fails the whole run, so one small Party with a short or partial manifesto blocks publishing for every Party. Mitigation: a deliberate threshold change (`VALIDATION_MIN_PARTY_COVERAGE_PERCENT`) or better Source Documents, then a re-run. Never edit the output or drop the Party.
 - **Operator cleanup gaps.** A Source Document that ends `failed` can't be retried or deleted; a retry adds a new row. A storage `OSError` can leave an orphan content-addressed file. Multi-line failure reasons (e.g. a redirect loop) break the tab-separated rows of `ideology source list`. Fine for an MVP CLI; revisit before the Operator workflow gets heavier.
 - **Fetching manifests by URL.** There is no host allow-list, so an Operator can point a fetch at a private or loopback address. That's acceptable while fetching is Operator-only via the CLI; add an allow-list before any web or admin surface or `live` mode triggers fetches. Some party sites block non-browser clients or hide the PDF behind a JavaScript page; those end `failed`, and the Operator can fall back to `--file`. AES-encrypted PDFs are reported as encrypted because `cryptography` isn't installed.
 - **Parallel branches and migration ids.** Features developed in parallel can both add the same Alembic revision id (e.g. `0004`). Whichever merges second must renumber its revision and its `down_revision` before merging, then re-run `alembic check`.
@@ -73,6 +75,7 @@ Not worth fixing now. Fix one when you touch that code anyway.
 - A body shorter than its `Content-Length` is stored truncated and fails as a PDF.
 - In the JS engine, `lowCoverageThreshold: null` falls back to 5, and `NaN`, `Infinity` and `""` are accepted as Statement ids.
 - In the `party_positions` reduce input each candidate quote sits on one line, so a quote containing a newline or `»` makes the input ambiguous (the stored quote is unaffected). Check in `e2e-real-2023-election`.
+- The coverage threshold a run was validated with is not stored, so a passed run's report doesn't show it (a failed entry does name the minimum). Consider recording it in `pipeline-run-report`.
 - `party_positions.evidence_source_document_id` cascades on Source Document delete, which would remove Party Positions from an immutable Dataset Version. There is no delete path today; revisit before one is added.
 
 ## Research Tasks
