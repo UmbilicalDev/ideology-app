@@ -18,7 +18,7 @@ A responsive, mobile-first public website for Voters, plus a minimal Operator su
 | `LLM_PROVIDER` / model | e.g. anthropic, openai, local | Provider abstraction with structured-output support; the provider and model are recorded per Pipeline Run. |
 | `GENERATION_MODE` | `precomputed`, `live` | `precomputed` is the default (the Operator triggers runs). `live` regenerates automatically when a Source Document is added or changes. |
 | URL re-fetch interval | e.g. 6h | `live` only: how often URL sources are re-fetched and hashed. |
-| `SOURCE_INGESTION` | `upload`, `url` (both allowed) | Per Source Document. |
+| `SOURCE_INGESTION` | `upload`, `url` (both allowed) | Per Source Document: chosen by the CLI flag `ideology source add --file` or `--url`, not an environment variable. |
 | Validation thresholds | coverage %, statement range, topic share | Per Election overrides allowed. |
 
 ## Data and Storage
@@ -30,7 +30,7 @@ A responsive, mobile-first public website for Voters, plus a minimal Operator su
 ## Integrations
 
 - LLM provider API(s).
-- HTTP fetch for URL-based Source Documents.
+- HTTP fetch for URL-based Source Documents: stdlib `urllib` (`ideology_app.http_fetch`), http/https only, no new dependency.
 
 ## Authentication and Authorization
 

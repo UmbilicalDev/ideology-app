@@ -169,20 +169,29 @@ def source() -> None:
 @click.option(
     "--file",
     "file_path",
-    required=True,
+    default=None,
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
     help="PDF manifesto to attach.",
 )
+@click.option("--url", default=None, help="Manifesto PDF URL to fetch.")
 @requires_db
-def source_add(app: AppContext, party_id: int, file_path: Path) -> None:
-    """Attach a PDF to a Party and extract its text page by page."""
+def source_add(app: AppContext, party_id: int, file_path: Path | None, url: str | None) -> None:
+    """Attach a PDF (from a file or a URL) to a Party and extract its text page by page."""
+    if (file_path is None) == (url is None):
+        raise click.UsageError("pass exactly one of --file or --url")
     with session_scope(app.engine) as session:
-        document = sources.add_uploaded_document(
-            session,
-            party_id=party_id,
-            file_path=file_path,
-            files_dir=config.source_files_dir(),
-        )
+        if url is not None:
+            document = sources.add_url_document(
+                session, party_id=party_id, url=url, files_dir=config.source_files_dir()
+            )
+        else:
+            assert file_path is not None
+            document = sources.add_uploaded_document(
+                session,
+                party_id=party_id,
+                file_path=file_path,
+                files_dir=config.source_files_dir(),
+            )
         document_id = document.id
         status = document.status
         page_count = document.page_count
@@ -207,12 +216,13 @@ def source_list(app: AppContext, party_id: int) -> None:
                 d.page_count,
                 d.content_hash,
                 d.original_filename,
+                d.source_url,
                 d.failure_reason,
             ]
             for d in sources.list_documents(session, party_id)
         ]
     _print_rows(
-        ["id", "origin", "status", "pages", "content_hash", "filename", "failure_reason"],
+        ["id", "origin", "status", "pages", "content_hash", "filename", "url", "failure_reason"],
         rows,
     )
 
