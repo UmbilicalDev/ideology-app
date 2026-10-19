@@ -23,18 +23,18 @@
 
 ## States and Lifecycles
 
-**Election**: `draft` → `active` (has a Published Dataset Version) → `archived` (after the election day; still viewable, labelled as historical).
+**Election**: `draft` → `active` (has a Published Dataset Version; set by its first publish, in the same transaction) → `archived` (after the election day; still viewable, labelled as historical).
 
 **Source Document**: `registered` → `fetched` (URL downloaded or upload stored) → `parsed` (text extracted) | `failed`.
 
 **Pipeline Run**: `queued` → `running` → `validating` → `passed` | `failed`.
-- `passed` → its Dataset Version is published automatically and replaces the previous one.
+- `passed` → its Dataset Version is published automatically, in the same transaction as its Validation results, and replaces the previous one, unless the Published version belongs to a newer run (higher Pipeline Run id): then it stays `candidate` and the newer version stays live. Publish order is queue order, so an older run never rolls Voters back to staler data.
 - `failed` → nothing is published and the previous Published version stays live; the Validation report says why. The Operator can re-run.
 - A run that fails Validation keeps its `candidate` Dataset Version, which is never published.
 
 **Run triggers**: in `precomputed` mode, the Operator. In `live` mode, a Source Document being added or its content hash changing (URL sources are re-fetched periodically to detect this).
 
-**Dataset Version**: `candidate` → `published` → `superseded`. Superseded versions stay readable so old Share Links keep working.
+**Dataset Version**: `candidate` → `published` → `superseded`. Superseded versions stay readable so old Share Links keep working. The status is the only thing that ever changes; a superseded version is never published again.
 
 ## Validation Checks (initial set)
 

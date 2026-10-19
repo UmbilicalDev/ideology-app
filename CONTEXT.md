@@ -42,7 +42,7 @@ One execution of the AI process that generates Statements and Party Positions fr
 Automatic checks a Pipeline Run's output must pass before it is published. There is no human review or manual editing.
 
 ### Published
-State of the Dataset Version currently served to users for an Election. Exactly one per Election at a time.
+State of the Dataset Version currently served to users for an Election. At most one per Election at a time (none before the first passing run). Set automatically when a Pipeline Run passes Validation; the version it replaces becomes superseded.
 
 ### Match Score
 Percentage affinity between a user's Answers and a Party's Positions.
