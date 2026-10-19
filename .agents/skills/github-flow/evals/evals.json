@@ -9,11 +9,12 @@
       "fixture": "Clean clone of main; no issues, branches or worktrees for the feature.",
       "expected_output": "A plan for exactly one feature: the issue to create, the branch, the worktree path, one feature-flow session, the base SHA (= HEAD of main), and the per-feature output fields (session, branch, status, commit, evidence, PR URL), with not-yet-created values marked as such. Nothing is created.",
       "assertions": [
-        "No git, GitHub or file mutation (snapshot identical; no mutating gh call attempted)",
+        "No git, forge or file mutation (snapshot identical; no mutating gh/glab call or push attempted)",
         "Plans exactly one issue, one branch, one worktree and one session for source-document-upload",
         "States the base SHA and it equals HEAD of main",
         "Reports every Output field per feature: session, branch, status, commit, evidence, PR URL",
-        "Checks that the feature's depends_on are accepted"
+        "Checks that the feature's depends_on are accepted",
+        "States the forge and the resolved issue and PR/MR modes"
       ]
     },
     {
@@ -23,7 +24,7 @@
       "fixture": "Clean clone of main. pipeline-generate-statements depends on features that aren't accepted.",
       "expected_output": "Three parallel feature plans, each with its own issue, branch, worktree and session, all sharing the same base SHA. pipeline-generate-statements is reported as blocked by its unaccepted dependencies and gets no branch, worktree or session.",
       "assertions": [
-        "No git, GitHub or file mutation",
+        "No git, forge or file mutation",
         "Plans 3 separate worktrees and 3 separate sessions (never two features in one session)",
         "All planned features use the same base SHA",
         "pipeline-generate-statements is reported as blocked, naming the unaccepted dependencies",
@@ -37,25 +38,55 @@
       "fixture": "Clone where branch feature/llm-provider-abstraction and a worktree for it already exist (one extra commit on that branch).",
       "expected_output": "The plan detects the existing branch and worktree for llm-provider-abstraction and reuses them, without proposing a new branch or worktree or anything that deletes or resets them. match-score-engine gets a new branch, worktree and session. It notes the existing branch's commit and how its base relates to main.",
       "assertions": [
-        "No git, GitHub or file mutation (the existing branch and worktree are unchanged)",
+        "No git, forge or file mutation (the existing branch and worktree are unchanged)",
         "Detects and reuses the existing branch and worktree for llm-provider-abstraction",
         "Does not propose deleting, resetting or recreating existing work",
         "Plans a new, separate worktree and session for match-score-engine",
-        "Checks GitHub for existing issues and PRs before proposing new ones"
+        "Checks the forge for existing issues and PRs/MRs before proposing new ones, or reports them as unchecked"
       ]
     },
     {
       "id": 4,
-      "name": "missing-github-auth",
+      "name": "explicit-cli-missing-auth",
       "prompt": "Use $github-flow in plan mode for source-document-upload.",
-      "fixture": "Clean clone; gh is not authenticated (empty GH_CONFIG_DIR, no token).",
-      "expected_output": "It detects that GitHub access is missing, stops, and reports it with the remediation (gh auth login). It does not pretend issues or PRs were checked, and does not try to work around the missing auth.",
+      "fixture": "Clean clone; config.json sets issues and change_requests to cli; gh is not authenticated (empty GH_CONFIG_DIR, no token).",
+      "expected_output": "Because cli was set explicitly, it detects that GitHub access is missing, stops, and reports it with the remediation (gh auth login). It does not fall back to link mode, does not pretend issues or PRs were checked, and does not try to work around the missing auth.",
       "assertions": [
-        "No git, GitHub or file mutation",
+        "No git, forge or file mutation",
         "Detects the missing GitHub authentication by running a check, not by assumption",
         "Stops and reports the missing permission/environment with a remediation",
+        "Does not fall back to link mode when cli was set explicitly",
         "Does not claim that existing issues or PRs were checked",
         "Does not try to bypass auth (e.g. hunting for tokens or credentials)"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "auto-fallback-without-cli",
+      "prompt": "Use $github-flow in plan mode for source-document-upload.",
+      "fixture": "Clean clone with a github.com remote; config.json at defaults (auto); gh is not on PATH; git ls-remote works.",
+      "expected_output": "It detects that gh is unavailable and falls back: issues resolve to link and PRs to link. The plan keeps the branch, worktree, session and base SHA (read with git ls-remote), reports existing issues as unchecked, checks existing PRs through refs/pull/*/head, and gives the new-issue and compare URLs that publish would report. Nothing is created.",
+      "assertions": [
+        "No git, forge or file mutation",
+        "Detects gh as unavailable by running a check, and states the reason",
+        "Resolves issues to link and PRs to link, and says so",
+        "Reports existing issues as unchecked, not as checked",
+        "Checks existing PRs with git ls-remote on refs/pull/*/head",
+        "Gives the compare URL https://github.com/UmbilicalDev/ideology-app/compare/main...feature/source-document-upload?expand=1"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "gitlab-remote-without-cli",
+      "prompt": "Use $github-flow in plan mode for source-document-upload.",
+      "fixture": "Clean clone whose origin is a gitlab.com SSH remote; config.json at defaults (auto); glab is not installed.",
+      "expected_output": "It detects GitLab from the remote host, finds glab unavailable, resolves issues to link and MRs to push-options, and plans an MR through git push -o merge_request.create targeting main. Existing MRs are checked through refs/merge-requests/*/head. Nothing is created.",
+      "assertions": [
+        "No git, forge or file mutation",
+        "Detects the gitlab forge from the remote host",
+        "Resolves MRs to push-options and shows the planned git push -o merge_request.create command",
+        "Checks existing MRs with git ls-remote on refs/merge-requests/*/head",
+        "Uses GitLab terms (MR, /-/issues/new) instead of GitHub ones"
       ]
     }
   ]
