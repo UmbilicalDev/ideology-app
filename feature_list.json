@@ -74,12 +74,21 @@
     "title": "Configurable LLM provider with a fake for tests",
     "user_visible_behavior": "The LLM provider and model are chosen by configuration; a deterministic fake provider is used in tests.",
     "depends_on": ["bootstrap-app-skeleton"],
-    "status": "not_started",
+    "status": "accepted",
     "verification": [
       "pytest: the provider is resolved from config; the fake returns structured output",
       "No test makes network calls to an LLM"
     ],
-    "evidence": [],
+    "evidence": [
+      "2026-10-19 CI=true ./init.sh: ==> install, ==> pytest, 78 passed (49 existing + 29 new), All checks passed., exit 0 (Python 3.15.0; anthropic 1.15.0, pydantic 2.14.1, httpx2 2.14.0)",
+      "2026-10-19 python -X dev -W error -m pytest -p no:cacheprovider tests/test_llm.py tests/test_llm_anthropic.py: 29 passed, no warnings; full suite under -X dev -W error: 78 passed",
+      "2026-10-19 env -u ANTHROPIC_API_KEY pytest tests/test_llm.py tests/test_llm_anthropic.py: 29 passed (no key needed)",
+      "2026-10-19 grep 'import anthropic|from anthropic' src tests: only src/ideology_app/llm/anthropic_provider.py and tests/test_llm_anthropic.py",
+      "2026-10-19 env -u ANTHROPIC_API_KEY python -c 'print(build_provider(llm_settings()))' -> AnthropicProvider(model='claude-sonnet-5-5'), no error",
+      "Scenario tests: S1 test_build_provider_fake_from_config, test_build_provider_anthropic_from_config_without_key_or_client, test_registry_matches_default_models; S2 test_defaults_when_unset, test_empty_values_count_as_unset, test_values_trimmed_and_case_insensitive, test_model_override; S3 test_unknown_provider_raises_config_error, test_unknown_generation_mode_raises_config_error, test_config_error_is_value_error, test_build_provider_unregistered_name_raises_llm_config_error; S4 test_fake_returns_deterministic_structured_output, test_fake_accepts_schema_instance_and_callable, test_fake_callable_may_return_instance, test_fake_custom_model; S5 test_fake_missing_task_raises_llm_error, test_fake_schema_mismatch_raises_output_error; S6 test_generate_sends_structured_output_request, test_injected_client_is_not_closed_by_provider; S7 test_bad_output_raises_output_error[invalid-json|schema-mismatch|refusal|refusal-plain-text], test_http_errors_raise_provider_error[401|529]; S8 test_missing_key_fails_lazily_before_any_socket, test_blank_env_key_counts_as_missing, test_key_never_in_repr_or_errors, test_env_key_creates_owned_client_that_close_releases; S9 autouse _offline_and_clean_env in both LLM test modules + the init.sh run",
+      "Self-verification only (implementer); awaiting independent validation. No browser-visible change (exempt from browser validation).",
+      "2026-10-19 independent validator accept: CI=true ./init.sh exit 0, 78 passed; -X dev -W error LLM tests 29 passed; no-key run 29 passed; DNS-blocked run made 0 lookup attempts; SDK import grep clean (adapter + its test only); single branch point PROVIDERS/build_provider; cli.py/main.py/tests/conftest.py untouched; browser validation exempt (no browser-visible change)."
+    ],
     "notes": "Implement at least one real provider adapter (e.g. Anthropic) behind the interface, with structured output."
   },
   {

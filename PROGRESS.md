@@ -7,9 +7,9 @@
 - Standard verification path: `CI=true ./init.sh` (creates `.venv` if missing, installs `.[dev]`, runs `pytest`)
 - Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory)
-- Current next ready feature: `source-document-upload` (also ready: `llm-provider-abstraction`, `match-score-engine`)
+- Current next ready feature: `source-document-upload` (also ready: `match-score-engine`); `llm-provider-abstraction` is `accepted`
 - Current blocker: none
-- Last verified at: 2026-10-16 (`CI=true ./init.sh` exit 0, 49 passed)
+- Last verified at: 2026-10-19 on branch `claude/feat-llm-provider-abstraction-313683` (`CI=true ./init.sh` exit 0, 78 passed)
 
 ## Session Log
 
@@ -65,3 +65,24 @@
 - Evidence captured: `feature_list.json` -> `db-schema-elections-parties.evidence`.
 - Known risk or unresolved issue: Low: the duplicate-party message doesn't name the clashing field; the first command on a missing SQLite file creates an empty file; `init.sh` `run_step`/`set -e` (carried over).
 - Next best step: plan `source-document-upload` with `$feature-spec`.
+
+### Session 006
+
+- Date: 2026-10-19
+- Goal: Implement `llm-provider-abstraction` per `docs/specs/llm-provider-abstraction.md` (branch `claude/feat-llm-provider-abstraction-313683`).
+- Completed: `pyproject.toml` (`anthropic>=1.15,<2`, `pydantic>=2`); `src/ideology_app/config.py` (additive: `ConfigError`, `GenerationMode`, `generation_mode()`, `LLMSettings`, `llm_settings()`, `DEFAULT_MODELS`); `src/ideology_app/llm/{__init__,base,fake,anthropic_provider}.py`; `tests/test_llm.py`, `tests/test_llm_anthropic.py` (each with an autouse env + socket guard); `ARCHITECTURE.md` (LLM Providers); `CONSTRAINTS.md` (LLM Providers). `cli.py`, `main.py`, `tests/conftest.py` untouched.
+- Verification run: `CI=true ./init.sh` -> 78 passed, exit 0; LLM tests under `-X dev -W error` -> 29 passed, clean (full suite 78 passed); no-key run -> 29 passed; SDK import grep -> only the adapter and its test; `build_provider(llm_settings())` with no key prints `AnthropicProvider(model='claude-sonnet-5-5')`.
+- Evidence captured: `feature_list.json` -> `llm-provider-abstraction.evidence` (status `passing`).
+- Small additions beyond the spec text: a blank `ANTHROPIC_API_KEY` counts as missing; a refusal whose text is not JSON is still an `LLMOutputError` (the SDK fails JSON validation before `stop_reason` can be checked); `LLM_MODEL` is trimmed but keeps its case.
+- Known risk or unresolved issue: `pyproject.toml` dependency list may conflict trivially with the parallel `source-document-upload` branch (keep both). Model ids `claude-sonnet-5-5` / `claude-haiku-5-5` are taken from the spec and were not checked against the live API (tests are offline). No dependency lockfile.
+- Next best step: independent validation of `llm-provider-abstraction` with `$feature-validator`.
+
+### Session 007
+
+- Date: 2026-10-19
+- Goal: Independently validate `llm-provider-abstraction`.
+- Completed: validator verdict `accept`; feature status set to `accepted`.
+- Verification run: the validator re-ran `CI=true ./init.sh` (exit 0, 78 passed), the LLM tests under `-X dev -W error` (29 passed) and with no `ANTHROPIC_API_KEY` (29 passed), an extra DNS-blocking run (0 lookup attempts), the SDK import grep, the single-branch-point grep, and a scope check (`cli.py`, `main.py`, `tests/conftest.py`, `init.sh` unchanged). Browser validation exempt: no browser-visible change.
+- Evidence captured: `feature_list.json` -> `llm-provider-abstraction.evidence`.
+- Known risk or unresolved issue: Low: an explicit `api_key` argument is kept in `AnthropicProvider._api_key` (hidden from `repr`, visible via `vars()`); scenario 6 test compares schema `properties`/`required` only; `pyproject.toml` may conflict trivially with `source-document-upload` (keep both); model ids not checked against the live API; no lockfile.
+- Next best step: plan `source-document-upload` with `$feature-spec` (in progress on a parallel branch), or `match-score-engine`.

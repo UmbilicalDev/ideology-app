@@ -9,3 +9,10 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - DDL and queries MUST stay portable to PostgreSQL: no SQLite-only types, functions or SQL. Enums MUST be non-native (`native_enum=False, create_constraint=True`) with exactly one CHECK each. Reason: SQLite is only the dev default.
 - Every Engine that is created MUST be disposed (`finally: engine.dispose()` or `ctx.call_on_close`). Reason: on Python 3.15 an undisposed SQLite engine emits `ResourceWarning: unclosed database`, which fails the pytest gate (`filterwarnings = ["error"]`).
 - Tests MUST use a temporary SQLite database (the `db_url` / `migrated_engine` fixtures, or `--database-url` for the CLI) and MUST NOT touch `./ideology.db`. Reason: the default URL is relative to the current directory; `tests/conftest.py` unsets `DATABASE_URL` and changes into `tmp_path` for every test as a safety net.
+
+## LLM Providers
+
+- Only `ideology_app.llm.*_provider` modules MAY import a vendor LLM SDK (e.g. `anthropic`); tests of that adapter are the only other exception. Everything else gets a provider through `build_provider` or by injection. Reason: the provider is configuration, not code branches.
+- Tests MUST NOT need or read a real API key and MUST NOT open a network connection. Use `FakeProvider`, or inject an SDK client backed by `httpx2.MockTransport`, and keep the autouse env/socket guard in every LLM test module. Reason: the AGENTS.md invariant and a deterministic, offline CI.
+- API keys MUST NOT appear in reprs, error messages or logs; error messages from provider failures carry only the exception class name and HTTP status. Reason: keys leak through tracebacks and Pipeline Run records.
+- An `AnthropicProvider` that creates its own client MUST be closed (`with provider:` or `close()`). Reason: an unclosed HTTP client can emit a `ResourceWarning`, which fails the gate.
