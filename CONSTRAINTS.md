@@ -27,3 +27,9 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Tests MUST NOT need or read a real API key and MUST NOT open a network connection. Use `FakeProvider`, or inject an SDK client backed by `httpx2.MockTransport`, and keep the autouse env/socket guard in every LLM test module. Reason: the AGENTS.md invariant and a deterministic, offline CI.
 - API keys MUST NOT appear in reprs, error messages or logs; error messages from provider failures carry only the exception class name and HTTP status. Reason: keys leak through tracebacks and Pipeline Run records.
 - An `AnthropicProvider` that creates its own client MUST be closed (`with provider:` or `close()`). Reason: an unclosed HTTP client can emit a `ResourceWarning`, which fails the gate.
+
+## Client-side Matching
+
+- The Match Score MUST be computed only by `src/ideology_app/static/js/match-score.js` in the Voter's browser. The server MUST NOT get an endpoint that receives Answers. Reason: the invariant that voter answers are never stored or sent to the server.
+- `match-score.js` MUST stay dependency-free: no `import`, no browser or network globals. Reason: it is served as-is as a static asset and unit-tested under Node.
+- JS tooling MUST NOT add npm dependencies without committing a lockfile. Reason: a reproducible verification gate.

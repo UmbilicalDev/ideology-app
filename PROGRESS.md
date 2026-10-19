@@ -4,12 +4,12 @@
 
 - Repository root: `/Users/kike/PycharmProjects/ideology-app` (remote: `github.com/UmbilicalDev/ideology-app`, branch `main`)
 - Standard startup path: `./init.sh`
-- Standard verification path: `CI=true ./init.sh` (creates `.venv` if missing, installs `.[dev]`, runs `pytest`)
+- Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22 on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `js-test` (`node --test tests/js/*.test.js`))
 - Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next step: `source-document-url` is `accepted` (branch `claude/feat-source-document-url-53071f`, awaiting merge by the main session); next ready by list order: `pipeline-generate-statements` (planner); `match-score-engine` is in progress on a parallel branch
+- Current next ready feature: `pipeline-generate-statements` (its deps `source-document-url` and `llm-provider-abstraction` are `accepted`); `source-document-url` and `match-score-engine` are both `accepted`
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` exit 0, 241 passed, branch `claude/feat-source-document-url-53071f`, independent validator accept)
+- Last verified at: 2026-10-19 (`CI=true ./init.sh` after merging `main` (with `source-document-url`) into `claude/feat-match-score-engine-b29c0b`: pytest 246 passed, node --test 41 passed, alembic head `0003`)
 
 ## Session Log
 
@@ -148,3 +148,25 @@
 - Evidence captured: `feature_list.json` → `source-document-url.evidence`.
 - Known risk or unresolved issue (non-blocking validator notes): multi-line failure reasons (e.g. redirect loop) break the tab-separated rows of `source list`; Unicode whitespace such as NBSP/U+2028 passes URL validation; a body shorter than its `Content-Length` ends as a PDF parse failure with the truncated file stored; a non-ASCII-digit `Content-Length` gives a poorly worded reason; the 60 s timeout is per socket operation, not per request. Session 010 risks carried over (no delete/retry for failed rows; no host allow-list; renumber migration `0003` if another branch lands one first).
 - Next best step: the main session merges this branch; then plan `pipeline-generate-statements` with `$feature-spec`.
+
+### Session 014
+
+- Date: 2026-10-19
+- Goal: Implement `match-score-engine` per `docs/specs/match-score-engine.md` (GitHub issue #6, branch `claude/feat-match-score-engine-b29c0b`).
+- Completed: `src/ideology_app/static/js/match-score.js` (pure ES module: `SKIP`, `NO_STANCE`, `IMPORTANT_WEIGHT`, `LOW_COVERAGE_THRESHOLD`, `statementAgreement`, `computeMatchScore`, `computeMatchScores`); root `package.json` (`{"private": true, "type": "module"}` only); `tests/js/match-score.test.js` (scenarios 1-11, exact `strictEqual` scores); `tests/test_init_script.py` (scenario 12: `run_step` / `step_node` extracted from `init.sh`); `init.sh` (`run_step` runs each step in a `set -e` subshell outside a condition, new `step_node` with `NODE_MIN_MAJOR=22`, new `step_js_test`, order node → install → pytest → js-test); `ARCHITECTURE.md` (Client-side Matching, Verification Gate); `CONSTRAINTS.md` (Client-side Matching). No Python app source, migration, CLI, `pyproject.toml` or `main.py` change.
+- Verification run: `CI=true ./init.sh` (fresh `.venv`) → exit 0, pytest 142 passed, node --test 41 passed / 0 failed; `node --test tests/js/match-score.test.js` → no stderr warnings; `tests/test_init_script.py` fails against the old `if !` `run_step` and passes against the new one; scratch-copy negative checks: `false;` in `step_pytest` → `FAILED: pytest`, `PATH=/usr/bin:/bin` → `FAILED: node` before `install`, broken JS assertion → `FAILED: js-test`, no `tests/js/*.test.js` → `FAILED: js-test` (all exit 1); globals grep on the module → no matches. Browser Validation exempt: no browser-visible change.
+- Evidence captured: `feature_list.json` → `match-score-engine.evidence` (status `passing`).
+- Resolved: the Low finding from Sessions 003/005 (`run_step` disabled `set -e` inside steps).
+- Small additions beyond the spec text: `options` that is not an object throws `TypeError`; a `statementId` that is neither number nor string throws `TypeError`; `statementAgreement` throws `RangeError` for skip / no stance / out-of-range values; error messages for `computeMatchScores` name the party index (`parties[i].positions`).
+- Known risk or unresolved issue: the `NO_STANCE = "no_stance"` / integer value encoding is fixed here before `public-dataset-api` exists; that feature must emit these values or map them once at load. `init.sh` now needs Node.js >= 22 on every machine that runs the gate. The minimum number of answered Statements before a ranking is shown is still open. No dependency lockfile (Python).
+- Next best step: independent validation of `match-score-engine` with `$feature-validator`.
+
+### Session 015
+
+- Date: 2026-10-19
+- Goal: Independently validate `match-score-engine` (GitHub issue #6).
+- Completed: validator verdict `accept`; feature status set to `accepted`.
+- Verification run: validator re-ran `CI=true ./init.sh` (exit 0, pytest 142 passed, node --test 41/41) and the JS tests alone (no stderr); hand-checked Match Scores against `docs/build-brief.md` via a node import (mixed skip / no stance / missing / id-coercion case = 0.6875 with 3 shared and low coverage; all 25 agreement pairs; Important weighting 4.25/6; multi-Party order; zero shared → `null` + low coverage; bad input raises `RangeError` / `TypeError`); scratch-copy negatives outside the worktree (`false;` in `step_pytest`, no node on PATH, fake node v20, broken JS assertion, no JS test files → all `FAILED`, exit 1; restoring the old `if !` `run_step` makes the regression test fail); scope check clean (no Python app source, migration, CLI, `pyproject.toml` or `main.py` change; no npm deps or lockfile). Browser Validation exempt: no browser-visible change.
+- Evidence captured: `feature_list.json` → `match-score-engine.evidence`.
+- Known risk or unresolved issue: Low: `lowCoverageThreshold: null` silently falls back to the default 5 instead of throwing; `NaN` / `Infinity` / `""` statement ids are accepted; `static/` is not in setuptools package-data (a non-editable install would not ship the module; fix in the feature that mounts `/static`). Session 014 risks carried over (`no_stance` / integer encoding must be honoured by `public-dataset-api`; Node >= 22 required by `init.sh`).
+- Next best step: plan `pipeline-generate-statements` with `$feature-spec`.

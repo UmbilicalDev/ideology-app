@@ -304,11 +304,19 @@
     "title": "Client-side Match Score calculation",
     "user_visible_behavior": "Given answers and positions, each Party gets a Match Score following the rule in docs/build-brief.md, with skip and no stance excluded, Important weighted ×2, and low coverage flagged.",
     "depends_on": ["bootstrap-app-skeleton"],
-    "status": "not_started",
+    "status": "accepted",
     "verification": [
       "Unit tests for exact scores: identical answers → 100%, opposite → 0%, weighting, exclusions, and the low-coverage threshold"
     ],
-    "evidence": [],
+    "evidence": [
+      "2026-10-19 CI=true ./init.sh (fresh .venv, Python 3.15.0, Node v24.22.0): ==> node, ==> install, ==> pytest (142 passed = 137 + 5 new in tests/test_init_script.py), ==> js-test (node --test: tests 41, pass 41, fail 0), All checks passed., exit 0",
+      "2026-10-19 node --test tests/js/match-score.test.js: 41 pass, 0 fail, exit 0, stderr empty (no Warning lines)",
+      "2026-10-19 tests/test_init_script.py against the old `if !` run_step (scratch copy): test_run_step_fails_multi_command_step_whose_first_command_fails FAILED; against the new run_step: 5 passed",
+      "2026-10-19 scratch-copy negative checks (outside the worktree): step_pytest `false; \"$PY\" -m pytest` -> FAILED: pytest (exit 1), init.sh exit 1; PATH=/usr/bin:/bin -> 'Node.js >= 22 is required ... (node not found on PATH)', FAILED: node, exit 1, no ==> install; broken JS assertion -> pass 40 fail 1, FAILED: js-test, exit 1; tests/js/*.test.js moved away -> 'no JS test files in tests/js', FAILED: js-test, exit 1. Scratch copy deleted.",
+      "2026-10-19 grep -nE '\\b(window|document|fetch|localStorage|XMLHttpRequest|import )' src/ideology_app/static/js/match-score.js -> no matches; package.json is exactly {\"private\": true, \"type\": \"module\"}; no node_modules/, package-lock.json or docs/validations/",
+      "Browser Validation (AGENTS.md) exempt: no browser-visible change (no page, route, asset mount or client behaviour; the module is not loaded by any page yet). results-ranking does the browser checks.",
+      "2026-10-19 independent validator verdict accept (issue #6): re-ran CI=true ./init.sh (exit 0; pytest 142 passed; node --test 41/41) and JS tests alone (no stderr); hand-checked scores against docs/build-brief.md (mixed skip/no-stance/missing/id-coercion case 0.6875 with 3 shared + low coverage; all 25 agreement pairs; Important weighting 4.25/6; multi-Party order; zero shared -> null + low coverage; RangeError/TypeError on bad input); scratch-copy negatives (false; in step_pytest, no node on PATH, fake node v20, broken JS assertion, no JS test files: all FAILED, exit 1; old if-! run_step makes the regression test fail); scope check clean; Browser Validation exempt confirmed. Low: lowCoverageThreshold null silently falls back to 5; NaN/Infinity/\"\" statement ids accepted; static/ not in setuptools package-data (deferred to the feature that mounts /static)."
+    ],
     "notes": "Runs in the browser; it needs a JS unit-test runner wired into init.sh."
   },
   {

@@ -1,6 +1,6 @@
 # Architecture
 
-Current state after `db-schema-elections-parties`, `llm-provider-abstraction`, `source-document-upload` and `source-document-url`. Keep this short; update it when layers, runtime surfaces or boundaries change.
+Current state after `db-schema-elections-parties`, `llm-provider-abstraction`, `source-document-upload`, `source-document-url` and `match-score-engine`. Keep this short; update it when layers, runtime surfaces or boundaries change.
 
 ## Layout
 
@@ -34,6 +34,15 @@ Current state after `db-schema-elections-parties`, `llm-provider-abstraction`, `
 - Add a provider: write `src/ideology_app/llm/<name>_provider.py` implementing the protocol, add one entry to `PROVIDERS` and one to `config.DEFAULT_MODELS`.
 - Tests: `tests/test_llm.py` (config, registry, fake) and `tests/test_llm_anthropic.py` (adapter through an injected `anthropic.Anthropic` with an `httpx2.MockTransport` `http_client`). Each has an autouse guard that unsets the LLM env vars and blocks `socket.socket.connect` / `socket.create_connection`.
 
+## Client-side Matching
+
+- Module: `src/ideology_app/static/js/match-score.js`, a pure ES module (named exports only, no imports, no browser or network globals). It implements the Matching Rule in `docs/build-brief.md` and is meant to run in the Voter's browser, so Answers never reach the server. Intended URL once a UI feature mounts `/static` (not mounted yet): `/static/js/match-score.js`, loaded from a `<script type="module">`.
+- Exports: `SKIP = "skip"` (Answer value), `NO_STANCE = "no_stance"` (Party Position value), `IMPORTANT_WEIGHT = 2`, `LOW_COVERAGE_THRESHOLD = 5`, `statementAgreement(a, p)` (`1 - |a - p| / 4`), `computeMatchScore(answers, positions, options)` → `{ matchScore, sharedStatementCount, lowCoverage }`, `computeMatchScores(answers, parties, options)` → the same plus `partyId`, in input order (no sorting).
+- Inputs: Answers `{ statementId, value: -2..2 | "skip", important?: boolean }`, Positions `{ statementId, value: -2..2 | "no_stance" }`, Parties `{ partyId, positions }`. `statementId` is matched by `String(statementId)`. `options.lowCoverageThreshold` is a positive integer.
+- Zero shared Statements gives `matchScore: null` and `lowCoverage: true` (never `NaN`). A missing Answer or Position is excluded like skip / no stance. Invalid input throws `TypeError` (non-array, non-boolean `important`) or `RangeError` (bad value, duplicate `statementId`, bad threshold) naming the field and `statementId`.
+- The root `package.json` is `{"private": true, "type": "module"}` only, so Node treats the `.js` files as ES modules without a warning. It has no dependencies and is never used for `npm install`.
+- Tests: `tests/js/*.test.js` with `node:test` and `node:assert/strict` (Node >= 22, built in, no npm packages).
+
 ## Runtime Surface
 
 - ASGI app: `ideology_app.main:app` (FastAPI).
@@ -44,7 +53,7 @@ Current state after `db-schema-elections-parties`, `llm-provider-abstraction`, `
 
 ## Verification Gate
 
-- `./init.sh` runs from its own directory, creates `.venv` if missing (`${PYTHON:-python3} -m venv`), then runs ordered steps through `run_step <name> <function>`, which prints `==> <name>` and exits 1 with `FAILED: <name>` on failure.
-- Current steps: `install` (`pip install -e '.[dev]'`), `pytest`. Pytest runs with `filterwarnings = ["error"]`, so warnings (including leaked-connection `ResourceWarning`s) fail the gate. Migration checks run inside pytest.
-- To add a step, define a `step_<name>` function and add a `run_step` line after the existing ones. Steps are functions so their arguments are never word-split.
+- `./init.sh` runs from its own directory, creates `.venv` if missing (`${PYTHON:-python3} -m venv`), then runs ordered steps through `run_step <name> <function>`, which prints `==> <name>`, runs the step in a `( set -e; ... )` subshell outside any condition (bash ignores `set -e` inside `if`/`!`/`&&`/`||`), and exits 1 with `FAILED: <name> (exit N)` on failure. So any failing command in a multi-command step fails the gate.
+- Current steps: `node` (Node.js >= 22 on `PATH`, `NODE_MIN_MAJOR`; fails before anything is installed), `install` (`pip install -e '.[dev]'`), `pytest`, `js-test` (`node --test tests/js/*.test.js`; fails if there are no test files, because `node --test` exits 0 when nothing matches). Pytest runs with `filterwarnings = ["error"]`, so warnings (including leaked-connection `ResourceWarning`s) fail the gate. Migration checks run inside pytest. `tests/test_init_script.py` checks `run_step` and `step_node` by extracting them from `init.sh`.
+- To add a step, define a `step_<name>` function and add a `run_step` line after the existing ones. Steps are functions so their arguments are never word-split. Keep `init.sh` compatible with macOS `/bin/bash` 3.2 (under `set -u`, check an array's length before expanding `"${arr[@]}"`).
 - `init.sh` never starts a server; it only prints the start command after all checks pass.
