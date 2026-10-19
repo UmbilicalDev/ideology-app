@@ -268,14 +268,29 @@
     "notes": "Read-only and cacheable. No voter data in requests."
   },
   {
+    "id": "web-client-skeleton",
+    "area": "web",
+    "title": "React web client skeleton with shared core package",
+    "user_visible_behavior": "The FastAPI app serves a React + TypeScript web client (Vite) with a neutral placeholder home page that follows DESIGN.md; the client code is split into packages/core and apps/web as described in docs/technical-discovery.md (Clients).",
+    "depends_on": ["bootstrap-app-skeleton", "match-score-engine"],
+    "status": "not_started",
+    "verification": [
+      "./init.sh installs the npm workspaces from the committed lockfile, type-checks, runs Vitest and builds apps/web",
+      "match-score lives in packages/core with its existing scenarios passing, and src/ideology_app/static/js/match-score.js is removed",
+      "Browser check at 375px and desktop: the placeholder page loads from the FastAPI-served build with no console errors"
+    ],
+    "evidence": [],
+    "notes": "Structure only: no Election data or Voter flow yet. Update ARCHITECTURE.md and CONSTRAINTS.md (Client-side Matching) to the new paths. Mobile (Expo) is post-MVP and not part of this feature."
+  },
+  {
     "id": "landing-election-picker",
     "area": "web",
     "title": "Landing page lets a Voter choose an Election",
     "user_visible_behavior": "The home page lists active Elections with a short methodology summary and an AI-generated disclosure; choosing one starts the Questionnaire.",
-    "depends_on": ["public-dataset-api"],
+    "depends_on": ["public-dataset-api", "web-client-skeleton"],
     "status": "not_started",
     "verification": [
-      "pytest: the page renders the published Election and the disclosure",
+      "Vitest + Testing Library: the page renders the published Election and the disclosure from a mocked API response",
       "Manual check at 375px and desktop widths following DESIGN.md"
     ],
     "evidence": [],
@@ -392,7 +407,7 @@
     "depends_on": ["landing-election-picker"],
     "status": "not_started",
     "verification": [
-      "pytest: the page renders and is linked from the landing and results pages"
+      "Vitest + Testing Library: the page renders and is linked from the landing and results pages"
     ],
     "evidence": [],
     "notes": "Mitigation for the bias and legal risks. Legal wording is to be reviewed before a public launch."

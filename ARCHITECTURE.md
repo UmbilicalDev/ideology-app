@@ -45,6 +45,7 @@ Current state after `db-schema-elections-parties`, `llm-provider-abstraction`, `
 - Tests: `tests/pipeline_fixtures.py` (ORM seeding, fake responses, `offline_guard`), `tests/test_pipeline_prompts.py`, `tests/test_pipeline_generation.py`, `tests/test_pipeline_runs.py`, `tests/test_cli_pipeline.py`, each with the autouse env/socket guard.
 
 ## Client-side Matching
+- Planned (`web-client-skeleton`): the web client moves to React + TypeScript under `apps/web/` with shared code in `packages/core/` (see `docs/technical-discovery.md`, Clients); this module then moves into `packages/core`. Until then, what follows is the current state.
 
 - Module: `src/ideology_app/static/js/match-score.js`, a pure ES module (named exports only, no imports, no browser or network globals). It implements the Matching Rule in `docs/build-brief.md` and is meant to run in the Voter's browser, so Answers never reach the server. Intended URL once a UI feature mounts `/static` (not mounted yet): `/static/js/match-score.js`, loaded from a `<script type="module">`.
 - Exports: `SKIP = "skip"` (Answer value), `NO_STANCE = "no_stance"` (Party Position value), `IMPORTANT_WEIGHT = 2`, `LOW_COVERAGE_THRESHOLD = 5`, `statementAgreement(a, p)` (`1 - |a - p| / 4`), `computeMatchScore(answers, positions, options)` → `{ matchScore, sharedStatementCount, lowCoverage }`, `computeMatchScores(answers, parties, options)` → the same plus `partyId`, in input order (no sorting).

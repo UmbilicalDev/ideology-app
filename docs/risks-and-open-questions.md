@@ -11,7 +11,8 @@ None.
 - The Share Link encoding format and its versioning.
 - The fuzzy-match tolerance for Evidence quote verification (`validation-evidence-quotes`). Page text is stored as pypdf extracts it, and its quality on real manifestos (columns, ligatures, hyphenation) is unverified, so normalise when matching, not when storing.
 - The Party Position encoding the browser expects (`public-dataset-api`). `match-score-engine` already uses integers −2..+2 and the string `"no_stance"`, so the API must emit these values or map them once at load.
-- Shipping static assets (the first feature that mounts `/static`, likely `landing-election-picker`). `src/ideology_app/static/` is not in setuptools package-data, so a non-editable install would not include the JS module.
+- Shipping the web build (`web-client-skeleton`). `src/ideology_app/static/` is not in setuptools package-data, so a non-editable install would not include it; decide how the container gets `apps/web/dist` (build stage, mount path, SPA fallback that doesn't shadow the API) and how `init.sh` runs the npm build.
+- Porting `match-score.js` to TypeScript in `packages/core` (`web-client-skeleton`) must keep the exact semantics and the `node:test` scenarios (moved to Vitest), since `match-score-engine` is already accepted.
 - Which Source Documents a Pipeline Run used is not recorded (`pipeline-extract-positions` or `live-mode-source-change-trigger`). Also decide whether the per-Party unique content hash is right when a URL is re-fetched and its content changes (`live-mode-url-refetch`).
 - What happens when a Party fails coverage: fail the whole run, or exclude the Party and publish with a notice? Initial position: fail the run.
 - The minimum number of answered Statements before showing a ranking.
@@ -19,6 +20,7 @@ None.
 
 ## Later / Not MVP
 
+- iOS and Android app: one Expo (React Native) app in `apps/mobile/` reusing `packages/core`. Open: how Share Links open in the app (universal links / deep links with the fragment).
 - Regional, municipal and European elections; other countries.
 - Optional human review, or parties confirming their positions.
 - Anonymous aggregate statistics.
