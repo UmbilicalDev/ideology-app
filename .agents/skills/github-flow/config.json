@@ -1,0 +1,9 @@
+{
+  "forge": "auto",
+  "remote": "origin",
+  "base_branch": "main",
+  "branch_prefix": "feature/",
+  "worktree_root": "../{repo}-worktrees",
+  "issues": "auto",
+  "change_requests": "auto"
+}
