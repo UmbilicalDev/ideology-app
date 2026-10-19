@@ -30,6 +30,9 @@ class GenerationMode(StrEnum):
 DEFAULT_GENERATION_MODE = GenerationMode.PRECOMPUTED
 
 DEFAULT_MIN_PARTY_COVERAGE_PERCENT = 70
+DEFAULT_MIN_STATEMENTS = 25
+DEFAULT_MAX_STATEMENTS = 35
+DEFAULT_MAX_TOPIC_SHARE_PERCENT = 30
 
 
 @dataclass(frozen=True)
@@ -46,15 +49,38 @@ class ValidationSettings:
 
     ``min_party_coverage_percent``: the minimum share (0..100) of a run's
     Statements on which every Party must have a position (check
-    ``party_coverage``). A later threshold check adds its field here.
+    ``party_coverage``).
+    ``min_statements`` / ``max_statements``: the inclusive range (each at least
+    1, min not above max) for the number of Statements (check
+    ``statement_count``).
+    ``max_topic_share_percent``: the maximum share (0..100) of the Statements a
+    single topic may have; a topic fails only when strictly above it (check
+    ``topic_spread``).
+    A later threshold check adds its field here.
     """
 
     min_party_coverage_percent: int = DEFAULT_MIN_PARTY_COVERAGE_PERCENT
+    min_statements: int = DEFAULT_MIN_STATEMENTS
+    max_statements: int = DEFAULT_MAX_STATEMENTS
+    max_topic_share_percent: int = DEFAULT_MAX_TOPIC_SHARE_PERCENT
 
     def __post_init__(self) -> None:
-        value = self.min_party_coverage_percent
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 100:
+        if not _is_int_in(self.min_party_coverage_percent, 0, 100):
             raise ValueError("min_party_coverage_percent must be an integer from 0 to 100")
+        for name in ("min_statements", "max_statements"):
+            if not _is_int_in(getattr(self, name), 1, None):
+                raise ValueError(f"{name} must be an integer of at least 1")
+        if self.min_statements > self.max_statements:
+            raise ValueError("min_statements must not be greater than max_statements")
+        if not _is_int_in(self.max_topic_share_percent, 0, 100):
+            raise ValueError("max_topic_share_percent must be an integer from 0 to 100")
+
+
+def _is_int_in(value: object, low: int, high: int | None) -> bool:
+    """True when ``value`` is a non-``bool`` ``int`` in ``low..high`` (no upper bound if None)."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return False
+    return value >= low and (high is None or value <= high)
 
 
 def database_url() -> str:
@@ -104,18 +130,52 @@ def llm_settings() -> LLMSettings:
     return LLMSettings(provider=provider, model=model)
 
 
+def _percent_env(name: str, default: int) -> int:
+    """An integer from 0 to 100 read from ``name``, or ``default`` if unset or blank."""
+    raw = _env(name)
+    if raw is None:
+        return default
+    if not (raw.isascii() and raw.isdigit()) or int(raw) > 100:
+        raise ConfigError(f"Invalid {name} {raw!r}; expected an integer from 0 to 100")
+    return int(raw)
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    """An integer of at least 1 read from ``name``, or ``default`` if unset or blank."""
+    raw = _env(name)
+    if raw is None:
+        return default
+    if not (raw.isascii() and raw.isdigit()) or int(raw) < 1:
+        raise ConfigError(f"Invalid {name} {raw!r}; expected a positive integer")
+    return int(raw)
+
+
 def validation_settings() -> ValidationSettings:
     """Return the Validation thresholds from the environment.
 
-    ``VALIDATION_MIN_PARTY_COVERAGE_PERCENT`` is an integer from 0 to 100
-    (default 70); anything else (decimals, ``%``, signs) raises ``ConfigError``.
+    ``VALIDATION_MIN_PARTY_COVERAGE_PERCENT`` (default 70) and
+    ``VALIDATION_MAX_TOPIC_SHARE_PERCENT`` (default 30) are integers from 0 to
+    100; ``VALIDATION_MIN_STATEMENTS`` (default 25) and
+    ``VALIDATION_MAX_STATEMENTS`` (default 35) are integers of at least 1, and
+    the min must not be greater than the max. Anything else (decimals, ``%``,
+    signs) raises ``ConfigError``. Variables are checked in this order:
+    coverage, min, max, range, share; the first error wins.
     """
-    raw = _env("VALIDATION_MIN_PARTY_COVERAGE_PERCENT")
-    if raw is None:
-        return ValidationSettings()
-    if not (raw.isascii() and raw.isdigit()) or int(raw) > 100:
+    coverage = _percent_env(
+        "VALIDATION_MIN_PARTY_COVERAGE_PERCENT", DEFAULT_MIN_PARTY_COVERAGE_PERCENT
+    )
+    min_statements = _positive_int_env("VALIDATION_MIN_STATEMENTS", DEFAULT_MIN_STATEMENTS)
+    max_statements = _positive_int_env("VALIDATION_MAX_STATEMENTS", DEFAULT_MAX_STATEMENTS)
+    if min_statements > max_statements:
         raise ConfigError(
-            f"Invalid VALIDATION_MIN_PARTY_COVERAGE_PERCENT {raw!r}; "
-            "expected an integer from 0 to 100"
+            "Invalid statement count range: "
+            f"VALIDATION_MIN_STATEMENTS ({min_statements}) is greater than "
+            f"VALIDATION_MAX_STATEMENTS ({max_statements})"
         )
-    return ValidationSettings(min_party_coverage_percent=int(raw))
+    share = _percent_env("VALIDATION_MAX_TOPIC_SHARE_PERCENT", DEFAULT_MAX_TOPIC_SHARE_PERCENT)
+    return ValidationSettings(
+        min_party_coverage_percent=coverage,
+        min_statements=min_statements,
+        max_statements=max_statements,
+        max_topic_share_percent=share,
+    )

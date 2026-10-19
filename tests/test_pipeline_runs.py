@@ -190,7 +190,12 @@ def test_statements_are_stored_as_returned_even_if_odd(seeded: Engine) -> None:
     provider = fake_provider(generate_statements=odd)
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    assert outcome.status is PipelineRunStatus.PASSED
+    # Generation stores them as returned; Validation (not generation) then
+    # rejects the duplicate, the count and the topic share, dropping nothing.
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == (
+        "validation failed: statement_uniqueness, statement_count, topic_spread"
+    )
     with Session(seeded) as s:
         version = get_dataset_version(s, outcome.dataset_version_id or 0)
         assert [(st.position, st.text) for st in version.statements] == [
@@ -696,6 +701,9 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
                     )
                 ],
             ),
+            ("statement_uniqueness", True, []),
+            ("statement_count", True, []),
+            ("topic_spread", True, []),
         ]
     rows = position_rows(engine)
     party2 = [r for r in rows if r.party_id == 2]

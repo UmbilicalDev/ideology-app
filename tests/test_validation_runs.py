@@ -1,7 +1,8 @@
 """Validation at the run level: ``execute_run`` / ``validate_run`` with the fake provider.
 
 validation-evidence-quotes Scenarios 1, 2 and 6; validation-party-coverage
-Scenario 4; validation-statement-separation Scenario 4.
+Scenario 4; validation-statement-separation Scenario 4;
+validation-questionnaire-shape Scenario 5.
 """
 
 from typing import Any
@@ -15,6 +16,7 @@ from pipeline_fixtures import (
     offline_guard,
     positions_response,
     seed_election,
+    statements_payload,
 )
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
@@ -46,6 +48,14 @@ from ideology_app.pipeline import runs as runs_module
 from ideology_app.validation import Check, ReportEntry, ValidationInput
 
 INVENTED = "Bajaremos el IVA de los libros al cero por ciento."
+
+# validation-questionnaire-shape: the default fake's 30 distinct Statements over
+# 18 topics pass the three checks appended after statement_separation.
+SHAPE_PASSED = [
+    ("statement_uniqueness", True, []),
+    ("statement_count", True, []),
+    ("topic_spread", True, []),
+]
 
 
 @pytest.fixture(autouse=True)
@@ -150,12 +160,14 @@ def test_real_quotes_pass(seeded: Engine) -> None:
             (run_id, "evidence_quotes", True, []),
             (run_id, "party_coverage", True, []),
             (run_id, "statement_separation", True, []),
+            *[(run_id, *row) for row in SHAPE_PASSED],
         ]
         assert stored[0].created_at is not None
     assert results(seeded, run_id) == [
         ("evidence_quotes", True, []),
         ("party_coverage", True, []),
         ("statement_separation", True, []),
+        *SHAPE_PASSED,
     ]
 
 
@@ -196,7 +208,7 @@ def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
         "dataset_versions": 1,
         "statements": 30,
         "party_positions": 60,
-        "validation_results": 3,
+        "validation_results": 6,
         "validation_report_entries": 1,
     }
     with Session(seeded) as s:
@@ -214,6 +226,7 @@ def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
         ),
         ("party_coverage", True, []),
         ("statement_separation", True, []),
+        *SHAPE_PASSED,
     ]
 
 
@@ -304,6 +317,7 @@ def test_default_checks_pass_a_validating_run(seeded: Engine) -> None:
         ("evidence_quotes", True, []),
         ("party_coverage", True, []),
         ("statement_separation", True, []),
+        *SHAPE_PASSED,
     ]
 
 
@@ -463,6 +477,7 @@ def test_party_with_no_stance_fails_the_run_on_coverage(seeded: Engine, cause: s
         ("evidence_quotes", True, []),
         ("party_coverage", False, [(None, 2, PARTY2_ZERO)]),
         ("statement_separation", False, separation),
+        *SHAPE_PASSED,
     ]
     _assert_kept_candidate(seeded)
 
@@ -480,7 +495,8 @@ def test_both_checks_failing_are_named(seeded: Engine) -> None:
         "validation failed: evidence_quotes, party_coverage, statement_separation"
     )
     assert outcome.failed_checks == ("evidence_quotes", "party_coverage", "statement_separation")
-    [quotes, coverage, separation] = results(seeded, run_id)
+    [quotes, coverage, separation, *shape] = results(seeded, run_id)
+    assert shape == SHAPE_PASSED
     assert quotes[:2] == ("evidence_quotes", False)
     assert separation[:2] == ("statement_separation", False)
     assert [e[2] for e in separation[2]] == [
@@ -510,6 +526,7 @@ def test_execute_run_passes_its_validation_settings(seeded: Engine) -> None:
         ("evidence_quotes", True, []),
         ("party_coverage", True, []),
         ("statement_separation", False, only_party1_entries(seeded)),
+        *SHAPE_PASSED,
     ]
 
 
@@ -602,6 +619,7 @@ def _assert_statement2_fails_alone(engine: Engine, run_id: int, outcome: Any) ->
         ("evidence_quotes", True, []),
         ("party_coverage", True, []),
         ("statement_separation", False, [(statement_id(engine, 2), None, EQUAL_ON_2)]),
+        *SHAPE_PASSED,
     ]
     counts = table_counts(engine)
     assert (counts["dataset_versions"], counts["statements"], counts["party_positions"]) == (
@@ -647,3 +665,142 @@ def test_validate_run_fails_a_validating_run_on_separation(seeded: Engine) -> No
     _assert_statement2_fails_alone(seeded, run_id, outcome)
     with pytest.raises(InvalidInputError, match="is failed, expected validating$"):
         validate_run(seeded, run_id)
+
+
+# validation-questionnaire-shape Scenario 5: count, uniqueness and topic spread
+# at the run level (the feature_list.json verification cases).
+
+
+def _assert_shape_failure(
+    engine: Engine, run_id: int, outcome: Any, payload: dict[str, Any], failed: str, entry: Any
+) -> None:
+    """Only ``failed`` fails, with ``entry``; the candidate version is kept as returned."""
+    reason = f"validation failed: {failed}"
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == reason
+    assert outcome.failed_checks == (failed,)
+    assert read_run(engine, run_id).failure_reason == reason
+    stored = results(engine, run_id)
+    assert [name for name, _, _ in stored] == [
+        "evidence_quotes",
+        "party_coverage",
+        "statement_separation",
+        "statement_uniqueness",
+        "statement_count",
+        "topic_spread",
+    ]
+    assert [(name, entries) for name, passed, entries in stored if not passed] == [
+        (failed, [entry])
+    ]
+    with Session(engine) as s:
+        version = s.get(DatasetVersion, outcome.dataset_version_id)
+        assert version is not None and version.status is DatasetVersionStatus.CANDIDATE
+        kept = s.scalars(select(Statement).order_by(Statement.position)).all()
+        assert [(st.position, st.text, st.topic) for st in kept] == [
+            (n, st["text"], st["topic"])
+            for n, st in enumerate(payload["statements"], start=1)
+        ]
+
+
+def test_twenty_statements_fail_the_run_on_statement_count(seeded: Engine) -> None:
+    payload = statements_payload(20)
+    provider = fake_provider(generate_statements=payload)
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.statement_count == 20
+    _assert_shape_failure(
+        seeded, run_id, outcome, payload, "statement_count",
+        (None, None, "questionnaire has 20 statements; expected 25 to 35"),
+    )
+
+
+def test_duplicated_statement_fails_the_run_on_uniqueness(seeded: Engine) -> None:
+    payload = statements_payload(duplicate=(2, 5))
+    provider = fake_provider(generate_statements=payload)
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.statement_count == 30
+    _assert_shape_failure(
+        seeded, run_id, outcome, payload, "statement_uniqueness",
+        (statement_id(seeded, 5), None, "statement 5 duplicates statement 2"),
+    )
+
+
+def test_half_on_one_topic_fails_the_run_on_topic_spread(seeded: Engine) -> None:
+    payload = statements_payload(topic=("economy", 15))
+    provider = fake_provider(generate_statements=payload)
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    _assert_shape_failure(
+        seeded, run_id, outcome, payload, "topic_spread",
+        (None, None, "topic economy has 15 of 30 statements (50%); maximum is 30%"),
+    )
+
+
+def test_valid_statement_set_passes_all_six_checks(seeded: Engine) -> None:
+    provider = fake_provider(generate_statements=statements_payload(25))
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert outcome.failed_checks == ()
+    assert [(name, passed) for name, passed, _ in results(seeded, run_id)] == [
+        ("evidence_quotes", True),
+        ("party_coverage", True),
+        ("statement_separation", True),
+        ("statement_uniqueness", True),
+        ("statement_count", True),
+        ("topic_spread", True),
+    ]
+
+
+def test_execute_run_uses_the_configured_statement_range(seeded: Engine) -> None:
+    provider = fake_provider(generate_statements=statements_payload(20))
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(
+        seeded, run_id, provider, ValidationSettings(min_statements=20, max_statements=20)
+    )
+
+    assert outcome.status is PipelineRunStatus.PASSED
+
+
+def test_validate_run_reads_statement_range_from_env(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id = validating_run(seeded, fake_provider(generate_statements=statements_payload(20)))
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "20")
+
+    outcome = validate_run(seeded, run_id)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+
+
+@pytest.mark.parametrize(
+    ("name", "raw"),
+    [
+        ("VALIDATION_MAX_TOPIC_SHARE_PERCENT", "abc"),
+        ("VALIDATION_MIN_STATEMENTS", "0"),
+        ("VALIDATION_MIN_STATEMENTS", "40"),
+    ],
+)
+def test_execute_run_with_invalid_shape_env_changes_nothing(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch, name: str, raw: str
+) -> None:
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+    monkeypatch.setenv(name, raw)
+
+    with pytest.raises(ConfigError):
+        execute_run(seeded, run_id, provider)
+
+    assert read_run(seeded, run_id).status is PipelineRunStatus.QUEUED
+    assert provider.calls == []
+    assert table_counts(seeded)["dataset_versions"] == 0
