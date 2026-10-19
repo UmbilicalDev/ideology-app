@@ -37,6 +37,13 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - A Dataset Version MUST be written only together with all its Statements and Party Positions, in one transaction (`runs._finish`). Reason: a partial Dataset Version could be validated or published without positions.
 - `ideology_app.pipeline` MUST depend on the `LLMProvider` protocol (`llm.base`), never on a concrete provider or `build_provider`; the CLI resolves the provider in `cli._provider`. Reason: the provider is configuration, and tests inject `FakeProvider`.
 
+## Validation
+
+- Validation checks MUST be pure functions of `ValidationInput` (no database, LLM, network or clock). Reason: checks are unit-tested on plain data and give the same result on every re-run; anything a check needs is loaded once in `validation.base.load_input`.
+- Validation results and report entries MUST be written only by `pipeline.runs.validate_run`, in the same commit as the run's `passed` / `failed` status, and MUST NOT be updated or deleted. Reason: the report is the durable record of why a run passed or failed.
+- Evidence quote matching MUST go through `validation.evidence_quotes.normalize_for_match`. Reason: one matching rule for Validation and anything later that shows whether a quote was found.
+- Only `auto-publish-dataset-version` MAY change a Dataset Version's status; Validation MUST NOT. Reason: publishing and superseding are one transition with its own rules (exactly one Published version per Election).
+
 ## Client-side Matching
 
 - The Match Score MUST be computed only by `src/ideology_app/static/js/match-score.js` in the Voter's browser. The server MUST NOT get an endpoint that receives Answers. Reason: the invariant that voter answers are never stored or sent to the server.

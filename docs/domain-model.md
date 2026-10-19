@@ -30,6 +30,7 @@
 **Pipeline Run**: `queued` → `running` → `validating` → `passed` | `failed`.
 - `passed` → its Dataset Version is published automatically and replaces the previous one.
 - `failed` → nothing is published and the previous Published version stays live; the Validation report says why. The Operator can re-run.
+- A run that fails Validation keeps its `candidate` Dataset Version, which is never published.
 
 **Run triggers**: in `precomputed` mode, the Operator. In `live` mode, a Source Document being added or its content hash changing (URL sources are re-fetched periodically to detect this).
 
@@ -38,7 +39,7 @@
 ## Validation Checks (initial set)
 
 1. Every Statement is unique and a single proposition (no "and/or" compounds).
-2. Every non-`no stance` Position has Evidence whose quote is found in the Source Document's text (normalized match).
+2. Every non-`no stance` Position has Evidence whose quote, normalised, starts on the cited page (or runs onto the next) of a Source Document the run read for that Party. Normalisation folds case, accents and ligatures and drops whitespace and punctuation; otherwise the match is exact.
 3. Each Party has positions on ≥ 70% of Statements.
 4. Each Statement separates the parties: at least two different Position values among them.
 5. The Statement count is within the configured range (initially 25–35).

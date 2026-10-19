@@ -9,7 +9,7 @@ None.
 - How often URL Source Documents are re-fetched and hashed for change detection in `live` mode.
 - Settled: the prompts and chunking for Statements and Party Positions. Statements (`pipeline-generate-statements`): map/reduce over chunks of whole pages of at most 40,000 characters (one `statement_candidates` call per chunk, then one `generate_statements` call), at most 200 LLM calls. Party Positions (`pipeline-extract-positions`): per-chunk findings over the same 40,000-character chunks (one `position_findings` call per chunk), then one `party_positions` reduce per Party, at most 300 calls. All prompts `v1`; real-LLM quality is checked only in `e2e-real-2023-election`.
 - The Share Link encoding format and its versioning.
-- The fuzzy-match tolerance for Evidence quote verification (`validation-evidence-quotes`). Page text is stored as pypdf extracts it, and its quality on real manifestos (columns, ligatures, hyphenation) is unverified, so normalise when matching, not when storing. The cited page is stored as the LLM returned it; that feature decides whether the quote must be on that page or only somewhere in the document.
+- Settled: Evidence quote matching (`validation-evidence-quotes`). Normalisation only (case, accents, ligatures, whitespace and punctuation), then an exact substring match; no edit distance. The quote must start on the cited page (it may run onto the next one).
 - The Party Position encoding the browser expects (`public-dataset-api`). `match-score-engine` already uses integers −2..+2 and the string `"no_stance"`, so the API must emit these values or map them once at load. `PartyPosition.engine_value` (`pipeline-extract-positions`) already gives these values.
 - Shipping static assets (the first feature that mounts `/static`, likely `landing-election-picker`). `src/ideology_app/static/` is not in setuptools package-data, so a non-editable install would not include the JS module.
 - Whether the per-Party unique content hash is right when a URL is re-fetched and its content changes (`live-mode-url-refetch`).
@@ -40,7 +40,7 @@ None.
 - **Electoral and legal exposure.** Possible scrutiny under electoral rules (LOREG, Junta Electoral Central) close to election day, and claims of misrepresentation. Needs a disclaimer, a methodology page and a legal check before a public launch.
 - **Non-determinism.** Re-runs yield different Questionnaires; Share Links pin Dataset Versions to contain this. In `live` mode a regeneration after a source change can replace the Questionnaire mid-campaign.
 - **Provider cost/availability**, especially in `live` mode.
-- **Runs stuck in `running`.** Ctrl-C now ends a run `failed: interrupted`. A hard kill or crash between a Pipeline Run's commits (after `running`, before the result is recorded) still leaves it in `running`, with no recovery command, so the Operator queues a new run. Recovery is deferred to `live-mode-source-change-trigger`, the first unattended runner.
+- **Runs stuck in `running`.** Ctrl-C now ends a run `failed: interrupted`. A hard kill or crash between a Pipeline Run's commits (after `running`, before the result is recorded) still leaves it in `running`, with no recovery command, so the Operator queues a new run. Recovery is deferred to `live-mode-source-change-trigger`, the first unattended runner. A run left in `validating` (a crash between the Dataset Version commit and Validation, or a run created before `validation-evidence-quotes`) is recoverable with `ideology pipeline validate --run N`.
 - **Real-LLM behaviour unverified (`e2e-real-2023-election`).** All tests use `FakeProvider`, so none of these have been checked against a real model:
   - prompt quality: neutral wording, single propositions, the topic list;
   - the 40,000-character chunking;
@@ -48,6 +48,13 @@ None.
   - the model ids `claude-sonnet-5-5` / `claude-haiku-5-5`.
 
   Anthropic structured output may not enforce every JSON-schema constraint (`maxItems`, `pattern`), so a violation surfaces as `LLMOutputError` and the run ends `failed`.
+- **Quote matching unverified on real manifestos (`e2e-real-2023-election`).** `evidence_quotes` has only been run on fake data. On real manifestos:
+  - the cited-page rule fails the whole run on any page slip by the model;
+  - extraction errors (wrong characters, interleaved columns) make real quotes fail;
+  - quotes with `…` or `[...]` elisions fail;
+  - very short quotes (e.g. "no") can match by chance.
+
+  If the failure rate is high, relax to document-level matching or tune the prompts. Never edit the output.
 - **Operator cleanup gaps.** A Source Document that ends `failed` can't be retried or deleted; a retry adds a new row. A storage `OSError` can leave an orphan content-addressed file. Multi-line failure reasons (e.g. a redirect loop) break the tab-separated rows of `ideology source list`. Fine for an MVP CLI; revisit before the Operator workflow gets heavier.
 - **Fetching manifests by URL.** There is no host allow-list, so an Operator can point a fetch at a private or loopback address. That's acceptable while fetching is Operator-only via the CLI; add an allow-list before any web or admin surface or `live` mode triggers fetches. Some party sites block non-browser clients or hide the PDF behind a JavaScript page; those end `failed`, and the Operator can fall back to `--file`. AES-encrypted PDFs are reported as encrypted because `cryptography` isn't installed.
 - **Parallel branches and migration ids.** Features developed in parallel can both add the same Alembic revision id (e.g. `0004`). Whichever merges second must renumber its revision and its `down_revision` before merging, then re-run `alembic check`.
