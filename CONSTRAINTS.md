@@ -58,11 +58,16 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - `/api/` routes MUST be `GET`-only and read-only (SELECT only; the request Session is never committed) and MUST NOT accept Answers (no query or body parameters). Reason: voter answers never reach the server, and the API is a public read surface.
 - The API MUST NOT serve `candidate` Dataset Versions; an unknown and a `candidate` id MUST get the same `404 dataset_version_not_found`. Reason: only versions that passed Validation are published.
 - A `DatasetVersion` response body MUST NOT contain mutable fields (status, the Published pointer). Reason: it is cached `public, max-age=86400, immutable`; the pointer lives in `Election.published_dataset_version_id`.
-- A Party Position's `value` MUST come from `PartyPosition.engine_value`. Reason: one mapping to what `match-score.js` consumes.
+- A Party Position's `value` MUST come from `PartyPosition.engine_value`. Reason: one mapping to what the `packages/core` match-score engine consumes.
 - `/api/v1` changes MUST be additive; a breaking change needs `/api/v2`. Reason: clients and old Share Links depend on the contract.
 
 ## Client-side Matching
 
-- The Match Score MUST be computed only by `src/ideology_app/static/js/match-score.js` in the Voter's browser. The server MUST NOT get an endpoint that receives Answers. Reason: the invariant that voter answers are never stored or sent to the server.
-- `match-score.js` MUST stay dependency-free: no `import`, no browser or network globals. Reason: it is served as-is as a static asset and unit-tested under Node.
-- JS tooling MUST NOT add npm dependencies without committing a lockfile. Reason: a reproducible verification gate.
+- The Match Score MUST be computed only by `packages/core/src/domain/match-score.ts` in the client. The server MUST NOT get an endpoint that receives Answers. Reason: the invariant that voter answers are never stored or sent to the server.
+- `packages/core` MUST NOT import React, DOM or platform APIs, and `match-score.ts` MUST have no imports and use no globals beyond the language built-ins. Reason: the core is shared by the web and (later) mobile clients and tested under Node.
+- Client code MUST NOT put Answers in any request (path, query string, body or headers); only the URL fragment carries them (Share Links). Reason: the invariant above, and server access logs record full request lines.
+- npm dependencies MUST be exact-pinned and installed with `npm ci` from the committed `package-lock.json`; any new runtime dependency MUST be justified in its feature spec. Reason: a reproducible verification gate and a small client.
+
+## Web Client Serving
+
+- New server routes MUST be registered in `create_app` before `web_router`, and the SPA fallback MUST NOT serve `/api/` or `/health` paths. Reason: the catch-all `GET /{path:path}` matches every path, so anything included after it is unreachable, and unknown API paths must keep their JSON `404`.

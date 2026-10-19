@@ -1,0 +1,16 @@
+{
+  "name": "@ideology-app/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ideology-app/core": "*",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

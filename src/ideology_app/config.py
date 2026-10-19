@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_DATABASE_URL = "sqlite:///ideology.db"
 DEFAULT_SOURCE_FILES_DIR = "source_files"
+DEFAULT_WEB_DIST_DIR = "apps/web/dist"
 
 DEFAULT_LLM_PROVIDER = "anthropic"
 # Default model per provider. Adding a provider adds one entry here.
@@ -97,6 +98,14 @@ def _env(name: str) -> str | None:
     """Return the trimmed value of ``name``, or ``None`` if unset or blank."""
     value = os.environ.get(name, "").strip()
     return value or None
+
+
+def web_dist_dir() -> Path:
+    """Return ``WEB_DIST_DIR`` (trimmed) if set, else ``apps/web/dist`` in the current directory.
+
+    The directory holds the Vite build of ``apps/web`` that FastAPI serves.
+    """
+    return Path(_env("WEB_DIST_DIR") or DEFAULT_WEB_DIST_DIR)
 
 
 def generation_mode() -> GenerationMode:

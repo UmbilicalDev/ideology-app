@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# What ``match-score.js`` consumes: -2..+2 or ``"no_stance"`` (``PartyPosition.engine_value``).
+# What ``packages/core`` match-score consumes: -2..+2 or ``"no_stance"`` (``PartyPosition.engine_value``).
 PositionValue = Annotated[int, Field(ge=-2, le=2, strict=True)] | Literal["no_stance"]
 
 

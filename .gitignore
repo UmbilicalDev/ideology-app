@@ -8,3 +8,6 @@ __pycache__/
 *.db
 .DS_Store
 source_files/
+node_modules/
+apps/web/dist/
+*.tsbuildinfo
