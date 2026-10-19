@@ -7,9 +7,9 @@
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22 on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `js-test` (`node --test tests/js/*.test.js`))
 - Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`, `pipeline run|list|statements|positions|validate|checks`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `validation-statement-separation`, `validation-questionnaire-shape` (each plugs into the Validation framework; threshold checks add a `config.ValidationSettings` field); `validation-evidence-quotes` is `accepted`; `validation-party-coverage` is `accepted`
+- Current next ready features: `validation-questionnaire-shape` (plugs into the Validation framework; threshold checks add a `config.ValidationSettings` field); `validation-evidence-quotes`, `validation-party-coverage` and `validation-statement-separation` are `accepted`
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/validation-party-coverage`: pytest 605 passed, node --test 41 passed, alembic head `0006`)
+- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/validation-statement-separation`: pytest 632 passed, node --test 41 passed, alembic head `0006`)
 
 ## Session Log
 
@@ -253,3 +253,24 @@
 - Evidence captured: `feature_list.json` → `validation-party-coverage` status `accepted`.
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md`.
 - Next best step: plan the next dependency-ready feature (`validation-statement-separation`) with `$feature-spec`.
+
+### Session 024
+
+- Date: 2026-10-19
+- Goal: Implement `validation-statement-separation` per `docs/specs/validation-statement-separation.md` (implementer).
+- Completed: new check `validation/statement_separation.py` (`STATEMENT_SEPARATION`, domain check 4, no threshold): fewer than two distinct values among the stances of Parties in `party_ids` fails, with messages `no party has a stance` / `only party P has a stance (value V)` / `all K parties with a stance have value V`; one Election-level entry when the Election has fewer than two Parties; zero Statements → no entries; foreign Party ids and unknown Statement ids ignored. Registered as `CHECKS = (EVIDENCE_QUOTES, PARTY_COVERAGE, STATEMENT_SEPARATION)` and exported. Test fake: `PARTY_VALUES = {1: 1, 2: -1}` and `findings_response(None)` so the default run separates; existing expectations updated keeping intent (sparse runs and stanceless-Party runs now also fail separation; invented findings use -1). New `tests/test_validation_statement_separation.py` plus run-level and CLI tests. Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md`, `docs/domain-model.md`, `docs/risks-and-open-questions.md`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 632 passed, was 605; node 41 passed); `-X dev -W error` pytest 632 clean; focused validation/runs/pipeline/CLI pytest 214 passed with no API key; the check imports only `collections` and `validation.base`; no diff to migrations, `config.py`, `cli.py` or `pipeline/`; alembic head `0006`, `alembic check` no drift; offline CLI smoke (default passed with three rows; Statement 2 equal → failed `statement_separation` with the Statement 2 row; Party 2 document failed → `party_coverage, statement_separation`, 1 + 30 rows). Browser validation exempt (CLI and pipeline only).
+- Evidence captured: `feature_list.json` → `validation-statement-separation.evidence` (status `passing`).
+- Deviations: none.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Separation vs real manifestos", owner `e2e-real-2023-election`; Accepted Low on double reporting with `party_coverage`). If `validation-questionnaire-shape` merges first, rebase and keep domain order in `CHECKS`.
+- Next best step: independent validation of `validation-statement-separation` with `$feature-validator`.
+
+### Session 025
+
+- Date: 2026-10-19
+- Goal: Independently validate `validation-statement-separation` (validator) and accept it.
+- Completed: validator verdict `accept`, no blocking or revise findings; status set to `accepted` in `feature_list.json`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 632 passed, node 41 passed); full pytest without API key 632 passed; no diff vs `main` to migrations, `config.py`, `cli.py`, `pipeline/`, `validation/base.py`, `init.sh`, `pyproject.toml`; alembic head `0006`; every edge case has its own test; a mutation of the Party-count rule in a scratch copy was caught. Browser validation exempt (CLI and pipeline only).
+- Evidence captured: `feature_list.json` → `validation-statement-separation.evidence` (validator acceptance line).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Separation vs real manifestos"; Accepted Low on double reporting). Single-Party Election is tested on plain data only, as the spec requires.
+- Next best step: plan `validation-questionnaire-shape` with `$feature-spec`.

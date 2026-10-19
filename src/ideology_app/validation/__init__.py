@@ -29,9 +29,11 @@ from ideology_app.validation.evidence_quotes import (
     quote_starts_on,
 )
 from ideology_app.validation.party_coverage import PARTY_COVERAGE
+from ideology_app.validation.statement_separation import STATEMENT_SEPARATION
 
-# Registry order is run order (domain check order).
-CHECKS: tuple[Check, ...] = (EVIDENCE_QUOTES, PARTY_COVERAGE)
+# Registry order is run order (domain check order: 2 evidence quotes,
+# 3 party coverage, 4 statement separation).
+CHECKS: tuple[Check, ...] = (EVIDENCE_QUOTES, PARTY_COVERAGE, STATEMENT_SEPARATION)
 
 
 def run_checks(data: ValidationInput, checks: Sequence[Check] = CHECKS) -> list[CheckResult]:
@@ -45,6 +47,7 @@ __all__ = [
     "EVIDENCE_QUOTES",
     "MESSAGE_MAX",
     "PARTY_COVERAGE",
+    "STATEMENT_SEPARATION",
     "Check",
     "CheckResult",
     "PositionRow",

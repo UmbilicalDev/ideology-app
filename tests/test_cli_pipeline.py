@@ -304,10 +304,14 @@ POSITIONS_HEADER = "statement\tparty\tvalue\tdocument\tpage\turl\tquote"
 def test_positions_lists_every_statement_party_pair(
     run, seeded, use_fake, monkeypatch
 ) -> None:
-    # Sparse on purpose (no fill), so ``no_stance`` rows exist; coverage is not checked.
+    # Sparse on purpose (no fill), so ``no_stance`` rows exist; coverage is not
+    # checked. Statements 3..30 have no stance, so the run fails on
+    # statement_separation and keeps its Dataset Version.
     use_fake(fake_provider(party_positions=positions_response()))
     monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "0")
-    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    failed = run("pipeline", "run", "--election", "1")
+    assert failed.exit_code == 1
+    assert "validation failed: statement_separation;" in failed.stderr
 
     result = run("pipeline", "positions", "--dataset-version", "1")
 
@@ -317,9 +321,9 @@ def test_positions_lists_every_statement_party_pair(
     assert len(lines) == 61
     assert lines[1:5] == [
         f"1\t1\t1\t1\t1\t\t{PAGES[1][0]}",
-        f"1\t2\t1\t2\t1\t\t{PAGES[2][0]}",
+        f"1\t2\t-1\t2\t1\t\t{PAGES[2][0]}",
         f"2\t1\t1\t1\t2\t\t{PAGES[1][1]}",
-        f"2\t2\t1\t2\t2\t\t{PAGES[2][1]}",
+        f"2\t2\t-1\t2\t2\t\t{PAGES[2][1]}",
     ]
     assert lines[5:7] == ["3\t1\tno_stance\t\t\t\t", "3\t2\tno_stance\t\t\t\t"]
     assert [line.split("\t")[:2] for line in lines[1:]] == [
@@ -403,23 +407,42 @@ FAILED_RUN_1 = (
     'see "ideology pipeline checks --run 1"\n'
 )
 COVERAGE_FAILED_RUN_1 = (
-    'Error: pipeline run 1 failed: validation failed: party_coverage; '
+    'Error: pipeline run 1 failed: validation failed: party_coverage, statement_separation; '
     'see "ideology pipeline checks --run 1"\n'
 )
-PASSED_CHECKS = f"{CHECKS_HEADER}\nevidence_quotes\tpassed\t\t\t\nparty_coverage\tpassed\t\t\t\n"
+SEPARATION_FAILED_RUN_1 = (
+    'Error: pipeline run 1 failed: validation failed: statement_separation; '
+    'see "ideology pipeline checks --run 1"\n'
+)
+PASSED_CHECKS = (
+    f"{CHECKS_HEADER}\n"
+    "evidence_quotes\tpassed\t\t\t\n"
+    "party_coverage\tpassed\t\t\t\n"
+    "statement_separation\tpassed\t\t\t\n"
+)
 PARTY2_ZERO = (
     "party_coverage\tfailed\t\t2\t"
     "party 2 has positions on 0 of 30 statements (0%); minimum is 70%"
 )
+# Party 2 without stances: no Statement separates the two Parties.
+ONLY_PARTY1_ROWS = [
+    f"statement_separation\tfailed\t{n}\t\t"
+    f"statement {n} does not separate parties: only party 1 has a stance (value 1)"
+    for n in range(1, 31)
+]
 
 
 def _invented_for_party2(request: LLMRequest[Any]) -> dict[str, Any]:
-    """Party 2 cites an invented quote for Statement 1 only (real Statement 2 first)."""
+    """Party 2 cites an invented quote for Statement 1 only (real Statement 2 first).
+
+    The invented finding keeps Party 2's default value (-1), so the Statements
+    still separate the Parties.
+    """
     real = findings_response()(request)
     if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
         return real
     kept = [f for f in real["findings"] if f["statement"] != 1]
-    return {"findings": [*kept, {"statement": 1, "value": 1, "quote": INVENTED, "page": 1}]}
+    return {"findings": [*kept, {"statement": 1, "value": -1, "quote": INVENTED, "page": 1}]}
 
 
 def _fail_party2_document(db_url: str) -> None:
@@ -496,11 +519,12 @@ def test_run_failing_validation_is_committed_and_reported(run, seeded, use_fake)
         f"{CHECKS_HEADER}\n"
         "evidence_quotes\tfailed\t1\t2\tquote not found in source document 2\n"
         "party_coverage\tpassed\t\t\t\n"
+        "statement_separation\tpassed\t\t\t\n"
     )
     # The failed run keeps its candidate Dataset Version.
     positions = run("pipeline", "positions", "--dataset-version", "1", "--party", "2")
     assert positions.exit_code == 0
-    assert f"1\t2\t1\t2\t1\t\t{INVENTED}" in positions.output.splitlines()
+    assert f"1\t2\t-1\t2\t1\t\t{INVENTED}" in positions.output.splitlines()
 
 
 def test_checks_list_one_row_per_entry(run, seeded, use_fake) -> None:
@@ -512,7 +536,8 @@ def test_checks_list_one_row_per_entry(run, seeded, use_fake) -> None:
             ]
         }
 
-    # Sparse (no fill): each Party covers 2 of 30 Statements, so both checks fail.
+    # Sparse (no fill): each Party covers 2 of 30 Statements with value -1, so
+    # all three checks fail.
     use_fake(
         fake_provider(position_findings=_all_invented, party_positions=positions_response())
     )
@@ -531,6 +556,15 @@ def test_checks_list_one_row_per_entry(run, seeded, use_fake) -> None:
         "party 1 has positions on 2 of 30 statements (6%); minimum is 70%",
         "party_coverage\tfailed\t\t2\t"
         "party 2 has positions on 2 of 30 statements (6%); minimum is 70%",
+        "statement_separation\tfailed\t1\t\t"
+        "statement 1 does not separate parties: all 2 parties with a stance have value -1",
+        "statement_separation\tfailed\t2\t\t"
+        "statement 2 does not separate parties: all 2 parties with a stance have value -1",
+        *(
+            f"statement_separation\tfailed\t{n}\t\t"
+            f"statement {n} does not separate parties: no party has a stance"
+            for n in range(3, 31)
+        ),
     ]
 
 
@@ -596,14 +630,16 @@ def test_coverage_failure_is_committed_and_reported(run, seeded, use_fake, db_ur
     assert result.stderr == COVERAGE_FAILED_RUN_1
     row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
     assert (row[1], row[5], row[6], row[10]) == (
-        "failed", "1", "30", "validation failed: party_coverage"
+        "failed", "1", "30", "validation failed: party_coverage, statement_separation"
     )
     checks = run("pipeline", "checks", "--run", "1")
     assert checks.exit_code == 0, checks.output
+    # Coverage names Party 2 once; separation names every Statement (intended).
     assert checks.output.splitlines() == [
         CHECKS_HEADER,
         "evidence_quotes\tpassed\t\t\t",
         PARTY2_ZERO,
+        *ONLY_PARTY1_ROWS,
     ]
     # The failed run keeps its candidate Dataset Version and every Party Position.
     positions = run("pipeline", "positions", "--dataset-version", "1")
@@ -619,8 +655,15 @@ def test_configured_threshold_is_used_by_pipeline_run(
 
     result = run("pipeline", "run", "--election", "1")
 
-    assert result.exit_code == 0, result.output
-    assert run("pipeline", "checks", "--run", "1").output == PASSED_CHECKS
+    # With 0% coverage passes; Party 2 without stances still fails separation.
+    assert result.exit_code == 1
+    assert result.stderr == SEPARATION_FAILED_RUN_1
+    assert run("pipeline", "checks", "--run", "1").output.splitlines() == [
+        CHECKS_HEADER,
+        "evidence_quotes\tpassed\t\t\t",
+        "party_coverage\tpassed\t\t\t",
+        *ONLY_PARTY1_ROWS,
+    ]
 
 
 @pytest.mark.parametrize("raw", ["abc", "0.7", "70%", "-1", "101"])
@@ -668,9 +711,12 @@ def test_validate_uses_the_configured_threshold(
     monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "0")
     result = run("pipeline", "validate", "--run", "1")
 
-    assert result.exit_code == 0, result.output
-    assert result.output == "Pipeline run 1: passed\n"
-    assert run("pipeline", "checks", "--run", "1").output == PASSED_CHECKS
+    # With 0% coverage passes; Party 2 without stances still fails separation.
+    assert result.exit_code == 1
+    assert result.stderr == SEPARATION_FAILED_RUN_1
+    assert run("pipeline", "checks", "--run", "1").output.splitlines()[2] == (
+        "party_coverage\tpassed\t\t\t"
+    )
 
 
 def test_validate_reports_a_coverage_failure(run, seeded, db_url, no_provider) -> None:
@@ -689,3 +735,67 @@ def test_validate_reports_a_coverage_failure(run, seeded, db_url, no_provider) -
             assert stored is not None and stored.status is PipelineRunStatus.FAILED
     finally:
         engine.dispose()
+
+
+# validation-statement-separation Scenario 5: ``pipeline run`` / ``validate`` / ``checks``
+
+EQUAL_ON_2_ROW = (
+    "statement_separation\tfailed\t2\t\t"
+    "statement 2 does not separate parties: all 2 parties with a stance have value 1"
+)
+
+
+def _party2_agrees_on_statement2(request: LLMRequest[Any]) -> dict[str, Any]:
+    """Party 2's page-2 finding (Statement 2) takes value 1, equal to Party 1's."""
+    real = findings_response()(request)
+    if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
+        return real
+    return {
+        "findings": [
+            f | {"value": 1} if f["statement"] == 2 else f for f in real["findings"]
+        ]
+    }
+
+
+def test_separation_failure_is_committed_and_reported(run, seeded, use_fake) -> None:
+    use_fake(fake_provider(position_findings=_party2_agrees_on_statement2))
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == SEPARATION_FAILED_RUN_1
+    row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
+    assert (row[1], row[5], row[6], row[10]) == (
+        "failed", "1", "30", "validation failed: statement_separation"
+    )
+    checks = run("pipeline", "checks", "--run", "1")
+    assert checks.exit_code == 0, checks.output
+    assert checks.output.splitlines() == [
+        CHECKS_HEADER,
+        "evidence_quotes\tpassed\t\t\t",
+        "party_coverage\tpassed\t\t\t",
+        EQUAL_ON_2_ROW,
+    ]
+    # The failed run keeps its candidate Dataset Version and every Party Position.
+    positions = run("pipeline", "positions", "--dataset-version", "1").output.splitlines()
+    assert len(positions) == 61
+    assert positions[3:5] == [
+        f"2\t1\t1\t1\t2\t\t{PAGES[1][1]}",
+        f"2\t2\t1\t2\t2\t\t{PAGES[2][1]}",
+    ]
+
+
+def test_validate_reports_a_separation_failure(run, seeded, db_url, no_provider) -> None:
+    _validating_run(db_url, fake_provider(position_findings=_party2_agrees_on_statement2))
+
+    result = run("pipeline", "validate", "--run", "1")
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == SEPARATION_FAILED_RUN_1
+    assert run("pipeline", "checks", "--run", "1").output.splitlines()[1:] == [
+        "evidence_quotes\tpassed\t\t\t",
+        "party_coverage\tpassed\t\t\t",
+        EQUAL_ON_2_ROW,
+    ]

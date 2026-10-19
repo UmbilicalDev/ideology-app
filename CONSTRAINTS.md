@@ -44,6 +44,7 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Evidence quote matching MUST go through `validation.evidence_quotes.normalize_for_match`. Reason: one matching rule for Validation and anything later that shows whether a quote was found.
 - Validation thresholds MUST come from `config.ValidationSettings` (read from the environment by `config.validation_settings()` and passed into `ValidationInput.settings`), never from literals inside a check. Reason: thresholds are configuration, and checks stay pure and testable at any threshold.
 - A Party below the coverage threshold MUST fail the whole run and MUST NOT be excluded from a Dataset Version. Reason: excluding a Party silently changes the Voter's ballot, the UI treats all Parties identically, and AI output is never edited.
+- A Statement that does not separate the Parties (fewer than two different values among its stances) MUST fail the whole run and MUST NOT be dropped from the Dataset Version. Reason: Dataset Versions are immutable, AI output is never edited, and the run is the unit of publication.
 - Only `auto-publish-dataset-version` MAY change a Dataset Version's status; Validation MUST NOT. Reason: publishing and superseding are one transition with its own rules (exactly one Published version per Election).
 
 ## Client-side Matching

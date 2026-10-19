@@ -34,6 +34,10 @@ PAGES = {
     2: ["Medidas fiscales y de empleo.", "Medidas sobre educación y universidades."],
 }
 
+# Default finding value per Party, so the default run separates the Parties
+# (statement_separation passes): Party 1 agrees, Party 2 disagrees.
+PARTY_VALUES = {1: 1, 2: -1}
+
 
 def offline_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unset LLM and Validation settings and block every socket connection."""
@@ -171,13 +175,31 @@ def statement_numbers(request: LLMRequest[Any]) -> list[int]:
     return [int(n) for n in _STATEMENT.findall(listed)]
 
 
-def findings_response(value: int = 1) -> Callable[[LLMRequest[Any]], dict[str, Any]]:
-    """One finding per page of the chunk: Statement n = page n, quote = page text."""
+def _page_value(text: str) -> int:
+    """``PARTY_VALUES`` of the Party whose seeded page this is, else 1."""
+    for party_id, pages in PAGES.items():
+        if text in pages:
+            return PARTY_VALUES[party_id]
+    return 1
+
+
+def findings_response(value: int | None = None) -> Callable[[LLMRequest[Any]], dict[str, Any]]:
+    """One finding per page of the chunk: Statement n = page n, quote = page text.
+
+    With ``value`` None each finding takes its Party's ``PARTY_VALUES`` value
+    (looked up by page text, so prompts never need a Party name); an explicit
+    ``value`` is used for every page.
+    """
 
     def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
         return {
             "findings": [
-                {"statement": page, "value": value, "quote": text[:500], "page": page}
+                {
+                    "statement": page,
+                    "value": _page_value(text) if value is None else value,
+                    "quote": text[:500],
+                    "page": page,
+                }
                 for page, text in chunk_pages(request)
             ]
         }
