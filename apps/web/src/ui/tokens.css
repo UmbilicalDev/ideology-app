@@ -1,0 +1,29 @@
+/* Design tokens from DESIGN.md. Change DESIGN.md first, then mirror it here. */
+:root {
+  --color-primary: #2f4b7c;
+  --color-secondary: #5b6b82;
+  --color-accent: #e0a526;
+  --color-background: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-text: #1d2330;
+  --color-muted: #6b7280;
+  --color-border: #e3e3de;
+  --color-scale-disagree-strong: #8a8f98;
+  --color-scale-agree-strong: #2f4b7c;
+
+  --font-ui: Inter, system-ui, sans-serif;
+  --font-quote: Georgia, serif;
+  --font-size-h1: 28px;
+  --font-size-h2: 20px;
+  --font-size-body: 16px;
+  --font-size-quote: 15px;
+
+  --radius-sm: 6px;
+  --radius-md: 12px;
+
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+
+  --reading-width: 720px;
+}

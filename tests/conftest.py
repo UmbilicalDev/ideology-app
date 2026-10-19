@@ -10,8 +10,9 @@ from ideology_app.db import make_engine, run_migrations
 
 @pytest.fixture(autouse=True)
 def _no_default_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Never let a test fall back to ./ideology.db."""
+    """Never let a test fall back to ./ideology.db or a developer's web build."""
     monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("WEB_DIST_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
 
 

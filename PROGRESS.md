@@ -4,12 +4,12 @@
 
 - Repository root: `/Users/kike/PycharmProjects/ideology-app` (remote: `github.com/UmbilicalDev/ideology-app`, branch `main`)
 - Standard startup path: `./init.sh`
-- Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22 on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `js-test` (`node --test tests/js/*.test.js`))
-- Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`; public read-only API under `/api/v1/`, OpenAPI at `/api/openapi.json`; reads `DATABASE_URL`, migrate first with `ideology db upgrade`)
+- Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22.13 and npm on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `web-install` (`npm ci` from the committed `package-lock.json`), `web-typecheck`, `web-test` (Vitest), `web-build` (`apps/web/dist`))
+- Manual start (from the repo root, after `./init.sh`): `.venv/bin/uvicorn ideology_app.main:app --reload` (web client at `http://127.0.0.1:8000/`, served from `WEB_DIST_DIR`, default `apps/web/dist`; `GET /health` → 200 `{"status": "ok"}`; public read-only API under `/api/v1/`, OpenAPI at `/api/openapi.json`; reads `DATABASE_URL`, migrate first with `ideology db upgrade`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`, `pipeline run|list|statements|positions|validate|checks|report`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `live-mode-source-change-trigger`; `public-dataset-api` is `accepted` (web features also need `web-client-skeleton`)
+- Current next ready features: `live-mode-source-change-trigger`; `landing-election-picker` (unblocked by the accepted `web-client-skeleton`)
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/public-dataset-api`: pytest 830 passed, node --test 41 passed, alembic head `0008`)
+- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/web-client-skeleton`: pytest 867 passed, Vitest 43 passed, `vite build` ok, alembic head `0008`)
 
 ## Session Log
 
@@ -341,3 +341,14 @@
 - Validation: independent validator **accept** (2026-10-19). Re-ran `CI=true ./init.sh` (830 pytest, 41 node) and the strict `-X dev -W error` API/health run (21); live uvicorn smoke on a scratch DB covering status codes, ETag/304, Cache-Control, byte-identical published vs by-id bodies (also after a later supersede), Party Position encoding and Evidence locators, OpenAPI, SELECT-only SQL, no CORS; scope clean. Low notes: OpenAPI renders the value bounds as `-2.0`/`2.0`; FastAPI's docs routes answer `HEAD`. Status `accepted`.
 - Next best step: pick the next dependency-ready feature in `feature_list.json`.
 
+### Session 032
+
+- Date: 2026-10-19
+- Goal: Implement `web-client-skeleton` (issue #29) per `docs/specs/web-client-skeleton.md` (branch `feature/web-client-skeleton`).
+- Completed: npm workspaces (root `package.json`, `package-lock.json`, `tsconfig.base.json`, `vitest.config.ts`); `packages/core` (`src/domain/match-score.ts` port, `src/index.ts`, `test/domain/match-score.test.ts` with the 41 cases); `apps/web` (Vite + React 19 placeholder page: `index.html`, `src/main.tsx`, `src/app/App.tsx`, `src/features/home/HomePage.tsx` + test, `src/ui/tokens.css`, `src/ui/global.css`); `config.web_dist_dir()`, new `src/ideology_app/web.py` (catch-all with SPA fallback), `main.create_app(web_dist_dir=)`; `init.sh` (Node >= 22.13, `web-install`/`web-typecheck`/`web-test`/`web-build`, `js-test` removed); `tests/test_web_client.py`, `tests/test_init_script.py`, `tests/conftest.py`; deleted `src/ideology_app/static/` and `tests/js/`; docs `ARCHITECTURE.md`, `CONSTRAINTS.md`, `docs/risks-and-open-questions.md`.
+- Verification run: `CI=true ./init.sh` from a clean `node_modules` exit 0 (pytest 867, Vitest 43, build ok); negative scratch copies fail at `web-typecheck`, `web-test`, `web-build`, `web-install` (lockfile out of sync); old/new match-score test titles identical; 20,000-case differential check with 0 mismatches; live uvicorn + curl for Scenarios 3-5; Chrome 155 (DevTools MCP) at 375x812 and 1280x800, SPA fallback and Back, console clean, only 3 same-origin requests per load. Details in `feature_list.json` → `web-client-skeleton.evidence`.
+- Evidence captured: `feature_list.json` → `web-client-skeleton.evidence` (status `passing`).
+- Deviations: (1) `packages/core/tsconfig.json` includes `src` and `test` only (not its `vitest.config.ts`), so Vite's type references can't bring DOM or Node globals into the core check. (2) Consequences the spec did not list: the catch-all matches before Starlette's trailing-slash redirect, so `/api/v1/elections/` and `/health/` now return 404 JSON instead of a 307; `HEAD /` gets 405. Recorded as an Accepted Low finding.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (settled: web build serving, match-score port; new: container must build with `npm ci && npm run build` and set `WEB_DIST_DIR`, TypeScript 7 compiler-API support, trailing-slash/HEAD Low; access-log risk renamed to deployment only).
+- Validation: independent validator **accept** (2026-10-20). Re-ran `CI=true ./init.sh` (867 pytest, 43 Vitest, build ok); four negative gate copies; 80,000-call match-score differential with 0 mismatches; live uvicorn + curl serving and traversal checks; browser check in Chrome 155 (chrome-devtools MCP) at 375x812 and 1280x800 with a clean console and only same-origin 200 requests. Low notes accepted: trailing-slash 307 -> 404, `HEAD /` 405, core tsconfig excludes `vitest.config.ts`. Status `accepted`.
+- Next best step: plan `landing-election-picker` with `$feature-spec`.

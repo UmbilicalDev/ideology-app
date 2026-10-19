@@ -325,7 +325,7 @@ class Statement(Base):
     )
 
 
-# What ``match-score.js`` expects for a Party Position without a stance.
+# What ``packages/core`` match-score expects for a Party Position without a stance.
 NO_STANCE = "no_stance"
 
 
@@ -373,7 +373,7 @@ class PartyPosition(Base):
 
     @property
     def engine_value(self) -> int | Literal["no_stance"]:
-        """The value as ``match-score.js`` consumes it: -2..+2 or ``"no_stance"``."""
+        """The value as ``packages/core`` match-score consumes it: -2..+2 or ``"no_stance"``."""
         return NO_STANCE if self.value is None else self.value
 
 
