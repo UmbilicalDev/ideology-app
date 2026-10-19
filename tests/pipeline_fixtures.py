@@ -1,6 +1,7 @@
 """Helpers for pipeline tests: seed parsed documents via the ORM, fake responses."""
 
 import datetime as dt
+import re
 import socket
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -79,14 +80,21 @@ def seed_election(engine: Engine, *, with_failed_document: bool = True) -> None:
 
 
 def add_parsed_document(
-    session: Any, *, party_id: int, document_id: int, pages: Sequence[str]
+    session: Any,
+    *,
+    party_id: int,
+    document_id: int,
+    pages: Sequence[str],
+    source_url: str | None = None,
 ) -> None:
+    """A parsed document; with ``source_url`` it is a URL document, else an upload."""
     session.add(
         SourceDocument(
             id=document_id,
             party_id=party_id,
-            origin=SourceDocumentOrigin.UPLOAD,
+            origin=SourceDocumentOrigin.URL if source_url else SourceDocumentOrigin.UPLOAD,
             status=SourceDocumentStatus.PARSED,
+            source_url=source_url,
             content_hash=f"{document_id:064x}",
             page_count=len(pages),
         )
@@ -122,10 +130,76 @@ def statements_payload(count: int = 30) -> dict[str, Any]:
     }
 
 
-def fake_provider(**overrides: Any) -> FakeProvider:
-    responses: dict[str, Any] = {
+_CHUNK_START = "(cada página va precedida de su marcador):\n\n"
+_CHUNK_END = "\n\nIndica la posición"
+_PAGE = re.compile(r"\[página (\d+)\]\n(.*?)(?=\n\n\[página \d+\]\n|\Z)", re.DOTALL)
+_CANDIDATE = re.compile(
+    r"^C(\d+) \[(programa principal|programa adicional)\] \[afirmación (\d+)\] "
+    r"\[valor (-?\d+)\] \[página (\d+)\] «(.*)»$",
+    re.MULTILINE,
+)
+
+
+def chunk_pages(request: LLMRequest[Any]) -> list[tuple[int, str]]:
+    """The ``(page, text)`` pages of a ``position_findings`` request's chunk."""
+    chunk = request.prompt.split(_CHUNK_START, 1)[1].rsplit(_CHUNK_END, 1)[0]
+    return [(int(m.group(1)), m.group(2)) for m in _PAGE.finditer(chunk)]
+
+
+def candidate_lines(request: LLMRequest[Any]) -> list[dict[str, Any]]:
+    """The numbered candidates of a ``party_positions`` request."""
+    return [
+        {
+            "number": int(m.group(1)),
+            "label": m.group(2),
+            "statement": int(m.group(3)),
+            "value": int(m.group(4)),
+            "page": int(m.group(5)),
+            "quote": m.group(6),
+        }
+        for m in _CANDIDATE.finditer(request.prompt)
+    ]
+
+
+def findings_response(value: int = 1) -> Callable[[LLMRequest[Any]], dict[str, Any]]:
+    """One finding per page of the chunk: Statement n = page n, quote = page text."""
+
+    def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
+        return {
+            "findings": [
+                {"statement": page, "value": value, "quote": text[:500], "page": page}
+                for page, text in chunk_pages(request)
+            ]
+        }
+
+    return _respond
+
+
+def positions_response() -> Callable[[LLMRequest[Any]], dict[str, Any]]:
+    """For each Statement, the value of its first candidate, citing that candidate."""
+
+    def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
+        chosen: dict[int, dict[str, int]] = {}
+        for c in candidate_lines(request):
+            chosen.setdefault(
+                c["statement"],
+                {"statement": c["statement"], "value": c["value"], "evidence": c["number"]},
+            )
+        return {"positions": list(chosen.values())}
+
+    return _respond
+
+
+def default_responses() -> dict[str, Any]:
+    return {
         "statement_candidates": candidates_response(),
         "generate_statements": statements_payload(),
+        "position_findings": findings_response(),
+        "party_positions": positions_response(),
     }
+
+
+def fake_provider(**overrides: Any) -> FakeProvider:
+    responses = default_responses()
     responses.update(overrides)
     return FakeProvider(responses)

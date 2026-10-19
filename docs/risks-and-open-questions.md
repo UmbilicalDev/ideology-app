@@ -7,13 +7,14 @@ None.
 ## Implementation-Time Questions
 
 - How often URL Source Documents are re-fetched and hashed for change detection in `live` mode.
-- The exact prompts for Party Position extraction and how to chunk manifestos for it. Settled for Statements (`pipeline-generate-statements`): map/reduce over chunks of whole pages of at most 40,000 characters (one `statement_candidates` call per chunk, then one `generate_statements` call), prompts `v1`, at most 200 LLM calls per run; real-LLM quality is checked only in `e2e-real-2023-election`.
+- Settled: the prompts and chunking for Statements and Party Positions. Statements (`pipeline-generate-statements`): map/reduce over chunks of whole pages of at most 40,000 characters (one `statement_candidates` call per chunk, then one `generate_statements` call), at most 200 LLM calls. Party Positions (`pipeline-extract-positions`): per-chunk findings over the same 40,000-character chunks (one `position_findings` call per chunk), then one `party_positions` reduce per Party, at most 300 calls. All prompts `v1`; real-LLM quality is checked only in `e2e-real-2023-election`.
 - The Share Link encoding format and its versioning.
-- The fuzzy-match tolerance for Evidence quote verification (`validation-evidence-quotes`). Page text is stored as pypdf extracts it, and its quality on real manifestos (columns, ligatures, hyphenation) is unverified, so normalise when matching, not when storing.
-- The Party Position encoding the browser expects (`public-dataset-api`). `match-score-engine` already uses integers −2..+2 and the string `"no_stance"`, so the API must emit these values or map them once at load.
+- The fuzzy-match tolerance for Evidence quote verification (`validation-evidence-quotes`). Page text is stored as pypdf extracts it, and its quality on real manifestos (columns, ligatures, hyphenation) is unverified, so normalise when matching, not when storing. The cited page is stored as the LLM returned it; that feature decides whether the quote must be on that page or only somewhere in the document.
+- The Party Position encoding the browser expects (`public-dataset-api`). `match-score-engine` already uses integers −2..+2 and the string `"no_stance"`, so the API must emit these values or map them once at load. `PartyPosition.engine_value` (`pipeline-extract-positions`) already gives these values.
 - Shipping the web build (`web-client-skeleton`). `src/ideology_app/static/` is not in setuptools package-data, so a non-editable install would not include it; decide how the container gets `apps/web/dist` (build stage, mount path, SPA fallback that doesn't shadow the API) and how `init.sh` runs the npm build.
 - Porting `match-score.js` to TypeScript in `packages/core` (`web-client-skeleton`) must keep the exact semantics and the `node:test` scenarios (moved to Vitest), since `match-score-engine` is already accepted.
-- Which Source Documents a Pipeline Run used is not recorded (`pipeline-extract-positions` or `live-mode-source-change-trigger`). Also decide whether the per-Party unique content hash is right when a URL is re-fetched and its content changes (`live-mode-url-refetch`).
+- Whether the per-Party unique content hash is right when a URL is re-fetched and its content changes (`live-mode-url-refetch`).
+- Which document is a coalition's joint manifesto: currently the Party's lowest-id parsed document (register it first). An explicit Operator flag is undecided.
 - What happens when a Party fails coverage: fail the whole run, or exclude the Party and publish with a notice? Initial position: fail the run.
 - The minimum number of answered Statements before showing a ranking.
 - Order in which Statements are shown (random or by topic) to reduce order bias.
@@ -37,14 +38,15 @@ None.
 
 - **AI-only accuracy (high).** A wrong Position means a wrong recommendation, with no human in the loop. Mitigations: required Evidence that is verified against the source, automatic Validation, visible quotes, and the provider/model/prompt recorded per run.
 - **Perceived bias in Statements (high).** AI-generated wording or topic selection may favour some parties. Mitigations: the topic spread and separation checks, a neutral-wording rule in prompts, and a public methodology page.
-- **Quote verified but stance misread.** A quote can exist and still not support the assigned value. Validation can't catch this; it can only be detected by the Voter reading the Evidence.
+- **Quote verified but stance misread.** A quote can exist and still not support the assigned value. Validation can't catch this; it can only be detected by the Voter reading the Evidence. The `party_positions` reduce may also cite a candidate quote that was found for a different Statement, which makes this more likely.
 - **Electoral and legal exposure.** Possible scrutiny under electoral rules (LOREG, Junta Electoral Central) close to election day, and claims of misrepresentation. Needs a disclaimer, a methodology page and a legal check before a public launch.
 - **Non-determinism.** Re-runs yield different Questionnaires; Share Links pin Dataset Versions to contain this. In `live` mode a regeneration after a source change can replace the Questionnaire mid-campaign.
 - **Provider cost/availability**, especially in `live` mode.
-- **Runs stuck in `running`.** A crash between a Pipeline Run's commits (after `running`, before the result is recorded) leaves it in `running`; there is no recovery command yet, so the Operator queues a new run. The Source Documents a run used are not recorded per run either; revisit in `pipeline-extract-positions` or `live-mode-source-change-trigger`.
+- **Runs stuck in `running`.** Ctrl-C now ends a run `failed: interrupted`. A hard kill or crash between a Pipeline Run's commits (after `running`, before the result is recorded) still leaves it in `running`, with no recovery command, so the Operator queues a new run. Recovery is deferred to `live-mode-source-change-trigger`, the first unattended runner.
 - **Real-LLM behaviour unverified (`e2e-real-2023-election`).** All tests use `FakeProvider`, so none of these have been checked against a real model:
   - prompt quality: neutral wording, single propositions, the topic list;
   - the 40,000-character chunking;
+  - the Party Position prompts (`position_findings`, `party_positions`) and whether the 300-call cap fits real manifestos. A run now makes about 2 × chunks + Parties + 1 calls;
   - the model ids `claude-sonnet-5-5` / `claude-haiku-5-5`.
 
   Anthropic structured output may not enforce every JSON-schema constraint (`maxItems`, `pattern`), so a violation surfaces as `LLMOutputError` and the run ends `failed`.
@@ -65,6 +67,8 @@ Not worth fixing now. Fix one when you touch that code anyway.
 - The 60 s fetch timeout applies per socket operation, not per request.
 - A body shorter than its `Content-Length` is stored truncated and fails as a PDF.
 - In the JS engine, `lowCoverageThreshold: null` falls back to 5, and `NaN`, `Infinity` and `""` are accepted as Statement ids.
+- In the `party_positions` reduce input each candidate quote sits on one line, so a quote containing a newline or `»` makes the input ambiguous (the stored quote is unaffected). Check in `e2e-real-2023-election`.
+- `party_positions.evidence_source_document_id` cascades on Source Document delete, which would remove Party Positions from an immutable Dataset Version. There is no delete path today; revisit before one is added.
 
 ## Research Tasks
 
