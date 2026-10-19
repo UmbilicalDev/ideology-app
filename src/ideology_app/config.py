@@ -3,8 +3,10 @@
 import os
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 
 DEFAULT_DATABASE_URL = "sqlite:///ideology.db"
+DEFAULT_SOURCE_FILES_DIR = "source_files"
 
 DEFAULT_LLM_PROVIDER = "anthropic"
 # Default model per provider. Adding a provider adds one entry here.
@@ -39,6 +41,11 @@ class LLMSettings:
 def database_url() -> str:
     """Return ``DATABASE_URL`` if set, else a SQLite file in the current directory."""
     return os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
+
+
+def source_files_dir() -> Path:
+    """Return ``SOURCE_FILES_DIR`` if set, else ``source_files`` in the current directory."""
+    return Path(os.environ.get("SOURCE_FILES_DIR") or DEFAULT_SOURCE_FILES_DIR)
 
 
 def _env(name: str) -> str | None:

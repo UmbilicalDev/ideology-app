@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from functools import update_wrapper
+from pathlib import Path
 from typing import Any, Callable
 
 import click
@@ -11,7 +12,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ideology_app import elections as service
 from ideology_app import config
+from ideology_app import source_documents as sources
 from ideology_app.db import is_initialised, make_engine, run_migrations, session_scope
+from ideology_app.models import SourceDocumentStatus
 
 NOT_INITIALISED = 'Database is not initialised; run "ideology db upgrade".'
 
@@ -72,7 +75,7 @@ def requires_db(f: Callable[..., Any]) -> Callable[..., Any]:
 def _print_rows(header: list[str], rows: list[list[object]]) -> None:
     click.echo("\t".join(header))
     for row in rows:
-        click.echo("\t".join(str(value) for value in row))
+        click.echo("\t".join("" if value is None else str(value) for value in row))
 
 
 @main.group()
@@ -154,3 +157,81 @@ def party_list(app: AppContext, election_id: int) -> None:
             [p.id, p.short_name, p.name] for p in service.list_parties(session, election_id)
         ]
     _print_rows(["id", "short_name", "name"], rows)
+
+
+@main.group()
+def source() -> None:
+    """Manage Source Documents."""
+
+
+@source.command("add")
+@click.option("--party", "party_id", required=True, type=int, help="Party id.")
+@click.option(
+    "--file",
+    "file_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="PDF manifesto to attach.",
+)
+@requires_db
+def source_add(app: AppContext, party_id: int, file_path: Path) -> None:
+    """Attach a PDF to a Party and extract its text page by page."""
+    with session_scope(app.engine) as session:
+        document = sources.add_uploaded_document(
+            session,
+            party_id=party_id,
+            file_path=file_path,
+            files_dir=config.source_files_dir(),
+        )
+        document_id = document.id
+        status = document.status
+        page_count = document.page_count
+        reason = document.failure_reason
+    # The failed row is committed above; report it as an error afterwards.
+    if status is SourceDocumentStatus.FAILED:
+        raise click.ClickException(f"source document {document_id} failed: {reason}")
+    click.echo(f"Created source document {document_id}: {status.value} ({page_count} pages)")
+
+
+@source.command("list")
+@click.option("--party", "party_id", required=True, type=int, help="Party id.")
+@requires_db
+def source_list(app: AppContext, party_id: int) -> None:
+    """List the Source Documents of a Party."""
+    with session_scope(app.engine) as session:
+        rows: list[list[object]] = [
+            [
+                d.id,
+                d.origin.value,
+                d.status.value,
+                d.page_count,
+                d.content_hash,
+                d.original_filename,
+                d.failure_reason,
+            ]
+            for d in sources.list_documents(session, party_id)
+        ]
+    _print_rows(
+        ["id", "origin", "status", "pages", "content_hash", "filename", "failure_reason"],
+        rows,
+    )
+
+
+@source.command("text")
+@click.option("--document", "document_id", required=True, type=int, help="Source Document id.")
+@click.option("--page", type=int, default=None, help="Print only this page (1-based).")
+@requires_db
+def source_text(app: AppContext, document_id: int, page: int | None) -> None:
+    """Print the extracted text of a Source Document, page by page."""
+    with session_scope(app.engine) as session:
+        document = sources.get_document(session, document_id)
+        pages = [(p.page_number, p.text) for p in document.pages]
+    if page is not None:
+        pages = [(number, text) for number, text in pages if number == page]
+        if not pages:
+            raise click.ClickException(
+                f"page {page} of source document {document_id} not found"
+            )
+    for number, text in pages:
+        click.echo(f"--- page {number} ---")
+        click.echo(text)

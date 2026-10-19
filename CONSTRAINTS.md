@@ -10,6 +10,13 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Every Engine that is created MUST be disposed (`finally: engine.dispose()` or `ctx.call_on_close`). Reason: on Python 3.15 an undisposed SQLite engine emits `ResourceWarning: unclosed database`, which fails the pytest gate (`filterwarnings = ["error"]`).
 - Tests MUST use a temporary SQLite database (the `db_url` / `migrated_engine` fixtures, or `--database-url` for the CLI) and MUST NOT touch `./ideology.db`. Reason: the default URL is relative to the current directory; `tests/conftest.py` unsets `DATABASE_URL` and changes into `tmp_path` for every test as a safety net.
 
+## Source Documents
+
+- Only `src/ideology_app/pdf_text.py` MAY import `pypdf` in application code. Reason: one adapter to swap or harden the PDF library; tests may use pypdf only to build fixtures (`tests/pdf_factory.py`).
+- Stored Source Document files MUST be content-addressed (`<SOURCE_FILES_DIR>/<sha256>.pdf`) and MUST NOT be overwritten, edited or renamed. Reason: the content hash identifies the exact bytes that Evidence quotes come from, and several rows may share one file.
+- Page text MUST be stored as extracted (only NUL characters removed). Any whitespace/accent normalisation for quote matching MUST happen at match time. Reason: Evidence must stay verifiable against the original extraction.
+- Tests MUST build PDFs with `tests/pdf_factory.py` (no committed binaries, no network) and MUST point `SOURCE_FILES_DIR` / `files_dir` into `tmp_path`, never `./source_files`. Reason: the default directory is relative to the current directory.
+
 ## LLM Providers
 
 - Only `ideology_app.llm.*_provider` modules MAY import a vendor LLM SDK (e.g. `anthropic`); tests of that adapter are the only other exception. Everything else gets a provider through `build_provider` or by injection. Reason: the provider is configuration, not code branches.

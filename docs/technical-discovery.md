@@ -9,7 +9,7 @@ A responsive, mobile-first public website for Voters, plus a minimal Operator su
 - **Backend**: Python, FastAPI. The AI pipeline lives in the same codebase as a reusable module.
 - **Frontend**: light server-rendered pages (Jinja + HTMX) or a small SPA; matching runs client-side.
 - **Storage**: PostgreSQL (SQLite acceptable for local dev). Source Document files on local disk or object storage.
-- **PDF text extraction**: a Python library with page mapping (e.g. PyMuPDF). OCR is out of scope for the MVP.
+- **PDF text extraction**: `pypdf` (pure Python, BSD-3-Clause, installs on Python 3.15; chosen over PyMuPDF, which ships compiled wheels and is AGPL), with one text string per page. Only `ideology_app.pdf_text` imports it. OCR is out of scope for the MVP: a PDF without a text layer ends `failed`.
 
 ## Configuration Points
 

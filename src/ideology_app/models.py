@@ -73,3 +73,79 @@ class Party(Base):
     short_name: Mapped[str] = mapped_column(sa.String(50))
 
     election: Mapped[Election] = relationship(back_populates="parties")
+    source_documents: Mapped[list["SourceDocument"]] = relationship(
+        back_populates="party", order_by="SourceDocument.id", passive_deletes=True
+    )
+
+
+class SourceDocumentOrigin(StrEnum):
+    UPLOAD = "upload"
+    URL = "url"
+
+
+class SourceDocumentStatus(StrEnum):
+    REGISTERED = "registered"
+    FETCHED = "fetched"
+    PARSED = "parsed"
+    FAILED = "failed"
+
+
+def _utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.UTC)
+
+
+class SourceDocument(Base):
+    """A manifesto file of a Party. The stored file is ``<content_hash>.pdf``."""
+
+    __tablename__ = "source_documents"
+    __table_args__ = (sa.UniqueConstraint("party_id", "content_hash"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    party_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("parties.id", ondelete="CASCADE"), index=True
+    )
+    origin: Mapped[SourceDocumentOrigin] = mapped_column(
+        _enum(SourceDocumentOrigin, "source_document_origin")
+    )
+    status: Mapped[SourceDocumentStatus] = mapped_column(
+        _enum(SourceDocumentStatus, "source_document_status")
+    )
+    original_filename: Mapped[str | None] = mapped_column(sa.String(255))
+    # Null only before a URL document is fetched (source-document-url).
+    content_hash: Mapped[str | None] = mapped_column(sa.String(64))
+    page_count: Mapped[int | None] = mapped_column(sa.Integer)
+    failure_reason: Mapped[str | None] = mapped_column(sa.String(500))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
+    )
+
+    party: Mapped[Party] = relationship(back_populates="source_documents")
+    pages: Mapped[list["SourceDocumentPage"]] = relationship(
+        back_populates="source_document",
+        order_by="SourceDocumentPage.page_number",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    @property
+    def stored_filename(self) -> str | None:
+        return f"{self.content_hash}.pdf" if self.content_hash else None
+
+
+class SourceDocumentPage(Base):
+    """The extracted text of one page (1-based) of a Source Document."""
+
+    __tablename__ = "source_document_pages"
+    __table_args__ = (
+        sa.UniqueConstraint("source_document_id", "page_number"),
+        sa.CheckConstraint("page_number >= 1", name="page_number_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_document_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("source_documents.id", ondelete="CASCADE")
+    )
+    page_number: Mapped[int] = mapped_column(sa.Integer)
+    text: Mapped[str] = mapped_column(sa.Text)
+
+    source_document: Mapped[SourceDocument] = relationship(back_populates="pages")
