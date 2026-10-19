@@ -16,3 +16,10 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Stored Source Document files MUST be content-addressed (`<SOURCE_FILES_DIR>/<sha256>.pdf`) and MUST NOT be overwritten, edited or renamed. Reason: the content hash identifies the exact bytes that Evidence quotes come from, and several rows may share one file.
 - Page text MUST be stored as extracted (only NUL characters removed). Any whitespace/accent normalisation for quote matching MUST happen at match time. Reason: Evidence must stay verifiable against the original extraction.
 - Tests MUST build PDFs with `tests/pdf_factory.py` (no committed binaries, no network) and MUST point `SOURCE_FILES_DIR` / `files_dir` into `tmp_path`, never `./source_files`. Reason: the default directory is relative to the current directory.
+
+## LLM Providers
+
+- Only `ideology_app.llm.*_provider` modules MAY import a vendor LLM SDK (e.g. `anthropic`); tests of that adapter are the only other exception. Everything else gets a provider through `build_provider` or by injection. Reason: the provider is configuration, not code branches.
+- Tests MUST NOT need or read a real API key and MUST NOT open a network connection. Use `FakeProvider`, or inject an SDK client backed by `httpx2.MockTransport`, and keep the autouse env/socket guard in every LLM test module. Reason: the AGENTS.md invariant and a deterministic, offline CI.
+- API keys MUST NOT appear in reprs, error messages or logs; error messages from provider failures carry only the exception class name and HTTP status. Reason: keys leak through tracebacks and Pipeline Run records.
+- An `AnthropicProvider` that creates its own client MUST be closed (`with provider:` or `close()`). Reason: an unclosed HTTP client can emit a `ResourceWarning`, which fails the gate.

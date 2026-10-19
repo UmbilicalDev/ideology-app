@@ -1,6 +1,6 @@
 # Architecture
 
-Current state after `source-document-upload`. Keep this short; update it when layers, runtime surfaces or boundaries change.
+Current state after `db-schema-elections-parties`, `llm-provider-abstraction` and `source-document-upload`. Keep this short; update it when layers, runtime surfaces or boundaries change.
 
 ## Layout
 
@@ -20,6 +20,17 @@ Current state after `source-document-upload`. Keep this short; update it when la
 - `ideology_app.source_documents`: `add_uploaded_document(session, party_id, file_path, files_dir)` validates (Party exists, regular file, 0 < size ≤ 50 MiB, starts with `%PDF-`), inserts the row (`registered`; duplicate party+hash → `DuplicateError`), stores the file (`fetched`), then extracts pages (`parsed` + page rows, or `failed` + `failure_reason`). `list_documents`, `get_document`. Reuses the `elections` error classes.
 - Migrations: Alembic in `src/ideology_app/migrations/` (`script_location = ideology_app:migrations` in code; root `alembic.ini` for developer commands). `env.py` reads the URL from the config or `database_url()`, supports offline `--sql`, uses `render_as_batch=True`, and disposes its engine.
 - Add a migration: change `models.py`, then `DATABASE_URL=sqlite:///<scratch>/gen.db .venv/bin/alembic -c alembic.ini upgrade head` and `... revision --autogenerate --rev-id 000N -m "..."`, review the file by hand (see `CONSTRAINTS.md`), and check `... alembic -c alembic.ini check` reports no drift. `tests/test_migrations.py` checks upgrade/downgrade, drift and the offline PostgreSQL render.
+
+## LLM Providers
+
+- Package `src/ideology_app/llm/`: `base.py` (`LLMRequest[T]` with `task`, `system`, `prompt`, `schema` (a pydantic model), `max_tokens=4096`; `LLMResult[T]` with `output`, `provider`, `model`, `input_tokens`, `output_tokens`; the `LLMProvider` protocol with `name`, `model`, `generate(request) -> LLMResult`; errors `LLMError` > `LLMConfigError` (also a `config.ConfigError`), `LLMOutputError`, `LLMProviderError`), `fake.py` (`FakeProvider`), `anthropic_provider.py` (`AnthropicProvider`), `__init__.py` (re-exports, `PROVIDERS` registry, `build_provider`).
+- Selection: `build_provider(llm_settings())`. `PROVIDERS` / `build_provider` is the only place that branches on the provider name. Callers depend on the `LLMProvider` protocol, never on a concrete class.
+- Configuration (`ideology_app.config`): `LLM_PROVIDER` (`anthropic` default, or `fake`), `LLM_MODEL` (default per provider from `DEFAULT_MODELS`: `anthropic` -> `claude-sonnet-5-5`, `fake` -> `fake-model`), `GENERATION_MODE` (`GenerationMode.PRECOMPUTED` default, or `LIVE`; parsed only, no behaviour yet). Values are trimmed, case-insensitive, and blank means unset. Invalid values raise `ConfigError` (a `ValueError`) listing the supported values. `ANTHROPIC_API_KEY` is read only by `AnthropicProvider`, lazily on the first `generate`.
+- `FakeProvider(responses, model="fake-model")`: canned responses keyed by `task` (dict, schema instance, or callable `(request) -> dict | model`), validated against the schema; records `calls`; deterministic word-count token numbers. Unknown task -> `LLMError`; schema mismatch -> `LLMOutputError`.
+- `AnthropicProvider(model, *, client=None, api_key=None, max_retries=2, timeout=120.0)`: `client.messages.parse(..., output_format=request.schema)` (SDK structured output, `output_config.format.type == "json_schema"`). Maps `pydantic.ValidationError`, refusals and missing parsed output to `LLMOutputError`, and `anthropic.APIError` to `LLMProviderError` (class name and HTTP status only). Closes only a client it created (`close()` / `with`). Retries are the SDK's `max_retries`.
+- Dependency direction: `config` -> `llm`. `config` never imports `llm`. Nothing else imports `llm` yet; pipeline features will.
+- Add a provider: write `src/ideology_app/llm/<name>_provider.py` implementing the protocol, add one entry to `PROVIDERS` and one to `config.DEFAULT_MODELS`.
+- Tests: `tests/test_llm.py` (config, registry, fake) and `tests/test_llm_anthropic.py` (adapter through an injected `anthropic.Anthropic` with an `httpx2.MockTransport` `http_client`). Each has an autouse guard that unsets the LLM env vars and blocks `socket.socket.connect` / `socket.create_connection`.
 
 ## Runtime Surface
 
