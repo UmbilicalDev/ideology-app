@@ -504,10 +504,13 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
     )
     run_id = queue(seeded, provider)
 
-    # A sparse run on purpose: coverage is not what this test checks.
+    # A sparse run on purpose: coverage is not what this test checks. Statements
+    # 2..30 have fewer than two stances, so statement_separation fails; the
+    # Dataset Version and its rows are kept.
     outcome = execute_run(seeded, run_id, provider, ValidationSettings(0))
 
-    assert outcome.status is PipelineRunStatus.PASSED
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: statement_separation"
     assert outcome.statement_count == 30
     assert outcome.position_count == 60
     run = read_run(seeded, run_id)
@@ -571,11 +574,14 @@ def test_quotes_are_stored_exactly_as_returned(seeded: Engine) -> None:
     )
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    # The odd quote is on no page and each Party covers 1 of 30 Statements, so
-    # both checks fail; the quotes stay as returned.
+    # The odd quote is on no page, each Party covers 1 of 30 Statements and no
+    # Statement separates the Parties, so all three checks fail; the quotes
+    # stay as returned.
     assert outcome.status is PipelineRunStatus.FAILED
-    assert outcome.failure_reason == "validation failed: evidence_quotes, party_coverage"
-    assert outcome.failed_checks == ("evidence_quotes", "party_coverage")
+    assert outcome.failure_reason == (
+        "validation failed: evidence_quotes, party_coverage, statement_separation"
+    )
+    assert outcome.failed_checks == ("evidence_quotes", "party_coverage", "statement_separation")
     stances = [r for r in position_rows(seeded) if r.value is not None]
     assert [(r.party_id, r.value, r.evidence_quote, r.evidence_page) for r in stances] == [
         (1, 0, odd, 2),
@@ -600,7 +606,9 @@ def test_document_roles_are_recorded_and_additional_evidence_is_kept(
 
     outcome = execute_run(migrated_engine, run_id, provider, ValidationSettings(0))
 
-    assert outcome.status is PipelineRunStatus.PASSED
+    # Sparse on purpose, so Statements 3..30 do not separate the Parties.
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: statement_separation"
     assert run_documents(migrated_engine, run_id) == {
         1: SourceDocumentRole.MAIN,
         2: SourceDocumentRole.MAIN,
@@ -655,10 +663,11 @@ def _no_party2_findings(request: LLMRequest[Any]) -> dict[str, Any]:
 
 
 def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
-    # A Party with no stance at all fails coverage; the run keeps every row.
+    # A Party with no stance at all fails coverage, and then no Statement
+    # separates the two Parties; the run keeps every row.
     assert outcome.status is PipelineRunStatus.FAILED
-    assert outcome.failure_reason == "validation failed: party_coverage"
-    assert outcome.failed_checks == ("party_coverage",)
+    assert outcome.failure_reason == "validation failed: party_coverage, statement_separation"
+    assert outcome.failed_checks == ("party_coverage", "statement_separation")
     assert outcome.position_count == 60
     with Session(engine) as s:
         version = s.get(DatasetVersion, outcome.dataset_version_id)
@@ -672,6 +681,20 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
                 "party_coverage",
                 False,
                 [(None, 2, "party 2 has positions on 0 of 30 statements (0%); minimum is 70%")],
+            ),
+            (
+                "statement_separation",
+                False,
+                [
+                    (st.id, None,
+                     f"statement {st.position} does not separate parties: "
+                     "only party 1 has a stance (value 1)")
+                    for st in s.scalars(
+                        select(Statement)
+                        .where(Statement.dataset_version_id == outcome.dataset_version_id)
+                        .order_by(Statement.position)
+                    )
+                ],
             ),
         ]
     rows = position_rows(engine)

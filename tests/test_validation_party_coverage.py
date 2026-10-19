@@ -83,7 +83,8 @@ def entry(party_id: int, covered: int, total: int, percent: int, minimum: int) -
 
 
 def test_registry_runs_party_coverage_after_evidence_quotes() -> None:
-    assert CHECKS == (EVIDENCE_QUOTES, PARTY_COVERAGE)
+    # Later checks are appended after it (domain check order).
+    assert CHECKS[:2] == (EVIDENCE_QUOTES, PARTY_COVERAGE)
     assert PARTY_COVERAGE.name == "party_coverage"
 
 
@@ -127,6 +128,7 @@ def test_run_checks_reports_party_coverage() -> None:
     assert [(r.name, r.passed) for r in results] == [
         ("evidence_quotes", False),  # plain data has no documents
         ("party_coverage", False),
+        ("statement_separation", False),  # every plain-data value is 1
     ]
     assert results[1].entries == (entry(2, 6, 10, 60, 70),)
 

@@ -1,7 +1,7 @@
 """Validation at the run level: ``execute_run`` / ``validate_run`` with the fake provider.
 
 validation-evidence-quotes Scenarios 1, 2 and 6; validation-party-coverage
-Scenario 4.
+Scenario 4; validation-statement-separation Scenario 4.
 """
 
 from typing import Any
@@ -149,11 +149,13 @@ def test_real_quotes_pass(seeded: Engine) -> None:
         assert [(r.pipeline_run_id, r.check_name, r.passed, r.entries) for r in stored] == [
             (run_id, "evidence_quotes", True, []),
             (run_id, "party_coverage", True, []),
+            (run_id, "statement_separation", True, []),
         ]
         assert stored[0].created_at is not None
     assert results(seeded, run_id) == [
         ("evidence_quotes", True, []),
         ("party_coverage", True, []),
+        ("statement_separation", True, []),
     ]
 
 
@@ -164,13 +166,14 @@ def _invented_for_party2(request: LLMRequest[Any]) -> dict[str, Any]:
     """Party 2 cites an invented quote for Statement 1 only.
 
     Its real Statement 2 finding comes first, so the default (filling) fake
-    cites the real quote on every other Statement.
+    cites the real quote on every other Statement. The invented finding keeps
+    Party 2's default value (-1), so the Statements still separate the Parties.
     """
     real = findings_response()(request)
     if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
         return real
     kept = [f for f in real["findings"] if f["statement"] != 1]
-    return {"findings": [*kept, {"statement": 1, "value": 1, "quote": INVENTED, "page": 1}]}
+    return {"findings": [*kept, {"statement": 1, "value": -1, "quote": INVENTED, "page": 1}]}
 
 
 def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
@@ -193,7 +196,7 @@ def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
         "dataset_versions": 1,
         "statements": 30,
         "party_positions": 60,
-        "validation_results": 2,
+        "validation_results": 3,
         "validation_report_entries": 1,
     }
     with Session(seeded) as s:
@@ -202,7 +205,7 @@ def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
         invented = s.scalars(
             select(PartyPosition).where(PartyPosition.evidence_quote == INVENTED)
         ).all()
-        assert [(p.party_id, p.value, p.evidence_page) for p in invented] == [(2, 1, 1)]
+        assert [(p.party_id, p.value, p.evidence_page) for p in invented] == [(2, -1, 1)]
     assert results(seeded, run_id) == [
         (
             "evidence_quotes",
@@ -210,6 +213,7 @@ def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
             [(statement_id(seeded, 1), 2, "quote not found in source document 2")],
         ),
         ("party_coverage", True, []),
+        ("statement_separation", True, []),
     ]
 
 
@@ -299,6 +303,7 @@ def test_default_checks_pass_a_validating_run(seeded: Engine) -> None:
     assert results(seeded, run_id) == [
         ("evidence_quotes", True, []),
         ("party_coverage", True, []),
+        ("statement_separation", True, []),
     ]
 
 
@@ -393,6 +398,21 @@ def test_validate_run_unknown_run(migrated_engine: Engine) -> None:
 # validation-party-coverage Scenario 4: party_coverage at the run level
 
 PARTY2_ZERO = "party 2 has positions on 0 of 30 statements (0%); minimum is 70%"
+ONLY_PARTY1 = "does not separate parties: only party 1 has a stance (value 1)"
+
+
+def statement_ids(engine: Engine) -> list[int]:
+    """The run's Statement ids in position order."""
+    with Session(engine) as s:
+        return list(s.scalars(select(Statement.id).order_by(Statement.position)))
+
+
+def only_party1_entries(engine: Engine) -> list[tuple[Any, ...]]:
+    """statement_separation entries when only Party 1 has stances (value 1)."""
+    return [
+        (sid, None, f"statement {n} {ONLY_PARTY1}")
+        for n, sid in enumerate(statement_ids(engine), start=1)
+    ]
 
 
 def _no_findings_for_party2(request: LLMRequest[Any]) -> dict[str, Any]:
@@ -430,13 +450,19 @@ def test_party_with_no_stance_fails_the_run_on_coverage(seeded: Engine, cause: s
 
     outcome = execute_run(seeded, run_id, provider)
 
+    # Coverage reports Party 2 once; with two Parties no Statement separates
+    # them either, so separation names all 30 (double reporting is intended).
+    reason = "validation failed: party_coverage, statement_separation"
     assert outcome.status is PipelineRunStatus.FAILED
-    assert outcome.failure_reason == "validation failed: party_coverage"
-    assert outcome.failed_checks == ("party_coverage",)
-    assert read_run(seeded, run_id).failure_reason == "validation failed: party_coverage"
+    assert outcome.failure_reason == reason
+    assert outcome.failed_checks == ("party_coverage", "statement_separation")
+    assert read_run(seeded, run_id).failure_reason == reason
+    separation = only_party1_entries(seeded)
+    assert len(separation) == 30
     assert results(seeded, run_id) == [
         ("evidence_quotes", True, []),
         ("party_coverage", False, [(None, 2, PARTY2_ZERO)]),
+        ("statement_separation", False, separation),
     ]
     _assert_kept_candidate(seeded)
 
@@ -449,10 +475,17 @@ def test_both_checks_failing_are_named(seeded: Engine) -> None:
 
     outcome = execute_run(seeded, run_id, provider)
 
-    assert outcome.failure_reason == "validation failed: evidence_quotes, party_coverage"
-    assert outcome.failed_checks == ("evidence_quotes", "party_coverage")
-    [quotes, coverage] = results(seeded, run_id)
+    # Sparse (no fill), so Statements 3..30 also fail statement_separation.
+    assert outcome.failure_reason == (
+        "validation failed: evidence_quotes, party_coverage, statement_separation"
+    )
+    assert outcome.failed_checks == ("evidence_quotes", "party_coverage", "statement_separation")
+    [quotes, coverage, separation] = results(seeded, run_id)
     assert quotes[:2] == ("evidence_quotes", False)
+    assert separation[:2] == ("statement_separation", False)
+    assert [e[2] for e in separation[2]] == [
+        f"statement {n} does not separate parties: no party has a stance" for n in range(3, 31)
+    ]
     assert coverage == (
         "party_coverage",
         False,
@@ -470,10 +503,13 @@ def test_execute_run_passes_its_validation_settings(seeded: Engine) -> None:
 
     outcome = execute_run(seeded, run_id, provider, ValidationSettings(0))
 
-    assert outcome.status is PipelineRunStatus.PASSED
+    # Coverage passes with the 0% threshold; Party 2 without stances still
+    # leaves every Statement unseparated, which no threshold changes.
+    assert outcome.failed_checks == ("statement_separation",)
     assert results(seeded, run_id) == [
         ("evidence_quotes", True, []),
         ("party_coverage", True, []),
+        ("statement_separation", False, only_party1_entries(seeded)),
     ]
 
 
@@ -483,21 +519,25 @@ def test_validate_run_with_explicit_settings(seeded: Engine) -> None:
 
     outcome = validate_run(seeded, run_id, settings=ValidationSettings(0))
 
-    assert outcome.status is PipelineRunStatus.PASSED
+    assert outcome.failed_checks == ("statement_separation",)
     assert results(seeded, run_id)[1] == ("party_coverage", True, [])
 
 
-@pytest.mark.parametrize(("raw", "status"), [("0", "passed"), ("71", "failed")])
+@pytest.mark.parametrize(
+    ("raw", "failed"),
+    [("0", ("statement_separation",)), ("71", ("party_coverage", "statement_separation"))],
+)
 def test_validate_run_reads_settings_from_env_when_none(
-    seeded: Engine, monkeypatch: pytest.MonkeyPatch, raw: str, status: str
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch, raw: str, failed: tuple[str, ...]
 ) -> None:
-    # Party 2 without findings: party 1 covers every Statement, party 2 none.
+    # Party 2 without findings: party 1 covers every Statement, party 2 none,
+    # so separation always fails and only coverage depends on the threshold.
     run_id = validating_run(seeded, fake_provider(position_findings=_no_findings_for_party2))
     monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", raw)
 
     outcome = validate_run(seeded, run_id)
 
-    assert outcome.status.value == status
+    assert outcome.failed_checks == failed
 
 
 def test_validate_run_with_invalid_env_changes_nothing(
@@ -530,3 +570,80 @@ def test_execute_run_with_invalid_env_changes_nothing(
     assert read_run(seeded, run_id).status is PipelineRunStatus.QUEUED
     assert provider.calls == []
     assert table_counts(seeded)["dataset_versions"] == 0
+
+
+# validation-statement-separation Scenario 4: statement_separation at the run level
+
+EQUAL_ON_2 = "statement 2 does not separate parties: all 2 parties with a stance have value 1"
+
+
+def _party2_agrees_on_statement2(request: LLMRequest[Any]) -> dict[str, Any]:
+    """Party 2's page-2 finding (Statement 2) takes value 1, equal to Party 1's.
+
+    Its page-1 finding (value -1) stays first, so the filling fake copies -1
+    to Statements 3..30, which keep separating.
+    """
+    real = findings_response()(request)
+    if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
+        return real
+    return {
+        "findings": [
+            f | {"value": 1} if f["statement"] == 2 else f for f in real["findings"]
+        ]
+    }
+
+
+def _assert_statement2_fails_alone(engine: Engine, run_id: int, outcome: Any) -> None:
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: statement_separation"
+    assert outcome.failed_checks == ("statement_separation",)
+    assert read_run(engine, run_id).failure_reason == "validation failed: statement_separation"
+    assert results(engine, run_id) == [
+        ("evidence_quotes", True, []),
+        ("party_coverage", True, []),
+        ("statement_separation", False, [(statement_id(engine, 2), None, EQUAL_ON_2)]),
+    ]
+    counts = table_counts(engine)
+    assert (counts["dataset_versions"], counts["statements"], counts["party_positions"]) == (
+        1, 30, 60
+    )
+    with Session(engine) as s:
+        version = s.get(DatasetVersion, 1)
+        assert version is not None and version.status is DatasetVersionStatus.CANDIDATE
+        values = {
+            (p.statement.position, p.party_id): p.value for p in s.scalars(select(PartyPosition))
+        }
+    assert (values[(2, 1)], values[(2, 2)]) == (1, 1)
+    assert all(values[(n, 1)] == 1 and values[(n, 2)] == -1 for n in range(3, 31))
+
+
+def test_default_fake_separates_every_statement(seeded: Engine) -> None:
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    with Session(seeded) as s:
+        values = {(p.statement.position, p.party_id): p.value
+                  for p in s.scalars(select(PartyPosition))}
+    assert all(values[(n, 1)] == 1 and values[(n, 2)] == -1 for n in range(1, 31))
+
+
+def test_equal_positions_fail_the_run_naming_the_statement(seeded: Engine) -> None:
+    provider = fake_provider(position_findings=_party2_agrees_on_statement2)
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    _assert_statement2_fails_alone(seeded, run_id, outcome)
+
+
+def test_validate_run_fails_a_validating_run_on_separation(seeded: Engine) -> None:
+    run_id = validating_run(seeded, fake_provider(position_findings=_party2_agrees_on_statement2))
+
+    outcome = validate_run(seeded, run_id)
+
+    _assert_statement2_fails_alone(seeded, run_id, outcome)
+    with pytest.raises(InvalidInputError, match="is failed, expected validating$"):
+        validate_run(seeded, run_id)
