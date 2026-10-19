@@ -50,7 +50,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0006"
+    assert _version(db_url) == "0007"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -58,7 +58,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0006"
+    assert _version(db_url) == "0007"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -142,6 +142,8 @@ def test_is_initialised(db_url: str) -> None:
         run_migrations(db_url, "0004")
         assert not is_initialised(engine)
         run_migrations(db_url, "0005")
+        assert not is_initialised(engine)
+        run_migrations(db_url, "0006")
         assert not is_initialised(engine)
         run_migrations(db_url)
         assert is_initialised(engine)
@@ -278,6 +280,10 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert sql.count("ck_party_positions_evidence_matches_value") == 1
     assert "CREATE TABLE validation_results" in sql
     assert "CREATE TABLE validation_report_entries" in sql
+    assert (
+        "CREATE UNIQUE INDEX uq_dataset_versions_published_election_id "
+        "ON dataset_versions (election_id) WHERE status = 'published'"
+    ) in sql
     assert sql.count("CHECK") == 14
 
 
@@ -313,9 +319,11 @@ def test_upgrade_0004_creates_pipeline_constraints(migrated_engine: Engine) -> N
     assert [i["name"] for i in inspector.get_indexes("pipeline_runs")] == [
         "ix_pipeline_runs_election_id"
     ]
-    assert [i["name"] for i in inspector.get_indexes("dataset_versions")] == [
-        "ix_dataset_versions_election_id"
-    ]
+    # 0007 adds the partial unique index (checked below).
+    assert {i["name"] for i in inspector.get_indexes("dataset_versions")} == {
+        "ix_dataset_versions_election_id",
+        "uq_dataset_versions_published_election_id",
+    }
 
 
 _RUN_COLUMNS = (
@@ -648,3 +656,113 @@ def test_deleting_an_election_cascades_to_validation_rows(migrated_engine: Engin
         conn.execute(sa.text("DELETE FROM elections"))
         for table in VALIDATION_TABLES:
             assert conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar_one() == 0
+
+
+# Migration 0007: at most one Published Dataset Version per Election
+# (auto-publish-dataset-version Scenario 7).
+
+PUBLISHED_INDEX = "uq_dataset_versions_published_election_id"
+
+
+def _dataset_version_indexes(url: str) -> set[str]:
+    engine = make_engine(url)
+    try:
+        return {i["name"] for i in sa.inspect(engine).get_indexes("dataset_versions")}
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_to_0006_drops_only_the_published_index(db_url: str) -> None:
+    run_migrations(db_url)
+    assert PUBLISHED_INDEX in _dataset_version_indexes(db_url)
+
+    downgrade(db_url, "0006")
+
+    assert _dataset_version_indexes(db_url) == {"ix_dataset_versions_election_id"}
+    assert _tables(db_url) == ALL_TABLES
+    assert _version(db_url) == "0006"
+
+    run_migrations(db_url)
+    assert PUBLISHED_INDEX in _dataset_version_indexes(db_url)
+
+
+def test_published_index_is_partial(migrated_engine: Engine) -> None:
+    with migrated_engine.connect() as conn:
+        sql = conn.execute(
+            sa.text("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = :name"),
+            {"name": PUBLISHED_INDEX},
+        ).scalar_one()
+    assert sql.startswith("CREATE UNIQUE INDEX")
+    assert "WHERE status = 'published'" in sql
+    info = {i["name"]: i for i in sa.inspect(migrated_engine).get_indexes("dataset_versions")}
+    assert info[PUBLISHED_INDEX]["unique"]
+    assert info[PUBLISHED_INDEX]["column_names"] == ["election_id"]
+
+
+def _seed_versions(engine: Engine, statuses: list[tuple[int, str]]) -> None:
+    """Elections 1 and 2; one run and Dataset Version per ``(election_id, status)``."""
+    _seed_party_and_document(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO elections (id, country, type, date, name, status) "
+                "VALUES (2, 'ES', 'general', '2027-07-23', 'y', 'draft')"
+            )
+        )
+        for number, (election_id, status) in enumerate(statuses, start=1):
+            conn.execute(
+                sa.text(
+                    f"INSERT INTO pipeline_runs (id, {_RUN_COLUMNS}) VALUES "
+                    f"({number}, {election_id}, 'passed', 'fake', 'fake-model', 'precomputed', "
+                    "'{}', 0, 0, 0, '2026-10-19 00:00:00')"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO dataset_versions "
+                    "(id, election_id, pipeline_run_id, status, created_at) "
+                    f"VALUES ({number}, {election_id}, {number}, '{status}', "
+                    "'2026-10-19 00:00:00')"
+                )
+            )
+
+
+def test_published_index_accepts_one_published_per_election(migrated_engine: Engine) -> None:
+    _seed_versions(
+        migrated_engine,
+        [
+            (1, "published"),
+            (2, "published"),
+            (1, "superseded"),
+            (1, "superseded"),
+            (1, "candidate"),
+            (1, "candidate"),
+            (2, "candidate"),
+        ],
+    )
+    with migrated_engine.connect() as conn:
+        rows = conn.execute(
+            sa.text(
+                "SELECT election_id, count(*) FROM dataset_versions "
+                "WHERE status = 'published' GROUP BY election_id ORDER BY election_id"
+            )
+        ).all()
+    assert [tuple(r) for r in rows] == [(1, 1), (2, 1)]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "UPDATE dataset_versions SET status = 'published' WHERE id = 2",
+        "UPDATE dataset_versions SET status = 'published' WHERE id = 3",
+        "UPDATE dataset_versions SET status = 'published' WHERE election_id = 1",
+    ],
+    ids=["candidate-to-published", "superseded-to-published", "all-published"],
+)
+def test_published_index_rejects_a_second_published_version(
+    migrated_engine: Engine, statement: str
+) -> None:
+    _seed_versions(migrated_engine, [(1, "published"), (1, "candidate"), (1, "superseded")])
+    with pytest.raises(IntegrityError):
+        with migrated_engine.begin() as conn:
+            conn.execute(sa.text(statement))

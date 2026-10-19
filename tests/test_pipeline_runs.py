@@ -125,7 +125,7 @@ def read_run(engine: Engine, run_id: int) -> PipelineRun:
 # Scenario 1: happy path
 
 
-def test_happy_path_creates_candidate_dataset_version(seeded: Engine) -> None:
+def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> None:
     provider = fake_provider()
     run_id = queue(seeded, provider)
 
@@ -160,7 +160,8 @@ def test_happy_path_creates_candidate_dataset_version(seeded: Engine) -> None:
         assert version.id == outcome.dataset_version_id
         assert version.election_id == 1
         assert version.pipeline_run_id == run_id
-        assert version.status is DatasetVersionStatus.CANDIDATE
+        # auto-publish-dataset-version: the run passed, so its version is Published.
+        assert version.status is DatasetVersionStatus.PUBLISHED
         expected = statements_payload()["statements"]
         assert [(st.position, st.text, st.topic) for st in version.statements] == [
             (i, e["text"], e["topic"]) for i, e in enumerate(expected, start=1)

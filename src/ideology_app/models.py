@@ -261,6 +261,18 @@ class DatasetVersion(Base):
     """An immutable Questionnaire snapshot produced by one Pipeline Run."""
 
     __tablename__ = "dataset_versions"
+    __table_args__ = (
+        # At most one Published version per Election (auto-publish-dataset-version).
+        # The explicit name keeps the ix_ convention off; batch migrations of this
+        # table MUST keep the index with its WHERE clause (see CONSTRAINTS.md).
+        sa.Index(
+            "uq_dataset_versions_published_election_id",
+            "election_id",
+            unique=True,
+            sqlite_where=sa.text("status = 'published'"),
+            postgresql_where=sa.text("status = 'published'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     election_id: Mapped[int] = mapped_column(

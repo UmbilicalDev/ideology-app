@@ -4,9 +4,13 @@ Lifecycle: ``queued`` -> ``running`` -> ``validating`` -> ``passed`` | ``failed`
 A run is ``failed`` when Statement generation or Party Position extraction fails
 (or is interrupted), or when a Validation check fails; a run that failed
 Validation keeps its ``candidate`` Dataset Version, which is never published.
+A ``passed`` run publishes its version (``publishing.publish_dataset_version``)
+in the commit that stores its Validation results, unless a newer run's version
+is already Published.
 Dataset Versions, Statements and Party Positions are only ever inserted here,
 together in one commit; Validation results are inserted with the run's
-``passed`` / ``failed`` status. There is no update or delete path.
+``passed`` / ``failed`` status. The only update is the Dataset Version status
+change made by ``publishing``; there is no delete path.
 """
 
 from collections.abc import Sequence
@@ -44,6 +48,7 @@ from ideology_app.pipeline.generation import (
     build_chunks,
     generate_statements,
 )
+from ideology_app.pipeline import publishing
 from ideology_app.pipeline.positions import (
     PositionResult,
     check_position_budget,
@@ -61,6 +66,7 @@ class RunOutcome:
     """What ``execute_run`` / ``validate_run`` ended with (plain data, safe after the session).
 
     ``failed_checks`` names the Validation checks that failed, in registry order.
+    ``publish`` is set only for a ``passed`` run: what publishing its version did.
     """
 
     run_id: int
@@ -70,6 +76,7 @@ class RunOutcome:
     failure_reason: str | None
     position_count: int = 0
     failed_checks: tuple[str, ...] = ()
+    publish: publishing.PublishOutcome | None = None
 
 
 def _get_election(session: Session, election_id: int) -> Election:
@@ -334,11 +341,14 @@ def validate_run(
 
     In one commit, inserts one ``ValidationResult`` (with its report entries)
     per check, in order, and sets ``passed`` when every check passed, else
-    ``failed`` with ``validation failed: <names>``. The Dataset Version stays
-    ``candidate`` either way (publishing is a later feature, hooked on the
-    ``passed`` path). If a check raises, nothing is stored, the run is set
-    ``failed`` with ``unexpected error: <ClassName>`` (Ctrl-C: ``interrupted``)
-    and the exception is re-raised. Raises NotFoundError / InvalidInputError,
+    ``failed`` with ``validation failed: <names>``. On ``passed`` the same commit
+    publishes the Dataset Version (``publishing.publish_dataset_version``:
+    supersedes the Election's Published version, sets a ``draft`` Election
+    ``active``), unless a newer run's version is Published, in which case it
+    stays ``candidate``; on ``failed`` it stays ``candidate`` and nothing about
+    publication changes. If a check or the publish step raises, nothing is
+    stored, the run is set ``failed`` with ``unexpected error: <ClassName>``
+    (Ctrl-C: ``interrupted``) and the exception is re-raised. Raises NotFoundError / InvalidInputError,
     changing nothing, when the run is unknown or not ``validating``. Needs no
     LLM provider. ``settings`` holds the check thresholds; when ``None`` it is
     read with ``config.validation_settings()`` first, so an invalid value
@@ -376,9 +386,12 @@ def validate_run(
             else:
                 run.status = PipelineRunStatus.PASSED
                 run.failure_reason = None
+            # This flush is the session's first write, so on SQLite it takes the
+            # database write lock before publishing reads the Published version.
             session.flush()
             version = run.dataset_version
             assert version is not None
+            publish = None if failed else publishing.publish_dataset_version(session, version)
             outcome = RunOutcome(
                 run_id,
                 run.status,
@@ -387,6 +400,7 @@ def validate_run(
                 run.failure_reason,
                 len(data.positions),
                 failed,
+                publish,
             )
     except KeyboardInterrupt:
         if checking:

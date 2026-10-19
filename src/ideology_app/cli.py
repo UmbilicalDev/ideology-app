@@ -264,7 +264,7 @@ def pipeline() -> None:
 @click.option("--election", "election_id", required=True, type=int, help="Election id.")
 @requires_db
 def pipeline_run(app: AppContext, election_id: int) -> None:
-    """Generate Statements and Party Positions (a candidate Dataset Version)."""
+    """Generate Statements and Party Positions, validate them and publish on pass."""
     try:
         mode = config.generation_mode()
         settings = config.validation_settings()
@@ -293,6 +293,28 @@ def pipeline_run(app: AppContext, election_id: int) -> None:
         f"(dataset version {outcome.dataset_version_id}, "
         f"{outcome.statement_count} statements, {outcome.position_count} party positions)"
     )
+    _echo_publish(outcome)
+
+
+def _echo_publish(outcome: pipelines.RunOutcome) -> None:
+    """Say whether a ``passed`` run's Dataset Version was published."""
+    publish = outcome.publish
+    if publish is None:
+        return
+    if publish.published:
+        line = (
+            f"Published dataset version {publish.published_dataset_version_id} "
+            f"for election {publish.election_id}"
+        )
+        if publish.superseded_dataset_version_id is not None:
+            line += f" (superseded dataset version {publish.superseded_dataset_version_id})"
+    else:
+        line = (
+            f"Not published: dataset version {publish.published_dataset_version_id} "
+            f"of newer pipeline run {publish.published_run_id} is published "
+            f"for election {publish.election_id}"
+        )
+    click.echo(line)
 
 
 def _raise_if_failed(outcome: pipelines.RunOutcome) -> None:
@@ -317,6 +339,7 @@ def pipeline_validate(app: AppContext, run_id: int) -> None:
     outcome = pipelines.validate_run(app.engine, run_id, settings=settings)
     _raise_if_failed(outcome)
     click.echo(f"Pipeline run {outcome.run_id}: {outcome.status.value}")
+    _echo_publish(outcome)
 
 
 @pipeline.command("list")

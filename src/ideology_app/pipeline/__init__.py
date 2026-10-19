@@ -40,6 +40,11 @@ from ideology_app.pipeline.prompts import (
     StatementDraft,
     StatementSet,
 )
+from ideology_app.pipeline.publishing import (
+    PublishOutcome,
+    get_published_dataset_version,
+    publish_dataset_version,
+)
 from ideology_app.pipeline.runs import (
     INTERRUPTED_REASON,
     RunOutcome,
@@ -76,6 +81,7 @@ __all__ = [
     "PositionList",
     "PositionResult",
     "PromptSpec",
+    "PublishOutcome",
     "RunOutcome",
     "StatementDraft",
     "StatementSet",
@@ -86,10 +92,12 @@ __all__ = [
     "extract_positions",
     "generate_statements",
     "get_dataset_version",
+    "get_published_dataset_version",
     "list_positions",
     "list_runs",
     "list_validation_results",
     "plan_position_calls",
+    "publish_dataset_version",
     "queue_run",
     "validate_run",
 ]

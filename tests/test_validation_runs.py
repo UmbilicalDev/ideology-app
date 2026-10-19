@@ -154,7 +154,8 @@ def test_real_quotes_pass(seeded: Engine) -> None:
     with Session(seeded) as s:
         version = s.get(DatasetVersion, outcome.dataset_version_id)
         assert version is not None
-        assert version.status is DatasetVersionStatus.CANDIDATE
+        # auto-publish-dataset-version: a passed run publishes its version.
+        assert version.status is DatasetVersionStatus.PUBLISHED
         stored = s.scalars(select(ValidationResult)).all()
         assert [(r.pipeline_run_id, r.check_name, r.passed, r.entries) for r in stored] == [
             (run_id, "evidence_quotes", True, []),

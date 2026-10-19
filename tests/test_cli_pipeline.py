@@ -2,7 +2,8 @@
 
 pipeline-generate-statements Scenario 7, pipeline-extract-positions Scenario 10,
 validation-evidence-quotes Scenario 7, validation-party-coverage Scenario 5 and
-validation-questionnaire-shape Scenario 5.
+validation-questionnaire-shape Scenario 5 and auto-publish-dataset-version
+Scenario 8.
 """
 
 from typing import Any
@@ -96,6 +97,7 @@ def test_run_list_and_statements(run, seeded, use_fake) -> None:
     assert result.exit_code == 0, result.output
     assert result.output == (
         "Pipeline run 1: passed (dataset version 1, 30 statements, 60 party positions)\n"
+        "Published dataset version 1 for election 1\n"
     )
     assert len(provider.calls) == 7
 
@@ -598,7 +600,9 @@ def test_validate_a_run_left_in_validating(run, seeded, db_url, no_provider) -> 
     result = run("pipeline", "validate", "--run", "1")
 
     assert result.exit_code == 0, result.output
-    assert result.output == "Pipeline run 1: passed\n"
+    assert result.output == (
+        "Pipeline run 1: passed\nPublished dataset version 1 for election 1\n"
+    )
     row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
     assert row[1] == "passed"
     assert run("pipeline", "checks", "--run", "1").output == PASSED_CHECKS
@@ -957,3 +961,125 @@ def test_validate_reports_a_count_failure(run, seeded, db_url, no_provider) -> N
     assert result.exit_code == 1
     assert result.stderr == COUNT_FAILED_RUN_1
     assert COUNT_20_ROW in run("pipeline", "checks", "--run", "1").output.splitlines()
+
+
+# auto-publish-dataset-version Scenario 8: the publish line
+
+
+PASSED_RUN = (
+    "Pipeline run {run}: passed (dataset version {version}, 30 statements, "
+    "60 party positions)\n"
+)
+
+
+def _election_status(run) -> str:
+    lines = run("election", "list").output.splitlines()
+    assert lines[0] == "id\tcountry\ttype\tdate\tstatus\tname"
+    return lines[1].split("\t")[4]
+
+
+def test_run_publishes_then_supersedes(run, seeded, use_fake) -> None:
+    assert _election_status(run) == "draft"
+    use_fake(fake_provider())
+
+    first = run("pipeline", "run", "--election", "1")
+
+    assert first.exit_code == 0, first.output
+    assert first.output == (
+        PASSED_RUN.format(run=1, version=1) + "Published dataset version 1 for election 1\n"
+    )
+    assert _election_status(run) == "active"
+    statements_before = run("pipeline", "statements", "--dataset-version", "1").output
+    positions_before = run("pipeline", "positions", "--dataset-version", "1").output
+
+    use_fake(fake_provider())
+    second = run("pipeline", "run", "--election", "1")
+
+    assert second.exit_code == 0, second.output
+    assert second.output == PASSED_RUN.format(run=2, version=2) + (
+        "Published dataset version 2 for election 1 (superseded dataset version 1)\n"
+    )
+    assert _election_status(run) == "active"
+    # The superseded version stays readable, unchanged.
+    statements = run("pipeline", "statements", "--dataset-version", "1")
+    positions = run("pipeline", "positions", "--dataset-version", "1")
+    assert (statements.exit_code, positions.exit_code) == (0, 0)
+    assert statements.output == statements_before
+    assert positions.output == positions_before
+    assert len(positions.output.splitlines()) == 61
+
+
+def test_failing_run_after_a_publish_keeps_its_output(run, seeded, use_fake) -> None:
+    use_fake(fake_provider())
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    use_fake(fake_provider(position_findings=_invented_for_party2))
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == FAILED_RUN_1.replace("run 1", "run 2").replace("--run 1", "--run 2")
+    assert _election_status(run) == "active"
+
+
+def test_failing_first_run_leaves_the_election_draft(run, seeded, use_fake) -> None:
+    use_fake(fake_provider(position_findings=_invented_for_party2))
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stderr == FAILED_RUN_1
+    assert _election_status(run) == "draft"
+
+
+def test_validate_an_older_run_after_a_newer_one_published(
+    run, seeded, db_url, use_fake
+) -> None:
+    _validating_run(db_url, fake_provider())
+    use_fake(fake_provider())
+    newer = run("pipeline", "run", "--election", "1")
+    assert newer.exit_code == 0, newer.output
+    assert newer.output == (
+        PASSED_RUN.format(run=2, version=2) + "Published dataset version 2 for election 1\n"
+    )
+
+    result = run("pipeline", "validate", "--run", "1")
+
+    assert result.exit_code == 0, result.output
+    assert result.output == (
+        "Pipeline run 1: passed\n"
+        "Not published: dataset version 2 of newer pipeline run 2 is published for election 1\n"
+    )
+    listed = run("pipeline", "list", "--election", "1").output.splitlines()[1:]
+    rows = [line.split("\t") for line in listed]
+    assert [(r[0], r[1], r[5]) for r in rows] == [("1", "passed", "1"), ("2", "passed", "2")]
+
+
+def test_validate_supersedes_an_older_published_run(run, seeded, db_url, use_fake) -> None:
+    _validating_run(db_url, fake_provider())
+    engine = make_engine(db_url)
+    try:
+        with session_scope(engine) as session:
+            run2 = queue_run(
+                session,
+                1,
+                llm_provider="fake",
+                llm_model="fake-model",
+                generation_mode=GenerationMode.PRECOMPUTED,
+            ).id
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(runs_module, "validate_run", lambda engine, run_id, **kwargs: None)
+            execute_run(engine, run2, fake_provider())
+    finally:
+        engine.dispose()
+    assert run("pipeline", "validate", "--run", "1").output == (
+        "Pipeline run 1: passed\nPublished dataset version 1 for election 1\n"
+    )
+
+    result = run("pipeline", "validate", "--run", "2")
+
+    assert result.exit_code == 0, result.output
+    assert result.output == (
+        "Pipeline run 2: passed\n"
+        "Published dataset version 2 for election 1 (superseded dataset version 1)\n"
+    )
