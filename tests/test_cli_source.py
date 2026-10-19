@@ -9,6 +9,7 @@ from ideology_app.cli import NOT_INITIALISED, main
 from ideology_app.db import run_migrations
 from ideology_app.pdf_text import NO_TEXT_LAYER
 
+HEADER = ["id", "origin", "status", "pages", "content_hash", "filename", "url", "failure_reason"]
 TEXT_PAGES = ["Programa electoral\nSubir el salario mínimo.", "Página dos: educación."]
 
 
@@ -78,7 +79,7 @@ def test_add_blank_pdf_fails_but_is_committed(run, party, blank: Path, files_dir
     assert result.stderr == f"Error: source document 1 failed: {NO_TEXT_LAYER}\n"
     assert result.stdout == ""
     digest = hashlib.sha256(blank.read_bytes()).hexdigest()
-    assert _list_rows(run)[1] == ["1", "upload", "failed", "2", digest, "scan.pdf", NO_TEXT_LAYER]
+    assert _list_rows(run)[1] == ["1", "upload", "failed", "2", digest, "scan.pdf", "", NO_TEXT_LAYER]
     assert (files_dir / f"{digest}.pdf").exists()
 
 
@@ -111,7 +112,7 @@ def test_add_rejects_bad_files(
     assert result.stderr.startswith("Error: ")
     assert message in result.stderr and name in result.stderr
     assert _list_rows(run) == [
-        ["id", "origin", "status", "pages", "content_hash", "filename", "failure_reason"]
+        HEADER
     ]
     assert not files_dir.exists()
 
@@ -168,9 +169,9 @@ def test_list_and_text(run, party, text_pdf: Path, blank: Path) -> None:
     blank_hash = hashlib.sha256(blank.read_bytes()).hexdigest()
 
     assert _list_rows(run) == [
-        ["id", "origin", "status", "pages", "content_hash", "filename", "failure_reason"],
-        ["1", "upload", "parsed", "2", text_hash, "manifesto.pdf", ""],
-        ["2", "upload", "failed", "2", blank_hash, "scan.pdf", NO_TEXT_LAYER],
+        HEADER,
+        ["1", "upload", "parsed", "2", text_hash, "manifesto.pdf", "", ""],
+        ["2", "upload", "failed", "2", blank_hash, "scan.pdf", "", NO_TEXT_LAYER],
     ]
 
     full = run("source", "text", "--document", "1")
@@ -189,7 +190,7 @@ def test_list_and_text(run, party, text_pdf: Path, blank: Path) -> None:
 
 def test_list_empty_party_prints_header_only(run, party) -> None:
     assert _list_rows(run, "2") == [
-        ["id", "origin", "status", "pages", "content_hash", "filename", "failure_reason"]
+        HEADER
     ]
 
 
@@ -214,7 +215,9 @@ def test_not_found(run, party, text_pdf: Path, args: tuple[str, ...], message: s
     assert result.stderr == message
 
 
-@pytest.mark.parametrize("revision", [None, "0001"], ids=["not-migrated", "at-0001"])
+@pytest.mark.parametrize(
+    "revision", [None, "0001", "0002"], ids=["not-migrated", "at-0001", "at-0002"]
+)
 @pytest.mark.parametrize(
     "args",
     [

@@ -6,10 +6,10 @@
 - Standard startup path: `./init.sh`
 - Standard verification path: `CI=true ./init.sh` (creates `.venv` if missing, installs `.[dev]`, runs `pytest`)
 - Manual start: `.venv/bin/uvicorn ideology_app.main:app --reload` (`GET /health` → 200 `{"status": "ok"}`)
-- Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add|list|text`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready feature: `source-document-url` (also ready: `match-score-engine`); `llm-provider-abstraction` and `source-document-upload` are `accepted`
+- Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
+- Current next step: `source-document-url` is `accepted` (branch `claude/feat-source-document-url-53071f`, awaiting merge by the main session); next ready by list order: `pipeline-generate-statements` (planner); `match-score-engine` is in progress on a parallel branch
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` exit 0, 137 passed, branch `claude/feat-source-document-upload-f5c673` after merging `main` with `llm-provider-abstraction`)
+- Last verified at: 2026-10-19 (`CI=true ./init.sh` exit 0, 241 passed, branch `claude/feat-source-document-url-53071f`, independent validator accept)
 
 ## Session Log
 
@@ -107,3 +107,44 @@
 - Evidence captured: `feature_list.json` → `source-document-upload.evidence`.
 - Known risk or unresolved issue: Low: `_read_pdf_file` checks size with `stat()` then reads without a limit (a file growing between the calls could exceed 50 MiB; unrealistic for an Operator CLI). Session 008 risks carried over (orphan file on `OSError`, AES PDFs reported as encrypted, extraction quality on real manifestos unverified). The per-Party unique content hash may need revisiting for `source-document-url` re-fetches.
 - Next best step: plan `source-document-url` with `$feature-spec`.
+
+### Session 010
+
+- Date: 2026-10-19
+- Goal: Implement `source-document-url` per `docs/specs/source-document-url.md` (branch `claude/feat-source-document-url-53071f`).
+- Completed: `src/ideology_app/http_fetch.py` (stdlib urllib; http/https-only `_OPENER`; `_open` test seam; `fetch_url`, `FetchError`); `SourceDocument.source_url` + CHECK `source_url_matches_origin` and hand-written migration `0003_source_document_url.py`; `db.is_initialised` now means "at the Alembic script head"; `source_documents.add_url_document`, `_validate_url`, `_store_and_parse` (upload path refactored onto it, behaviour unchanged); CLI `source add --file|--url` (exactly one, else exit 2) and the `url` column in `source list`; `tests/http_fakes.py`, `tests/test_http_fetch.py`, `tests/test_source_url.py`; `tests/test_cli_source.py` (header, `0002` case) and `tests/test_migrations.py` (head `0003`, downgrade, CHECK violations, constraints kept, PG render) extended; `ARCHITECTURE.md`, `CONSTRAINTS.md` (Source Documents: fetch adapter, close `HTTPError`, offline tests), `docs/technical-discovery.md`.
+- Verification run: `CI=true ./init.sh` → 222 passed, exit 0; `python -X dev -W error -m pytest -p no:cacheprovider` → 222 passed; `alembic history` → `0002 -> 0003 (head)`; `alembic check` → no drift; offline PostgreSQL render → 6 CHECKs, the new one once; urllib/http.client grep → only `http_fetch.py`; manual CLI smoke in a scratch dir against a loopback-only `http.server` (spec steps 1-13 plus a DB at `0002`), stored file hashes match `shasum -a 256`, scratch dir deleted.
+- Evidence captured: `feature_list.json` → `source-document-url.evidence` (status `passing`).
+- Small additions beyond the spec text: `_store_and_parse` also takes the `session` (it flushes); `_validate_url` also rejects an out-of-range or non-numeric port (`invalid URL …: Port out of range …`); the shown URL in `invalid URL` messages is cut to 100 characters; `add_url_document` takes an optional `fetch` callable for tests; a body that does not start with `%PDF-` is reported as a `FetchError` reason inside the service.
+- Known risk or unresolved issue: a failed download leaves a `failed` row and a retry adds a new row (no delete/retry command yet). Some party sites block non-browser clients or hide the PDF behind a JavaScript page; those end in `failed` and the Operator can fall back to `--file`. DNS resolution and connect happen inside urllib with no host allow-list (an Operator can point it at a private/loopback address; acceptable for an Operator-only CLI). Migration id: if another branch lands a `0003` first, renumber this one before merging. Session 008/009 risks carried over.
+- Next best step: independent validation of `source-document-url` with `$feature-validator`.
+
+### Session 011
+
+- Date: 2026-10-19
+- Goal: Repair `source-document-url` after validator `revise` (Medium: a non-ASCII URL such as `http://127.0.0.1:8766/año.pdf` raised an uncaught `UnicodeEncodeError` from `http.client`, printing a traceback and committing no row).
+- Completed: `http_fetch._ascii_url` (non-ASCII path/query/fragment UTF-8 percent-encoded, existing `%XX` and all other ASCII kept, non-ASCII host IDNA-encoded); `fetch_url` builds the `Request` from it inside the `try` and maps any `ValueError` (`UnicodeError`, `http.client.InvalidURL`) to `could not fetch URL: <type>: <msg>`; `source_url` is still stored as given. Tests added in `tests/test_http_fetch.py` and `tests/test_source_url.py`; `ARCHITECTURE.md` and the spec document the encoding.
+- Verification run: `CI=true ./init.sh` → 237 passed, exit 0; `python -X dev -W error -m pytest -p no:cacheprovider` → 237 passed; loopback-only smoke (`http.server` on 127.0.0.1:8766, scratch dir outside the repo) with `/año.pdf` → `parsed (1 pages)`, exit 0, server saw `GET /a%C3%B1o.pdf`, list shows filename `año.pdf` and the URL as given; server stopped, scratch dir deleted.
+- Evidence captured: `feature_list.json` → `source-document-url.evidence` (status `passing`).
+- Known risk or unresolved issue: Session 010 risks unchanged.
+- Next best step: independent re-validation of `source-document-url` with `$feature-validator`.
+
+### Session 012
+
+- Date: 2026-10-19
+- Goal: Second repair of `source-document-url` after validator `revise` (Low-Medium: `--url $'http://127.0.0.1:PORT/\xff.pdf'` reached the fetch as a lone surrogate `\udcff`; the `failed` row could not be bound by sqlite3, so a `UnicodeEncodeError` traceback escaped `session.flush()`).
+- Completed: `_validate_url` rejects a URL that cannot be encoded as UTF-8 (`invalid URL '...': it is not valid UTF-8`, repr-printed) and C1 control characters `\x80`-`\x9f` with the C0/DEL check, before any fetch. Tests: service invalid-URL cases `\x85`, `\x9f`, `\udcff`; CLI case `non-utf8`. Spec validation rules updated.
+- Verification run: `CI=true ./init.sh` → 241 passed, exit 0; `python -X dev -W error -m pytest -p no:cacheprovider` → 241 passed; manual CLI in a scratch dir outside the repo: `$'http://127.0.0.1:9/\xff.pdf'` → `Error: invalid URL 'http://127.0.0.1:9/\udcff.pdf': it is not valid UTF-8`, exit 1, no traceback; a `\xc2\x85` (C1) URL → invalid URL, exit 1; no row, no `source_files`; scratch dir deleted.
+- Evidence captured: `feature_list.json` → `source-document-url.evidence` (status `passing`).
+- Known risk or unresolved issue: Session 010 risks unchanged.
+- Next best step: independent re-validation of `source-document-url` with `$feature-validator`.
+
+### Session 013
+
+- Date: 2026-10-19
+- Goal: Independent validation of `source-document-url` (feature-flow orchestration; GitHub issue #5).
+- Completed: validator pass 1 `revise` (non-ASCII URL traceback, repaired in Session 011); pass 2 `revise` (non-UTF-8 argv byte traceback, repaired in Session 012); pass 3 `accept`. Status set to `accepted`.
+- Verification run (validator pass 3): `CI=true ./init.sh` → 241 passed, exit 0; `-X dev -W error` pytest clean; alembic `0002 -> 0003 (head)`, check no drift, PG render CHECK once, DB at `0002` not initialised; loopback-only smoke of spec scenarios 1-7 plus both repairs; a malformed-server sweep (redirects to `file:`/`ftp:`, redirect loop, bad status line, long header, bad chunked body, odd `Content-Length`, IDNA overflow, TLS to an http port) all ended as committed `failed` rows without a traceback; scope clean, no new dependency.
+- Evidence captured: `feature_list.json` → `source-document-url.evidence`.
+- Known risk or unresolved issue (non-blocking validator notes): multi-line failure reasons (e.g. redirect loop) break the tab-separated rows of `source list`; Unicode whitespace such as NBSP/U+2028 passes URL validation; a body shorter than its `Content-Length` ends as a PDF parse failure with the truncated file stored; a non-ASCII-digit `Content-Length` gives a poorly worded reason; the 60 s timeout is per socket operation, not per request. Session 010 risks carried over (no delete/retry for failed rows; no host allow-list; renumber migration `0003` if another branch lands one first).
+- Next best step: the main session merges this branch; then plan `pipeline-generate-statements` with `$feature-spec`.

@@ -44,7 +44,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0002"
+    assert _version(db_url) == "0003"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -52,7 +52,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0002"
+    assert _version(db_url) == "0003"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -62,6 +62,56 @@ def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
 
     assert _tables(db_url) == {"alembic_version", "elections", "parties"}
     assert _version(db_url) == "0001"
+
+
+def _source_document_columns(url: str) -> set[str]:
+    engine = make_engine(url)
+    try:
+        return {c["name"] for c in sa.inspect(engine).get_columns("source_documents")}
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_to_0002_drops_source_url(db_url: str) -> None:
+    run_migrations(db_url)
+    assert "source_url" in _source_document_columns(db_url)
+
+    downgrade(db_url, "0002")
+
+    assert "source_url" not in _source_document_columns(db_url)
+    assert _tables(db_url) == ALL_TABLES
+    assert _version(db_url) == "0002"
+    engine = make_engine(db_url)
+    try:
+        inspector = sa.inspect(engine)
+        assert {c["name"] for c in inspector.get_check_constraints("source_documents")} == {
+            "ck_source_documents_source_document_origin",
+            "ck_source_documents_source_document_status",
+        }
+        assert [i["name"] for i in inspector.get_indexes("source_documents")] == [
+            "ix_source_documents_party_id"
+        ]
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_0003_keeps_existing_constraints_and_index(migrated_engine: Engine) -> None:
+    inspector = sa.inspect(migrated_engine)
+    checks = {c["name"] for c in inspector.get_check_constraints("source_documents")}
+    assert checks == {
+        "ck_source_documents_source_document_origin",
+        "ck_source_documents_source_document_status",
+        "ck_source_documents_source_url_matches_origin",
+    }
+    assert [i["name"] for i in inspector.get_indexes("source_documents")] == [
+        "ix_source_documents_party_id"
+    ]
+    assert [u["name"] for u in inspector.get_unique_constraints("source_documents")] == [
+        "uq_source_documents_party_id_content_hash"
+    ]
+    assert [f["name"] for f in inspector.get_foreign_keys("source_documents")] == [
+        "fk_source_documents_party_id_parties"
+    ]
 
 
 def test_downgrade_to_base_removes_domain_tables(db_url: str) -> None:
@@ -78,6 +128,8 @@ def test_is_initialised(db_url: str) -> None:
     try:
         assert not is_initialised(engine)
         run_migrations(db_url, "0001")
+        assert not is_initialised(engine)
+        run_migrations(db_url, "0002")
         assert not is_initialised(engine)
         run_migrations(db_url)
         assert is_initialised(engine)
@@ -116,6 +168,10 @@ def test_database_constraints_reject_bad_rows(migrated_engine: Engine, statement
         "INSERT INTO source_documents (party_id, origin, status, created_at) "
         "VALUES (1, 'email', 'parsed', '2026-10-19 00:00:00')",
         "INSERT INTO source_documents (party_id, origin, status, created_at) "
+        "VALUES (1, 'url', 'failed', '2026-10-19 00:00:00')",
+        "INSERT INTO source_documents (party_id, origin, status, source_url, created_at) "
+        "VALUES (1, 'upload', 'parsed', 'https://example.org/a.pdf', '2026-10-19 00:00:00')",
+        "INSERT INTO source_documents (party_id, origin, status, created_at) "
         "VALUES (999, 'upload', 'parsed', '2026-10-19 00:00:00')",
         "INSERT INTO source_document_pages (source_document_id, page_number, text) "
         "VALUES (1, 0, 'x')",
@@ -127,6 +183,8 @@ def test_database_constraints_reject_bad_rows(migrated_engine: Engine, statement
     ids=[
         "bad-source-status",
         "bad-source-origin",
+        "url-without-source-url",
+        "upload-with-source-url",
         "unknown-party",
         "page-number-zero",
         "unknown-source-document",
@@ -191,4 +249,6 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert sql.count("ck_source_documents_source_document_origin") == 1
     assert sql.count("ck_source_documents_source_document_status") == 1
     assert sql.count("ck_source_document_pages_page_number_positive") == 1
-    assert sql.count("CHECK") == 5
+    assert sql.count("ck_source_documents_source_url_matches_origin") == 1
+    assert "ADD COLUMN source_url VARCHAR(2048)" in sql
+    assert sql.count("CHECK") == 6
