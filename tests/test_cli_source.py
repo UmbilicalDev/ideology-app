@@ -216,7 +216,9 @@ def test_not_found(run, party, text_pdf: Path, args: tuple[str, ...], message: s
 
 
 @pytest.mark.parametrize(
-    "revision", [None, "0001", "0002"], ids=["not-migrated", "at-0001", "at-0002"]
+    "revision",
+    [None, "0001", "0002", "0003"],
+    ids=["not-migrated", "at-0001", "at-0002", "at-0003"],
 )
 @pytest.mark.parametrize(
     "args",

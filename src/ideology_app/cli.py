@@ -12,9 +12,11 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from ideology_app import elections as service
 from ideology_app import config
+from ideology_app import pipeline as pipelines
 from ideology_app import source_documents as sources
 from ideology_app.db import is_initialised, make_engine, run_migrations, session_scope
-from ideology_app.models import SourceDocumentStatus
+from ideology_app.llm import LLMProvider, build_provider
+from ideology_app.models import PipelineRunStatus, SourceDocumentStatus
 
 NOT_INITIALISED = 'Database is not initialised; run "ideology db upgrade".'
 
@@ -245,3 +247,105 @@ def source_text(app: AppContext, document_id: int, page: int | None) -> None:
     for number, text in pages:
         click.echo(f"--- page {number} ---")
         click.echo(text)
+
+
+def _provider() -> LLMProvider:
+    """The configured LLM provider. Tests patch this seam to inject a fake."""
+    return build_provider(config.llm_settings())
+
+
+@main.group()
+def pipeline() -> None:
+    """Run the AI pipeline and inspect its Pipeline Runs."""
+
+
+@pipeline.command("run")
+@click.option("--election", "election_id", required=True, type=int, help="Election id.")
+@requires_db
+def pipeline_run(app: AppContext, election_id: int) -> None:
+    """Generate a candidate Dataset Version of Statements for an Election."""
+    try:
+        mode = config.generation_mode()
+        provider = _provider()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        with session_scope(app.engine) as session:
+            run = pipelines.queue_run(
+                session,
+                election_id,
+                llm_provider=provider.name,
+                llm_model=provider.model,
+                generation_mode=mode,
+            )
+            run_id = run.id
+        outcome = pipelines.execute_run(app.engine, run_id, provider)
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
+    # The failed run is committed above; report it as an error afterwards.
+    if outcome.status is PipelineRunStatus.FAILED:
+        raise click.ClickException(
+            f"pipeline run {outcome.run_id} failed: {outcome.failure_reason}"
+        )
+    click.echo(
+        f"Pipeline run {outcome.run_id}: {outcome.status.value} "
+        f"(dataset version {outcome.dataset_version_id}, "
+        f"{outcome.statement_count} statements)"
+    )
+
+
+@pipeline.command("list")
+@click.option("--election", "election_id", required=True, type=int, help="Election id.")
+@requires_db
+def pipeline_list(app: AppContext, election_id: int) -> None:
+    """List the Pipeline Runs of an Election."""
+    with session_scope(app.engine) as session:
+        rows: list[list[object]] = []
+        for r in pipelines.list_runs(session, election_id):
+            version = r.dataset_version
+            rows.append(
+                [
+                    r.id,
+                    r.status.value,
+                    r.llm_provider,
+                    r.llm_model,
+                    r.generation_mode.value,
+                    version.id if version else None,
+                    len(version.statements) if version else None,
+                    r.llm_calls,
+                    r.input_tokens,
+                    r.output_tokens,
+                    r.failure_reason,
+                ]
+            )
+    _print_rows(
+        [
+            "id",
+            "status",
+            "provider",
+            "model",
+            "mode",
+            "dataset_version",
+            "statements",
+            "llm_calls",
+            "input_tokens",
+            "output_tokens",
+            "failure_reason",
+        ],
+        rows,
+    )
+
+
+@pipeline.command("statements")
+@click.option(
+    "--dataset-version", "dataset_version_id", required=True, type=int, help="Dataset Version id."
+)
+@requires_db
+def pipeline_statements(app: AppContext, dataset_version_id: int) -> None:
+    """List the Statements of a Dataset Version in order."""
+    with session_scope(app.engine) as session:
+        version = pipelines.get_dataset_version(session, dataset_version_id)
+        rows: list[list[object]] = [[s.position, s.topic, s.text] for s in version.statements]
+    _print_rows(["position", "topic", "text"], rows)

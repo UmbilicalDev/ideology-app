@@ -6,6 +6,8 @@ from enum import StrEnum
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from ideology_app.config import GenerationMode
+
 NAMING_CONVENTION = {
     "pk": "pk_%(table_name)s",
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
@@ -55,6 +57,12 @@ class Election(Base):
 
     parties: Mapped[list["Party"]] = relationship(
         back_populates="election", order_by="Party.id", passive_deletes=True
+    )
+    pipeline_runs: Mapped[list["PipelineRun"]] = relationship(
+        back_populates="election", order_by="PipelineRun.id", passive_deletes=True
+    )
+    dataset_versions: Mapped[list["DatasetVersion"]] = relationship(
+        back_populates="election", order_by="DatasetVersion.id", passive_deletes=True
     )
 
 
@@ -158,3 +166,106 @@ class SourceDocumentPage(Base):
     text: Mapped[str] = mapped_column(sa.Text)
 
     source_document: Mapped[SourceDocument] = relationship(back_populates="pages")
+
+
+class PipelineRunStatus(StrEnum):
+    """The full domain lifecycle; later features add ``passed`` and Validation."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    VALIDATING = "validating"
+    PASSED = "passed"
+    FAILED = "failed"
+
+
+class DatasetVersionStatus(StrEnum):
+    CANDIDATE = "candidate"
+    PUBLISHED = "published"
+    SUPERSEDED = "superseded"
+
+
+class PipelineRun(Base):
+    """One execution of the AI pipeline for an Election, with what it used."""
+
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    election_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("elections.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[PipelineRunStatus] = mapped_column(
+        _enum(PipelineRunStatus, "pipeline_run_status")
+    )
+    llm_provider: Mapped[str] = mapped_column(sa.String(50))
+    llm_model: Mapped[str] = mapped_column(sa.String(200))
+    generation_mode: Mapped[GenerationMode] = mapped_column(
+        _enum(GenerationMode, "generation_mode")
+    )
+    # task -> prompt version, e.g. {"generate_statements": "v1"}.
+    prompt_versions: Mapped[dict[str, str]] = mapped_column(sa.JSON)
+    llm_calls: Mapped[int] = mapped_column(sa.Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(sa.Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(sa.Integer, default=0)
+    failure_reason: Mapped[str | None] = mapped_column(sa.String(500))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
+    )
+    started_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    generation_finished_at: Mapped[dt.datetime | None] = mapped_column(
+        sa.DateTime(timezone=True)
+    )
+
+    election: Mapped[Election] = relationship(back_populates="pipeline_runs")
+    dataset_version: Mapped["DatasetVersion | None"] = relationship(
+        back_populates="pipeline_run", uselist=False, passive_deletes=True
+    )
+
+
+class DatasetVersion(Base):
+    """An immutable Questionnaire snapshot produced by one Pipeline Run."""
+
+    __tablename__ = "dataset_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    election_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("elections.id", ondelete="CASCADE"), index=True
+    )
+    pipeline_run_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("pipeline_runs.id", ondelete="CASCADE"), unique=True
+    )
+    status: Mapped[DatasetVersionStatus] = mapped_column(
+        _enum(DatasetVersionStatus, "dataset_version_status"),
+        default=DatasetVersionStatus.CANDIDATE,
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
+    )
+
+    election: Mapped[Election] = relationship(back_populates="dataset_versions")
+    pipeline_run: Mapped[PipelineRun] = relationship(back_populates="dataset_version")
+    statements: Mapped[list["Statement"]] = relationship(
+        back_populates="dataset_version",
+        order_by="Statement.position",
+        passive_deletes=True,
+    )
+
+
+class Statement(Base):
+    """One AI-generated Questionnaire item: text, topic tag and 1-based order."""
+
+    __tablename__ = "statements"
+    __table_args__ = (
+        sa.UniqueConstraint("dataset_version_id", "position"),
+        sa.CheckConstraint("position >= 1", name="position_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dataset_version_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("dataset_versions.id", ondelete="CASCADE")
+    )
+    position: Mapped[int] = mapped_column(sa.Integer)
+    text: Mapped[str] = mapped_column(sa.String(300))
+    # Not an Enum: the topic list is versioned with the prompts.
+    topic: Mapped[str] = mapped_column(sa.String(50))
+
+    dataset_version: Mapped[DatasetVersion] = relationship(back_populates="statements")
