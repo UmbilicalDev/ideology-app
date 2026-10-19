@@ -1,5 +1,6 @@
 """``ideology`` command-line interface for the Operator."""
 
+import re
 from dataclasses import dataclass
 from functools import update_wrapper
 from pathlib import Path
@@ -263,7 +264,7 @@ def pipeline() -> None:
 @click.option("--election", "election_id", required=True, type=int, help="Election id.")
 @requires_db
 def pipeline_run(app: AppContext, election_id: int) -> None:
-    """Generate a candidate Dataset Version of Statements for an Election."""
+    """Generate Statements and Party Positions (a candidate Dataset Version)."""
     try:
         mode = config.generation_mode()
         provider = _provider()
@@ -292,7 +293,7 @@ def pipeline_run(app: AppContext, election_id: int) -> None:
     click.echo(
         f"Pipeline run {outcome.run_id}: {outcome.status.value} "
         f"(dataset version {outcome.dataset_version_id}, "
-        f"{outcome.statement_count} statements)"
+        f"{outcome.statement_count} statements, {outcome.position_count} party positions)"
     )
 
 
@@ -349,3 +350,32 @@ def pipeline_statements(app: AppContext, dataset_version_id: int) -> None:
         version = pipelines.get_dataset_version(session, dataset_version_id)
         rows: list[list[object]] = [[s.position, s.topic, s.text] for s in version.statements]
     _print_rows(["position", "topic", "text"], rows)
+
+
+def _one_line(text: str | None) -> str | None:
+    """Show each whitespace run (tabs, newlines) as one space. Display only."""
+    return None if text is None else re.sub(r"\s+", " ", text)
+
+
+@pipeline.command("positions")
+@click.option(
+    "--dataset-version", "dataset_version_id", required=True, type=int, help="Dataset Version id."
+)
+@click.option("--party", "party_id", type=int, default=None, help="Only this Party id.")
+@requires_db
+def pipeline_positions(app: AppContext, dataset_version_id: int, party_id: int | None) -> None:
+    """List the Party Positions of a Dataset Version with their Evidence."""
+    with session_scope(app.engine) as session:
+        rows: list[list[object]] = [
+            [
+                p.statement.position,
+                p.party_id,
+                p.engine_value,
+                p.evidence_source_document_id,
+                p.evidence_page,
+                p.evidence_url,
+                _one_line(p.evidence_quote),
+            ]
+            for p in pipelines.list_positions(session, dataset_version_id, party_id)
+        ]
+    _print_rows(["statement", "party", "value", "document", "page", "url", "quote"], rows)

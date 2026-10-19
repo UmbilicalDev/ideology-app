@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ideology_app.llm.base import LLMProvider, LLMRequest, LLMResult
+from ideology_app.models import SourceDocumentRole
 from ideology_app.pipeline.prompts import (
     GENERATE_STATEMENTS,
     STATEMENT_CANDIDATES,
@@ -37,6 +38,17 @@ class DocumentPages:
     party_id: int
     document_id: int
     pages: Sequence[tuple[int, str]]  # (page_number, text as stored)
+    source_url: str | None = None  # set for documents that came from a URL
+    role: SourceDocumentRole = SourceDocumentRole.MAIN
+
+
+@dataclass(frozen=True)
+class Chunk:
+    """One prompt-sized piece of a single Source Document."""
+
+    party_id: int
+    document_id: int
+    text: str
 
 
 @dataclass
@@ -68,9 +80,13 @@ def _page_pieces(page_number: int, text: str, max_chars: int) -> list[str]:
     return [marker + text[start : start + room] for start in range(0, len(text), room)]
 
 
-def build_chunks(
+def _chunk(document: DocumentPages, pieces: Sequence[str]) -> Chunk:
+    return Chunk(document.party_id, document.document_id, _PAGE_SEPARATOR.join(pieces))
+
+
+def build_document_chunks(
     documents: Iterable[DocumentPages], max_chars: int = CHUNK_MAX_CHARS
-) -> list[str]:
+) -> list[Chunk]:
     """Split parsed pages into prompt-sized chunks of at most ``max_chars``.
 
     Documents are ordered by Party id, then document id; pages by page number.
@@ -78,7 +94,7 @@ def build_chunks(
     ``[página N]`` marker. A page longer than the limit is cut into consecutive
     slices (each under its page marker). Whitespace-only pages are left out.
     """
-    chunks: list[str] = []
+    chunks: list[Chunk] = []
     for document in sorted(documents, key=lambda d: (d.party_id, d.document_id)):
         current: list[str] = []
         size = 0
@@ -88,14 +104,21 @@ def build_chunks(
             for piece in _page_pieces(page_number, text, max_chars):
                 added = len(piece) + (len(_PAGE_SEPARATOR) if current else 0)
                 if current and size + added > max_chars:
-                    chunks.append(_PAGE_SEPARATOR.join(current))
+                    chunks.append(_chunk(document, current))
                     current, size = [], 0
                     added = len(piece)
                 current.append(piece)
                 size += added
         if current:
-            chunks.append(_PAGE_SEPARATOR.join(current))
+            chunks.append(_chunk(document, current))
     return chunks
+
+
+def build_chunks(
+    documents: Iterable[DocumentPages], max_chars: int = CHUNK_MAX_CHARS
+) -> list[str]:
+    """The text of ``build_document_chunks``, for Statement generation."""
+    return [chunk.text for chunk in build_document_chunks(documents, max_chars)]
 
 
 def _request(spec: PromptSpec, **fields: object) -> LLMRequest[Any]:
@@ -151,10 +174,12 @@ __all__ = [
     "CHUNK_MAX_CHARS",
     "MAX_LLM_CALLS_PER_RUN",
     "NO_CANDIDATES_REASON",
+    "Chunk",
     "DocumentPages",
     "GenerationError",
     "Usage",
     "build_chunks",
+    "build_document_chunks",
     "candidate_request",
     "generate_statements",
     "reduce_request",

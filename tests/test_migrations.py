@@ -37,7 +37,9 @@ TABLES_AT_0003 = {
     "source_document_pages",
 }
 PIPELINE_TABLES = {"pipeline_runs", "dataset_versions", "statements"}
-ALL_TABLES = TABLES_AT_0003 | PIPELINE_TABLES
+TABLES_AT_0004 = TABLES_AT_0003 | PIPELINE_TABLES
+POSITION_TABLES = {"party_positions", "pipeline_run_source_documents"}
+ALL_TABLES = TABLES_AT_0004 | POSITION_TABLES
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -46,7 +48,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0004"
+    assert _version(db_url) == "0005"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -54,7 +56,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0004"
+    assert _version(db_url) == "0005"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -134,6 +136,8 @@ def test_is_initialised(db_url: str) -> None:
         run_migrations(db_url, "0002")
         assert not is_initialised(engine)
         run_migrations(db_url, "0003")
+        assert not is_initialised(engine)
+        run_migrations(db_url, "0004")
         assert not is_initialised(engine)
         run_migrations(db_url)
         assert is_initialised(engine)
@@ -262,7 +266,13 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert sql.count("ck_pipeline_runs_generation_mode") == 1
     assert sql.count("ck_dataset_versions_dataset_version_status") == 1
     assert sql.count("ck_statements_position_positive") == 1
-    assert sql.count("CHECK") == 10
+    assert "CREATE TABLE pipeline_run_source_documents" in sql
+    assert "CREATE TABLE party_positions" in sql
+    assert sql.count("ck_pipeline_run_source_documents_source_document_role") == 1
+    assert sql.count("ck_party_positions_value_range") == 1
+    assert sql.count("ck_party_positions_evidence_page_positive") == 1
+    assert sql.count("ck_party_positions_evidence_matches_value") == 1
+    assert sql.count("CHECK") == 14
 
 
 def test_downgrade_to_0003_drops_exactly_the_pipeline_tables(db_url: str) -> None:
@@ -378,4 +388,145 @@ def test_deleting_an_election_cascades_to_pipeline_rows(migrated_engine: Engine)
     with migrated_engine.begin() as conn:
         conn.execute(sa.text("DELETE FROM elections"))
         for table in ("pipeline_runs", "dataset_versions", "statements"):
+            assert conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar_one() == 0
+
+
+# Migration 0005: party_positions and pipeline_run_source_documents.
+
+
+def test_downgrade_to_0004_drops_exactly_the_position_tables(db_url: str) -> None:
+    run_migrations(db_url)
+    assert POSITION_TABLES <= _tables(db_url)
+
+    downgrade(db_url, "0004")
+
+    assert _tables(db_url) == TABLES_AT_0004
+    assert _version(db_url) == "0004"
+
+
+def test_upgrade_0005_creates_position_constraints(migrated_engine: Engine) -> None:
+    inspector = sa.inspect(migrated_engine)
+    assert {c["name"] for c in inspector.get_check_constraints("party_positions")} == {
+        "ck_party_positions_value_range",
+        "ck_party_positions_evidence_page_positive",
+        "ck_party_positions_evidence_matches_value",
+    }
+    assert {
+        c["name"] for c in inspector.get_check_constraints("pipeline_run_source_documents")
+    } == {"ck_pipeline_run_source_documents_source_document_role"}
+    assert [u["name"] for u in inspector.get_unique_constraints("party_positions")] == [
+        "uq_party_positions_statement_id_party_id"
+    ]
+    assert [i["name"] for i in inspector.get_indexes("party_positions")] == [
+        "ix_party_positions_party_id"
+    ]
+    assert inspector.get_pk_constraint("pipeline_run_source_documents")[
+        "constrained_columns"
+    ] == ["pipeline_run_id", "source_document_id"]
+
+
+_POSITION_COLUMNS = (
+    "statement_id, party_id, value, evidence_source_document_id, evidence_quote, "
+    "evidence_page, evidence_url"
+)
+
+
+def _seed_positions(engine: Engine) -> None:
+    _seed_run_and_version(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                f"INSERT INTO party_positions ({_POSITION_COLUMNS}) "
+                "VALUES (1, 1, 2, 1, 'cita', 1, NULL)"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO pipeline_run_source_documents "
+                "(pipeline_run_id, source_document_id, role) VALUES (1, 1, 'main')"
+            )
+        )
+        conn.execute(
+            sa.text("INSERT INTO parties (id, election_id, name, short_name) VALUES (2, 1, 'b', 'B')")
+        )
+
+
+def _position(values: str) -> str:
+    return f"INSERT INTO party_positions ({_POSITION_COLUMNS}) VALUES ({values})"
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        "1, 2, NULL, NULL, NULL, NULL, NULL",
+        "1, 2, -2, 1, 'cita', 1, 'https://example.org/a.pdf'",
+        "1, 2, 0, 1, 'cita', 1, NULL",
+    ],
+    ids=["no-stance", "stance-with-url", "neutral"],
+)
+def test_party_positions_accept_good_rows(migrated_engine: Engine, values: str) -> None:
+    _seed_positions(migrated_engine)
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text(_position(values)))
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        _position("1, 2, 3, 1, 'cita', 1, NULL"),
+        _position("1, 2, -3, 1, 'cita', 1, NULL"),
+        _position("1, 2, 1, 1, NULL, 1, NULL"),
+        _position("1, 2, 1, NULL, 'cita', 1, NULL"),
+        _position("1, 2, 1, 1, 'cita', NULL, NULL"),
+        _position("1, 2, NULL, 1, NULL, NULL, NULL"),
+        _position("1, 2, NULL, NULL, 'cita', NULL, NULL"),
+        _position("1, 2, NULL, NULL, NULL, 1, NULL"),
+        _position("1, 2, NULL, NULL, NULL, NULL, 'https://example.org/a.pdf'"),
+        _position("1, 2, 1, 1, 'cita', 0, NULL"),
+        _position("1, 1, NULL, NULL, NULL, NULL, NULL"),
+        _position("999, 2, NULL, NULL, NULL, NULL, NULL"),
+        _position("1, 999, NULL, NULL, NULL, NULL, NULL"),
+        _position("1, 2, 1, 999, 'cita', 1, NULL"),
+        "INSERT INTO pipeline_run_source_documents (pipeline_run_id, source_document_id, role) "
+        "VALUES (1, 1, 'additional')",
+        "INSERT INTO pipeline_run_source_documents (pipeline_run_id, source_document_id, role) "
+        "VALUES (1, 1, 'bogus')",
+        "INSERT INTO pipeline_run_source_documents (pipeline_run_id, source_document_id, role) "
+        "VALUES (999, 1, 'main')",
+        "INSERT INTO pipeline_run_source_documents (pipeline_run_id, source_document_id, role) "
+        "VALUES (1, 999, 'main')",
+    ],
+    ids=[
+        "value-3",
+        "value-minus-3",
+        "stance-without-quote",
+        "stance-without-document",
+        "stance-without-page",
+        "no-stance-with-document",
+        "no-stance-with-quote",
+        "no-stance-with-page",
+        "no-stance-with-url",
+        "page-zero",
+        "duplicate-statement-party",
+        "unknown-statement",
+        "unknown-party",
+        "unknown-evidence-document",
+        "duplicate-run-document",
+        "bad-role",
+        "unknown-run",
+        "unknown-source-document",
+    ],
+)
+def test_position_constraints_reject_bad_rows(migrated_engine: Engine, statement: str) -> None:
+    _seed_positions(migrated_engine)
+    with pytest.raises(IntegrityError):
+        with migrated_engine.begin() as conn:
+            conn.execute(sa.text(statement))
+
+
+def test_deleting_an_election_cascades_to_position_rows(migrated_engine: Engine) -> None:
+    _seed_positions(migrated_engine)
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM elections"))
+        for table in POSITION_TABLES:
             assert conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar_one() == 0
