@@ -17,6 +17,10 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Page text MUST be stored as extracted (only NUL characters removed). Any whitespace/accent normalisation for quote matching MUST happen at match time. Reason: Evidence must stay verifiable against the original extraction.
 - Tests MUST build PDFs with `tests/pdf_factory.py` (no committed binaries, no network) and MUST point `SOURCE_FILES_DIR` / `files_dir` into `tmp_path`, never `./source_files`. Reason: the default directory is relative to the current directory.
 
+- Only `src/ideology_app/http_fetch.py` MAY fetch Source Document URLs (`urllib.request` / `http.client`), and it MUST allow only `http`/`https`, including after redirects (no `file:`, `ftp:` or `data:` handler). Reason: one place to harden downloads, and an Operator-typed URL must not read local files.
+- Every caught `urllib.error.HTTPError` MUST be closed. Reason: on Python 3.15 an unclosed `HTTPError` emits `ResourceWarning: Implicitly cleaning up`, even with `fp=None`, which fails the gate; test fakes build it with `io.BytesIO(b"")` (`tests/http_fakes.py`).
+- Tests MUST NOT open a network connection: mock `ideology_app.http_fetch._open` (or pass `fetch=` to `add_url_document`) and keep the autouse socket guard in every module that touches URL fetching. Reason: a deterministic, offline CI.
+
 ## LLM Providers
 
 - Only `ideology_app.llm.*_provider` modules MAY import a vendor LLM SDK (e.g. `anthropic`); tests of that adapter are the only other exception. Everything else gets a provider through `build_provider` or by injection. Reason: the provider is configuration, not code branches.

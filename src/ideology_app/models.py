@@ -98,7 +98,14 @@ class SourceDocument(Base):
     """A manifesto file of a Party. The stored file is ``<content_hash>.pdf``."""
 
     __tablename__ = "source_documents"
-    __table_args__ = (sa.UniqueConstraint("party_id", "content_hash"),)
+    __table_args__ = (
+        sa.UniqueConstraint("party_id", "content_hash"),
+        sa.CheckConstraint(
+            "(origin = 'url' AND source_url IS NOT NULL) "
+            "OR (origin = 'upload' AND source_url IS NULL)",
+            name="source_url_matches_origin",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     party_id: Mapped[int] = mapped_column(
@@ -111,7 +118,9 @@ class SourceDocument(Base):
         _enum(SourceDocumentStatus, "source_document_status")
     )
     original_filename: Mapped[str | None] = mapped_column(sa.String(255))
-    # Null only before a URL document is fetched (source-document-url).
+    # The URL as given by the Operator; set exactly when origin is ``url``.
+    source_url: Mapped[str | None] = mapped_column(sa.String(2048))
+    # Null only for a URL document whose download failed.
     content_hash: Mapped[str | None] = mapped_column(sa.String(64))
     page_count: Mapped[int | None] = mapped_column(sa.Integer)
     failure_reason: Mapped[str | None] = mapped_column(sa.String(500))

@@ -9,7 +9,9 @@ from typing import Any
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine, event, inspect
+from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session
 
 from ideology_app.config import database_url
@@ -45,10 +47,13 @@ def session_scope(engine: Engine) -> Iterator[Session]:
         session.close()
 
 
+SCRIPT_LOCATION = "ideology_app:migrations"
+
+
 def alembic_config(url: str | None = None, **kwargs: Any) -> Config:
     """Build an Alembic Config in code that points at the package migrations."""
     cfg = Config(**kwargs)
-    cfg.set_main_option("script_location", "ideology_app:migrations")
+    cfg.set_main_option("script_location", SCRIPT_LOCATION)
     # ConfigParser interpolation treats '%' specially (e.g. URL-encoded passwords).
     cfg.set_main_option("sqlalchemy.url", (url or database_url()).replace("%", "%%"))
     return cfg
@@ -64,16 +69,11 @@ def downgrade(url: str | None, revision: str) -> None:
     command.downgrade(alembic_config(url), revision)
 
 
-_REQUIRED_TABLES = (
-    "alembic_version",
-    "elections",
-    "parties",
-    "source_documents",
-    "source_document_pages",
-)
-
-
 def is_initialised(engine: Engine) -> bool:
-    """True when the migrations have created every domain table."""
-    inspector = inspect(engine)
-    return all(inspector.has_table(name) for name in _REQUIRED_TABLES)
+    """True when the database is at the newest migration (the script head)."""
+    script_config = Config()
+    script_config.set_main_option("script_location", SCRIPT_LOCATION)
+    head = ScriptDirectory.from_config(script_config).get_current_head()
+    with engine.connect() as conn:
+        current = MigrationContext.configure(conn).get_current_revision()
+    return current is not None and current == head
