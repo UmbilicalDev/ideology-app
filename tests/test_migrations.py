@@ -50,7 +50,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0007"
+    assert _version(db_url) == "0008"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -58,7 +58,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0007"
+    assert _version(db_url) == "0008"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -144,6 +144,8 @@ def test_is_initialised(db_url: str) -> None:
         run_migrations(db_url, "0005")
         assert not is_initialised(engine)
         run_migrations(db_url, "0006")
+        assert not is_initialised(engine)
+        run_migrations(db_url, "0007")
         assert not is_initialised(engine)
         run_migrations(db_url)
         assert is_initialised(engine)
@@ -284,6 +286,7 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
         "CREATE UNIQUE INDEX uq_dataset_versions_published_election_id "
         "ON dataset_versions (election_id) WHERE status = 'published'"
     ) in sql
+    assert "ALTER TABLE pipeline_runs ADD COLUMN validation_settings JSON" in sql
     assert sql.count("CHECK") == 14
 
 
@@ -766,3 +769,96 @@ def test_published_index_rejects_a_second_published_version(
     with pytest.raises(IntegrityError):
         with migrated_engine.begin() as conn:
             conn.execute(sa.text(statement))
+
+
+# Migration 0008: the ValidationSettings a run was validated with
+# (pipeline-run-report).
+
+
+def _pipeline_run_columns(url: str) -> dict[str, dict[str, object]]:
+    engine = make_engine(url)
+    try:
+        return {c["name"]: c for c in sa.inspect(engine).get_columns("pipeline_runs")}
+    finally:
+        engine.dispose()
+
+
+def _pipeline_run_sql(url: str) -> str:
+    engine = make_engine(url)
+    try:
+        with engine.connect() as conn:
+            return conn.execute(
+                sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pipeline_runs'")
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_0008_adds_a_nullable_validation_settings_column(db_url: str) -> None:
+    run_migrations(db_url, "0007")
+    before = _pipeline_run_columns(db_url)
+    assert "validation_settings" not in before
+
+    run_migrations(db_url)
+
+    after = _pipeline_run_columns(db_url)
+    assert set(after) - set(before) == {"validation_settings"}
+    assert after["validation_settings"]["nullable"] is True
+    assert isinstance(after["validation_settings"]["type"], sa.JSON)
+
+
+def test_downgrade_to_0007_drops_only_the_column_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_versions(engine, [(1, "published"), (1, "candidate")])
+        with engine.begin() as conn:
+            conn.execute(sa.text(
+                "UPDATE pipeline_runs SET validation_settings = '{\"min_statements\": 25}'"
+            ))
+    finally:
+        engine.dispose()
+    sql_before = _pipeline_run_sql(db_url)
+    columns_before = set(_pipeline_run_columns(db_url))
+
+    downgrade(db_url, "0007")
+
+    assert _version(db_url) == "0007"
+    assert set(_pipeline_run_columns(db_url)) == columns_before - {"validation_settings"}
+    assert _tables(db_url) == ALL_TABLES
+    assert PUBLISHED_INDEX in _dataset_version_indexes(db_url)
+    # The table is not recreated: its CHECKs stay, and the ON DELETE CASCADE
+    # from dataset_versions never fires.
+    sql_after = _pipeline_run_sql(db_url)
+    for name in ("ck_pipeline_runs_pipeline_run_status", "ck_pipeline_runs_generation_mode"):
+        assert name in sql_before and name in sql_after
+    engine = make_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            for table, count in (("pipeline_runs", 2), ("dataset_versions", 2)):
+                assert conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar_one() == count
+    finally:
+        engine.dispose()
+
+    run_migrations(db_url)
+    assert "validation_settings" in _pipeline_run_columns(db_url)
+    assert _version(db_url) == "0008"
+
+
+def test_offline_postgresql_render_of_0008() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0007:0008",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0008:0007",
+        sql=True,
+    )
+
+    assert "ALTER TABLE pipeline_runs ADD COLUMN validation_settings JSON;" in upgrade.getvalue()
+    assert "CHECK" not in upgrade.getvalue()
+    assert "ALTER TABLE pipeline_runs DROP COLUMN validation_settings;" in down.getvalue()

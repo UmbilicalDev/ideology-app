@@ -1,6 +1,8 @@
 """``ideology`` command-line interface for the Operator."""
 
+import datetime as dt
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import update_wrapper
 from pathlib import Path
@@ -17,7 +19,12 @@ from ideology_app import pipeline as pipelines
 from ideology_app import source_documents as sources
 from ideology_app.db import is_initialised, make_engine, run_migrations, session_scope
 from ideology_app.llm import LLMProvider, build_provider
-from ideology_app.models import PipelineRunStatus, SourceDocumentStatus
+from ideology_app.models import (
+    DatasetVersionStatus,
+    PipelineRunStatus,
+    SourceDocumentStatus,
+    ValidationResult,
+)
 
 NOT_INITIALISED = 'Database is not initialised; run "ideology db upgrade".'
 
@@ -426,25 +433,143 @@ def pipeline_positions(app: AppContext, dataset_version_id: int, party_id: int |
     _print_rows(["statement", "party", "value", "document", "page", "url", "quote"], rows)
 
 
+CHECKS_HEADER = ["check", "result", "statement", "party", "message"]
+
+
+def _check_rows(results: Sequence[ValidationResult]) -> list[list[object]]:
+    """One row per passed check or per report entry (read inside the session)."""
+    rows: list[list[object]] = []
+    for result in results:
+        label = "passed" if result.passed else "failed"
+        if result.passed or not result.entries:
+            rows.append([result.check_name, label, None, None, None])
+        for entry in result.entries:
+            rows.append(
+                [
+                    result.check_name,
+                    label,
+                    entry.statement.position if entry.statement else None,
+                    entry.party_id,
+                    _one_line(entry.message),
+                ]
+            )
+    return rows
+
+
 @pipeline.command("checks")
 @click.option("--run", "run_id", required=True, type=int, help="Pipeline Run id.")
 @requires_db
 def pipeline_checks(app: AppContext, run_id: int) -> None:
     """List a run's Validation results: one row per passed check or per report entry."""
     with session_scope(app.engine) as session:
-        rows: list[list[object]] = []
-        for result in pipelines.list_validation_results(session, run_id):
-            label = "passed" if result.passed else "failed"
-            if result.passed or not result.entries:
-                rows.append([result.check_name, label, None, None, None])
-            for entry in result.entries:
-                rows.append(
-                    [
-                        result.check_name,
-                        label,
-                        entry.statement.position if entry.statement else None,
-                        entry.party_id,
-                        _one_line(entry.message),
-                    ]
-                )
-    _print_rows(["check", "result", "statement", "party", "message"], rows)
+        rows = _check_rows(pipelines.list_validation_results(session, run_id))
+    _print_rows(CHECKS_HEADER, rows)
+
+
+NOT_RECORDED = "not recorded"
+
+
+def _timestamp(value: dt.datetime | None) -> str:
+    return NOT_RECORDED if value is None else value.isoformat(timespec="seconds")
+
+
+def _duration(report: pipelines.RunReport) -> str:
+    """Generation time, from ``started_at`` to ``generation_finished_at``."""
+    if report.started_at is None or report.generation_finished_at is None:
+        return NOT_RECORDED
+    seconds = (report.generation_finished_at - report.started_at).total_seconds()
+    return f"{seconds:.1f} s (generation)"
+
+
+def _publication(report: pipelines.RunReport) -> str:
+    """Whether the run's Dataset Version is live, and which version is."""
+    election = report.election_id
+    if report.live_dataset_version_id is None:
+        live = "none"
+    else:
+        live = (
+            f"dataset version {report.live_dataset_version_id} "
+            f"of pipeline run {report.live_run_id}"
+        )
+    status = report.dataset_version_status
+    if status is None:
+        if report.status is PipelineRunStatus.FAILED:
+            return "none: the run failed before a dataset version was created"
+        return "none: the run has not produced a dataset version yet"
+    if status is DatasetVersionStatus.PUBLISHED:
+        return f"published: live for election {election}"
+    if status is DatasetVersionStatus.SUPERSEDED:
+        return f"superseded: live for election {election}: {live}"
+    if report.status is PipelineRunStatus.VALIDATING:
+        return (
+            "not published: awaiting Validation "
+            f'(run "ideology pipeline validate --run {report.run_id}")'
+        )
+    if report.status is PipelineRunStatus.FAILED:
+        return f"not published: the run failed; live for election {election}: {live}"
+    return (
+        "not published: the run passed but its dataset version was kept candidate; "
+        f"live for election {election}: {live}"
+    )
+
+
+def _sorted_pairs(values: dict[str, Any] | None) -> str:
+    if values is None:
+        return NOT_RECORDED
+    return ", ".join(f"{key}={values[key]}" for key in sorted(values))
+
+
+@pipeline.command("report")
+@click.option("--run", "run_id", required=True, type=int, help="Pipeline Run id.")
+@requires_db
+def pipeline_report(app: AppContext, run_id: int) -> None:
+    """Show one Pipeline Run: what it used, its usage, timing, publication and checks.
+
+    Read-only; needs no LLM provider or API key.
+    """
+    with session_scope(app.engine) as session:
+        report = pipelines.get_run_report(session, run_id)
+        rows = _check_rows(report.results)
+    # Usage is stored as zeros until generation finishes; zeros would mislead.
+    usage_recorded = report.generation_finished_at is not None
+
+    def usage(value: int) -> object:
+        return value if usage_recorded else NOT_RECORDED
+
+    version = report.dataset_version_id
+    lines: list[tuple[str, object]] = [
+        ("pipeline run", report.run_id),
+        ("election", report.election_id),
+        ("status", report.status.value),
+        (
+            "failure_reason",
+            "none" if report.failure_reason is None else _one_line(report.failure_reason),
+        ),
+        ("provider", report.llm_provider),
+        ("model", report.llm_model),
+        ("generation_mode", report.generation_mode.value),
+        ("prompt_versions", _sorted_pairs(report.prompt_versions)),
+        ("created_at", _timestamp(report.created_at)),
+        ("started_at", _timestamp(report.started_at)),
+        ("generation_finished_at", _timestamp(report.generation_finished_at)),
+        ("validated_at", _timestamp(report.validated_at)),
+        ("duration", _duration(report)),
+        ("llm_calls", usage(report.llm_calls)),
+        ("input_tokens", usage(report.input_tokens)),
+        ("output_tokens", usage(report.output_tokens)),
+        ("cost", "not estimated (no price table)"),
+        ("validation_settings", _sorted_pairs(report.validation_settings)),
+        ("dataset_version", "none" if version is None else version),
+        (
+            "dataset_version_status",
+            "none" if report.dataset_version_status is None
+            else report.dataset_version_status.value,
+        ),
+        ("statements", "none" if report.statement_count is None else report.statement_count),
+        ("publication", _publication(report)),
+    ]
+    for key, value in lines:
+        click.echo(f"{key}: {value}")
+    click.echo("")
+    click.echo("validation report:")
+    _print_rows(CHECKS_HEADER, rows)

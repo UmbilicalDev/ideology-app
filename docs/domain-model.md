@@ -6,7 +6,7 @@
 - **Election** — country, type (`general` for the MVP), date, name.
 - **Party** — a ballot ticket (single party or coalition): name, short name, logo (optional). Linked to an Election (inclusion is per Election; the same real party can appear in several).
 - **Source Document** — belongs to a Party in an Election; origin `upload` or `url`; stored text plus page mapping for locators, and a content hash for change detection. A coalition's joint manifesto is its main Source Document; member parties' manifestos may be attached as extra ones.
-- **Pipeline Run** — belongs to an Election; records the LLM provider, model, prompt versions, Generation Mode, timestamps, status, and Validation report.
+- **Pipeline Run** — belongs to an Election; records the LLM provider, model, prompt versions, Generation Mode, timestamps, LLM usage (calls and tokens), status, the Validation thresholds it was validated with, and Validation report. `ideology pipeline report` shows all of it, read-only.
 - **Dataset Version** — produced by one successful Pipeline Run; contains the Questionnaire and the Party Positions. Immutable.
 - **Statement** — text, topic tag, order; belongs to a Dataset Version.
 - **Party Position** — (Dataset Version, Statement, Party) → value in {−2..+2, no stance} + Evidence.

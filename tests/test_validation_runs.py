@@ -2,7 +2,8 @@
 
 validation-evidence-quotes Scenarios 1, 2 and 6; validation-party-coverage
 Scenario 4; validation-statement-separation Scenario 4;
-validation-questionnaire-shape Scenario 5.
+validation-questionnaire-shape Scenario 5; pipeline-run-report (recorded
+Validation thresholds).
 """
 
 from typing import Any
@@ -358,6 +359,7 @@ def test_a_raising_check_fails_the_run_stores_nothing_and_reraises(
     run = read_run(seeded, run_id)
     assert run.status is PipelineRunStatus.FAILED
     assert run.failure_reason == reason
+    assert run.validation_settings is None
     assert results(seeded, run_id) == []
     assert table_counts(seeded)["dataset_versions"] == 1
 
@@ -408,6 +410,81 @@ def test_validate_run_rejects_a_queued_run(seeded: Engine) -> None:
 def test_validate_run_unknown_run(migrated_engine: Engine) -> None:
     with pytest.raises(NotFoundError, match="^pipeline run 5 not found$"):
         validate_run(migrated_engine, 5)
+
+
+# pipeline-run-report: the thresholds a run was validated with are recorded
+
+DEFAULT_SETTINGS_DICT = {
+    "min_party_coverage_percent": 70,
+    "min_statements": 25,
+    "max_statements": 35,
+    "max_topic_share_percent": 30,
+}
+
+
+def test_validation_settings_are_null_before_validation(seeded: Engine) -> None:
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+    assert read_run(seeded, run_id).validation_settings is None
+    assert read_run(seeded, validating_run(seeded)).validation_settings is None
+
+
+@pytest.mark.parametrize(
+    ("checks", "status"),
+    [((PASSING,), PipelineRunStatus.PASSED), ((FAILING,), PipelineRunStatus.FAILED)],
+    ids=["passed", "failed"],
+)
+def test_validate_run_records_its_settings_on_both_outcomes(
+    seeded: Engine, checks: tuple[Check, ...], status: PipelineRunStatus
+) -> None:
+    run_id = validating_run(seeded)
+    settings = ValidationSettings(10, 2, 40, 50)
+
+    outcome = validate_run(seeded, run_id, checks=checks, settings=settings)
+
+    assert outcome.status is status
+    assert read_run(seeded, run_id).validation_settings == {
+        "min_party_coverage_percent": 10,
+        "min_statements": 2,
+        "max_statements": 40,
+        "max_topic_share_percent": 50,
+    }
+
+
+def test_execute_run_records_the_default_settings(seeded: Engine) -> None:
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert read_run(seeded, run_id).validation_settings == DEFAULT_SETTINGS_DICT
+
+
+def test_execute_run_records_settings_from_env(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "50")
+    provider = fake_provider(generate_statements=statements_payload(20))
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.failed_checks == ("statement_count",)
+    assert read_run(seeded, run_id).validation_settings == {
+        **DEFAULT_SETTINGS_DICT,
+        "min_party_coverage_percent": 50,
+    }
+
+
+def test_generation_failure_records_no_settings(seeded: Engine) -> None:
+    provider = fake_provider(statement_candidates={"candidates": []})
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert read_run(seeded, run_id).validation_settings is None
 
 
 # validation-party-coverage Scenario 4: party_coverage at the run level
@@ -571,6 +648,7 @@ def test_validate_run_with_invalid_env_changes_nothing(
     run = read_run(seeded, run_id)
     assert run.status is PipelineRunStatus.VALIDATING
     assert run.failure_reason is None
+    assert run.validation_settings is None
     assert results(seeded, run_id) == []
     assert table_counts(seeded) == before
 
