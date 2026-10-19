@@ -9,4 +9,5 @@ Use $feature-validator: read and follow `.agents/skills/feature-validator/SKILL.
 - Do not edit files. Report your verdict, the checks you ran and any findings in your final reply only.
 - Never write to `docs/validations/`.
 - Run destructive or negative experiments only on a copy outside the repo.
+- Check that risks and open questions the feature introduces or settles are reflected in `docs/risks-and-open-questions.md` (see "Risks And Open Questions" in `AGENTS.md`). Report a gap as a finding, but don't edit the file yourself.
 - For features with UI, apply "Browser Validation For UI Features" in `AGENTS.md` yourself in a real browser; don't rely on the implementer's browser evidence.

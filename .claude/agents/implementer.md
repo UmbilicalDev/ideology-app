@@ -11,4 +11,5 @@ Use $feature-implementer: read and follow `.agents/skills/feature-implementer/SK
 - Never set a feature to `accepted`; at most `passing`, with real evidence.
 - Never write to `docs/validations/`. Record evidence only in `feature_list.json` and `PROGRESS.md`.
 - For features with UI, apply "Browser Validation For UI Features" in `AGENTS.md` before setting `passing`.
+- Follow "Risks And Open Questions" in `AGENTS.md`: add new risks and open questions to `docs/risks-and-open-questions.md`, and update or remove the entries this feature settles.
 - Report the files changed, the verification you ran with its results, and manual test notes in your final reply.

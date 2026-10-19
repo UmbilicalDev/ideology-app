@@ -80,5 +80,14 @@ Before ending a session:
 
 1. Update `PROGRESS.md`.
 2. Update `feature_list.json`.
-3. Record unresolved risks or blockers.
+3. Record unresolved risks or blockers in `docs/risks-and-open-questions.md` (see below).
 4. Leave the repo clean enough for the next session to run `./init.sh` immediately.
+
+## Risks And Open Questions
+
+`docs/risks-and-open-questions.md` is the durable list of what is still unknown or risky. `PROGRESS.md` is only a log, and future planners will not dig through it.
+
+- Before planning or implementing a feature, read it and check whether any entry names that feature. If one does, the spec must address it or explicitly defer it.
+- When a feature finds a new risk, open question or accepted Low finding that outlives the session, add it to the right section. Name the feature that should deal with it when you know it, e.g. `(public-dataset-api)`.
+- When a feature settles a question or removes a risk, edit or delete that entry in the same change. Don't leave stale entries behind.
+- In `PROGRESS.md`, a session's "Known risk" line may point to the doc instead of repeating it.
