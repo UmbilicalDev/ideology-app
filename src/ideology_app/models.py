@@ -2,6 +2,7 @@
 
 import datetime as dt
 from enum import StrEnum
+from typing import Literal
 
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -219,6 +220,36 @@ class PipelineRun(Base):
     dataset_version: Mapped["DatasetVersion | None"] = relationship(
         back_populates="pipeline_run", uselist=False, passive_deletes=True
     )
+    source_documents: Mapped[list["PipelineRunSourceDocument"]] = relationship(
+        back_populates="pipeline_run",
+        order_by="PipelineRunSourceDocument.source_document_id",
+        passive_deletes=True,
+    )
+
+
+class SourceDocumentRole(StrEnum):
+    """How a run used a Source Document: a Party's main (joint) manifesto or not."""
+
+    MAIN = "main"
+    ADDITIONAL = "additional"
+
+
+class PipelineRunSourceDocument(Base):
+    """A parsed Source Document that a Pipeline Run read, with its role."""
+
+    __tablename__ = "pipeline_run_source_documents"
+
+    pipeline_run_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("pipeline_runs.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_document_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("source_documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[SourceDocumentRole] = mapped_column(
+        _enum(SourceDocumentRole, "source_document_role")
+    )
+
+    pipeline_run: Mapped[PipelineRun] = relationship(back_populates="source_documents")
 
 
 class DatasetVersion(Base):
@@ -269,3 +300,58 @@ class Statement(Base):
     topic: Mapped[str] = mapped_column(sa.String(50))
 
     dataset_version: Mapped[DatasetVersion] = relationship(back_populates="statements")
+    party_positions: Mapped[list["PartyPosition"]] = relationship(
+        back_populates="statement", order_by="PartyPosition.party_id", passive_deletes=True
+    )
+
+
+# What ``match-score.js`` expects for a Party Position without a stance.
+NO_STANCE = "no_stance"
+
+
+class PartyPosition(Base):
+    """Where a Party stands on a Statement: -2..+2 with Evidence, or ``no stance``.
+
+    Evidence is a value object stored as columns: the quote exactly as the LLM
+    returned it, the Source Document, its page and (for URL documents) the URL.
+    The CHECKs make the database enforce that every stance has Evidence.
+    """
+
+    __tablename__ = "party_positions"
+    __table_args__ = (
+        sa.UniqueConstraint("statement_id", "party_id"),
+        sa.CheckConstraint("value IS NULL OR value BETWEEN -2 AND 2", name="value_range"),
+        sa.CheckConstraint(
+            "evidence_page IS NULL OR evidence_page >= 1", name="evidence_page_positive"
+        ),
+        sa.CheckConstraint(
+            "(value IS NULL AND evidence_source_document_id IS NULL "
+            "AND evidence_quote IS NULL AND evidence_page IS NULL AND evidence_url IS NULL) "
+            "OR (value IS NOT NULL AND evidence_source_document_id IS NOT NULL "
+            "AND evidence_quote IS NOT NULL AND evidence_page IS NOT NULL)",
+            name="evidence_matches_value",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    statement_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("statements.id", ondelete="CASCADE")
+    )
+    party_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("parties.id", ondelete="CASCADE"), index=True
+    )
+    # Null means ``no stance``.
+    value: Mapped[int | None] = mapped_column(sa.Integer)
+    evidence_source_document_id: Mapped[int | None] = mapped_column(
+        sa.ForeignKey("source_documents.id", ondelete="CASCADE")
+    )
+    evidence_quote: Mapped[str | None] = mapped_column(sa.Text)
+    evidence_page: Mapped[int | None] = mapped_column(sa.Integer)
+    evidence_url: Mapped[str | None] = mapped_column(sa.String(2048))
+
+    statement: Mapped[Statement] = relationship(back_populates="party_positions")
+
+    @property
+    def engine_value(self) -> int | Literal["no_stance"]:
+        """The value as ``match-score.js`` consumes it: -2..+2 or ``"no_stance"``."""
+        return NO_STANCE if self.value is None else self.value

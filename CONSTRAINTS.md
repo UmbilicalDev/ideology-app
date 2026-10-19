@@ -31,8 +31,10 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 ## Pipeline
 
 - Any change to a prompt's system text, template or output schema in `src/ideology_app/pipeline/prompts.py` MUST bump that prompt's `version` and its fingerprint in `tests/test_pipeline_prompts.py`. Reason: each Pipeline Run records `prompt_versions`, which must identify the prompt actually used.
-- The pipeline MUST NOT send Party names or short names to the LLM when generating Statements (only page text and ids reach `generation.py`). Reason: perceived bias.
-- Dataset Versions and Statements MUST NOT be updated or deleted by application code (only database cascades delete them). Statements are stored exactly as the provider returned them; rejecting bad Statements is Validation's job. Reason: Dataset Versions are immutable and AI output is never edited by hand.
+- The pipeline MUST NOT send Party names or short names to the LLM in any prompt (Statements or Party Positions; only page text, Statement texts and ids reach `generation.py` and `positions.py`). Reason: perceived bias, and the UI treats all parties identically.
+- Dataset Versions, Statements, Party Positions and their Evidence MUST NOT be updated or deleted by application code (only database cascades delete them). Statements are stored exactly as the provider returned them; rejecting bad Statements is Validation's job. Reason: Dataset Versions are immutable and AI output is never edited by hand.
+- Evidence quotes MUST be stored exactly as the LLM returned them (pages too). Any normalisation MUST happen only when matching (`validation-evidence-quotes`) or for display. Reason: Validation and Voters must see what the model actually cited.
+- A Dataset Version MUST be written only together with all its Statements and Party Positions, in one transaction (`runs._finish`). Reason: a partial Dataset Version could be validated or published without positions.
 - `ideology_app.pipeline` MUST depend on the `LLMProvider` protocol (`llm.base`), never on a concrete provider or `build_provider`; the CLI resolves the provider in `cli._provider`. Reason: the provider is configuration, and tests inject `FakeProvider`.
 
 ## Client-side Matching

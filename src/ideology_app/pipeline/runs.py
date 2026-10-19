@@ -1,9 +1,10 @@
 """Pipeline Run service: queue a run, execute it, list runs and Dataset Versions.
 
-Lifecycle in this feature: ``queued`` -> ``running`` -> ``validating``, or
-``failed`` when generation fails. Later features run Validation from
-``validating``. Dataset Versions and Statements are only ever inserted here;
-there is no update or delete path.
+Lifecycle: ``queued`` -> ``running`` -> ``validating``, or ``failed`` when
+Statement generation or Party Position extraction fails (or is interrupted).
+Later features run Validation from ``validating``. Dataset Versions, Statements
+and Party Positions are only ever inserted here, together in one commit; there
+is no update or delete path.
 """
 
 from collections.abc import Sequence
@@ -21,9 +22,12 @@ from ideology_app.models import (
     DatasetVersionStatus,
     Election,
     Party,
+    PartyPosition,
     PipelineRun,
+    PipelineRunSourceDocument,
     PipelineRunStatus,
     SourceDocument,
+    SourceDocumentRole,
     SourceDocumentStatus,
     Statement,
     _utcnow,
@@ -35,9 +39,15 @@ from ideology_app.pipeline.generation import (
     build_chunks,
     generate_statements,
 )
+from ideology_app.pipeline.positions import (
+    PositionResult,
+    check_position_budget,
+    extract_positions,
+)
 from ideology_app.pipeline.prompts import PROMPT_VERSIONS, StatementDraft
 
 _REASON_MAX = 500
+INTERRUPTED_REASON = "interrupted"
 
 
 @dataclass(frozen=True)
@@ -49,6 +59,7 @@ class RunOutcome:
     dataset_version_id: int | None
     statement_count: int
     failure_reason: str | None
+    position_count: int = 0
 
 
 def _get_election(session: Session, election_id: int) -> Election:
@@ -101,8 +112,18 @@ def queue_run(
     return run
 
 
-def _start(engine: Engine, run_id: int, provider: LLMProvider) -> list[DocumentPages]:
-    """Check the run, mark it ``running`` and load its input. Commits."""
+@dataclass(frozen=True)
+class _RunInput:
+    documents: list[DocumentPages]
+    party_ids: list[int]
+
+
+def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
+    """Check the run, mark it ``running``, record and load its input. Commits.
+
+    Each Party's lowest-id parsed document is its ``main`` (joint) manifesto;
+    any other parsed document is ``additional``.
+    """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
         if run is None:
@@ -116,22 +137,42 @@ def _start(engine: Engine, run_id: int, provider: LLMProvider) -> list[DocumentP
                 f"pipeline run {run_id} was queued for {run.llm_provider}/{run.llm_model}, "
                 f"not {provider.name}/{provider.model}"
             )
+        party_ids = list(
+            session.scalars(
+                select(Party.id).where(Party.election_id == run.election_id).order_by(Party.id)
+            )
+        )
         documents = session.scalars(
             _parsed_documents_query(run.election_id)
             .options(selectinload(SourceDocument.pages))
             .order_by(SourceDocument.party_id, SourceDocument.id)
         ).all()
-        loaded = [
-            DocumentPages(
-                party_id=d.party_id,
-                document_id=d.id,
-                pages=[(p.page_number, p.text) for p in d.pages],
+        loaded: list[DocumentPages] = []
+        seen_parties: set[int] = set()
+        for d in documents:
+            role = (
+                SourceDocumentRole.ADDITIONAL
+                if d.party_id in seen_parties
+                else SourceDocumentRole.MAIN
             )
-            for d in documents
-        ]
+            seen_parties.add(d.party_id)
+            loaded.append(
+                DocumentPages(
+                    party_id=d.party_id,
+                    document_id=d.id,
+                    pages=[(p.page_number, p.text) for p in d.pages],
+                    source_url=d.source_url,
+                    role=role,
+                )
+            )
+            session.add(
+                PipelineRunSourceDocument(
+                    pipeline_run_id=run.id, source_document_id=d.id, role=role
+                )
+            )
         run.status = PipelineRunStatus.RUNNING
         run.started_at = _utcnow()
-    return loaded
+    return _RunInput(loaded, party_ids)
 
 
 def _finish(
@@ -139,9 +180,14 @@ def _finish(
     run_id: int,
     usage: Usage,
     statements: Sequence[StatementDraft] | None,
+    positions: dict[int, list[PositionResult]] | None,
     failure_reason: str | None,
 ) -> RunOutcome:
-    """Record the result: a candidate Dataset Version, or ``failed``. Commits."""
+    """Record the result: a complete candidate Dataset Version, or ``failed``. Commits.
+
+    The Dataset Version, its Statements and every Party Position are inserted
+    in this one commit, so a Dataset Version never exists without them.
+    """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
         assert run is not None
@@ -149,7 +195,7 @@ def _finish(
         run.input_tokens = usage.input_tokens
         run.output_tokens = usage.output_tokens
         run.generation_finished_at = _utcnow()
-        if statements is None:
+        if statements is None or positions is None:
             run.status = PipelineRunStatus.FAILED
             run.failure_reason = (failure_reason or "")[:_REASON_MAX]
             session.flush()
@@ -161,7 +207,7 @@ def _finish(
         )
         session.add(version)
         session.flush()
-        session.add_all(
+        rows = [
             Statement(
                 dataset_version_id=version.id,
                 position=position,
@@ -169,34 +215,66 @@ def _finish(
                 topic=draft.topic,
             )
             for position, draft in enumerate(statements, start=1)
-        )
+        ]
+        session.add_all(rows)
+        session.flush()
+        position_count = 0
+        for party_id in sorted(positions):
+            for result in positions[party_id]:
+                session.add(
+                    PartyPosition(
+                        statement_id=rows[result.statement_number - 1].id,
+                        party_id=party_id,
+                        value=result.value,
+                        evidence_source_document_id=result.document_id,
+                        evidence_quote=result.quote,
+                        evidence_page=result.page,
+                        evidence_url=result.url,
+                    )
+                )
+                position_count += 1
         run.status = PipelineRunStatus.VALIDATING
         session.flush()
-        return RunOutcome(run_id, run.status, version.id, len(statements), None)
+        return RunOutcome(
+            run_id, run.status, version.id, len(statements), None, position_count
+        )
+
+
+def _fail(engine: Engine, run_id: int, usage: Usage, reason: str) -> RunOutcome:
+    return _finish(engine, run_id, usage, None, None, reason)
 
 
 def execute_run(engine: Engine, run_id: int, provider: LLMProvider) -> RunOutcome:
-    """Run Statement generation for a ``queued`` run and record the outcome.
+    """Generate Statements and extract Party Positions for a ``queued`` run.
 
-    Commits three times: ``running`` before any LLM call, then (after the calls,
-    made outside any transaction) either ``validating`` with a ``candidate``
-    Dataset Version, or ``failed`` with a reason and no Dataset Version.
-    Raises NotFoundError / InvalidInputError, changing nothing, when the run is
-    unknown, not ``queued``, or was queued for another provider or model.
+    Commits three times: ``running`` (with the Source Documents it reads)
+    before any LLM call, then (after the calls, made outside any transaction)
+    either ``validating`` with a complete ``candidate`` Dataset Version, or
+    ``failed`` with a reason and no Dataset Version. Ctrl-C records ``failed``
+    (``interrupted``) and re-raises. Raises NotFoundError / InvalidInputError,
+    changing nothing, when the run is unknown, not ``queued``, or was queued
+    for another provider or model.
     """
-    documents = _start(engine, run_id, provider)
+    run_input = _start(engine, run_id, provider)
     usage = Usage()
     try:
-        statements = generate_statements(provider, build_chunks(documents), usage)
+        check_position_budget(run_input.documents)
+        statements = generate_statements(provider, build_chunks(run_input.documents), usage)
+        positions = extract_positions(
+            provider,
+            [s.text for s in statements],
+            run_input.documents,
+            run_input.party_ids,
+            usage,
+        )
+        return _finish(engine, run_id, usage, statements, positions, None)
     except (LLMError, GenerationError) as exc:
-        return _finish(engine, run_id, usage, None, str(exc))
-    except Exception as exc:
-        _finish(engine, run_id, usage, None, f"unexpected error: {type(exc).__name__}")
+        return _fail(engine, run_id, usage, str(exc))
+    except KeyboardInterrupt:
+        _fail(engine, run_id, usage, INTERRUPTED_REASON)
         raise
-    try:
-        return _finish(engine, run_id, usage, statements, None)
     except Exception as exc:
-        _finish(engine, run_id, usage, None, f"unexpected error: {type(exc).__name__}")
+        _fail(engine, run_id, usage, f"unexpected error: {type(exc).__name__}")
         raise
 
 
@@ -219,3 +297,27 @@ def get_dataset_version(session: Session, dataset_version_id: int) -> DatasetVer
     if version is None:
         raise NotFoundError(f"dataset version {dataset_version_id} not found")
     return version
+
+
+def list_positions(
+    session: Session, dataset_version_id: int, party_id: int | None = None
+) -> Sequence[PartyPosition]:
+    """The Party Positions of a Dataset Version, by Statement position then Party id.
+
+    Raises NotFoundError for an unknown Dataset Version, or a Party that is
+    unknown or not in the Dataset Version's Election.
+    """
+    version = get_dataset_version(session, dataset_version_id)
+    query = (
+        select(PartyPosition)
+        .join(Statement, PartyPosition.statement_id == Statement.id)
+        .where(Statement.dataset_version_id == version.id)
+        .options(selectinload(PartyPosition.statement))
+        .order_by(Statement.position, PartyPosition.party_id)
+    )
+    if party_id is not None:
+        party = session.get(Party, party_id)
+        if party is None or party.election_id != version.election_id:
+            raise NotFoundError(f"party {party_id} not found")
+        query = query.where(PartyPosition.party_id == party_id)
+    return session.scalars(query).all()
