@@ -29,13 +29,15 @@ def _version(url: str) -> str | None:
         engine.dispose()
 
 
-ALL_TABLES = {
+TABLES_AT_0003 = {
     "alembic_version",
     "elections",
     "parties",
     "source_documents",
     "source_document_pages",
 }
+PIPELINE_TABLES = {"pipeline_runs", "dataset_versions", "statements"}
+ALL_TABLES = TABLES_AT_0003 | PIPELINE_TABLES
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -44,7 +46,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0003"
+    assert _version(db_url) == "0004"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -52,7 +54,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0003"
+    assert _version(db_url) == "0004"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -79,7 +81,7 @@ def test_downgrade_to_0002_drops_source_url(db_url: str) -> None:
     downgrade(db_url, "0002")
 
     assert "source_url" not in _source_document_columns(db_url)
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0003
     assert _version(db_url) == "0002"
     engine = make_engine(db_url)
     try:
@@ -130,6 +132,8 @@ def test_is_initialised(db_url: str) -> None:
         run_migrations(db_url, "0001")
         assert not is_initialised(engine)
         run_migrations(db_url, "0002")
+        assert not is_initialised(engine)
+        run_migrations(db_url, "0003")
         assert not is_initialised(engine)
         run_migrations(db_url)
         assert is_initialised(engine)
@@ -251,4 +255,127 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert sql.count("ck_source_document_pages_page_number_positive") == 1
     assert sql.count("ck_source_documents_source_url_matches_origin") == 1
     assert "ADD COLUMN source_url VARCHAR(2048)" in sql
-    assert sql.count("CHECK") == 6
+    assert "CREATE TABLE pipeline_runs" in sql
+    assert "CREATE TABLE dataset_versions" in sql
+    assert "CREATE TABLE statements" in sql
+    assert sql.count("ck_pipeline_runs_pipeline_run_status") == 1
+    assert sql.count("ck_pipeline_runs_generation_mode") == 1
+    assert sql.count("ck_dataset_versions_dataset_version_status") == 1
+    assert sql.count("ck_statements_position_positive") == 1
+    assert sql.count("CHECK") == 10
+
+
+def test_downgrade_to_0003_drops_exactly_the_pipeline_tables(db_url: str) -> None:
+    run_migrations(db_url)
+    assert PIPELINE_TABLES <= _tables(db_url)
+
+    downgrade(db_url, "0003")
+
+    assert _tables(db_url) == TABLES_AT_0003
+    assert _version(db_url) == "0003"
+    assert "source_url" in _source_document_columns(db_url)
+
+
+def test_upgrade_0004_creates_pipeline_constraints(migrated_engine: Engine) -> None:
+    inspector = sa.inspect(migrated_engine)
+    assert {c["name"] for c in inspector.get_check_constraints("pipeline_runs")} == {
+        "ck_pipeline_runs_pipeline_run_status",
+        "ck_pipeline_runs_generation_mode",
+    }
+    assert {c["name"] for c in inspector.get_check_constraints("dataset_versions")} == {
+        "ck_dataset_versions_dataset_version_status"
+    }
+    assert {c["name"] for c in inspector.get_check_constraints("statements")} == {
+        "ck_statements_position_positive"
+    }
+    assert [u["name"] for u in inspector.get_unique_constraints("dataset_versions")] == [
+        "uq_dataset_versions_pipeline_run_id"
+    ]
+    assert [u["name"] for u in inspector.get_unique_constraints("statements")] == [
+        "uq_statements_dataset_version_id_position"
+    ]
+    assert [i["name"] for i in inspector.get_indexes("pipeline_runs")] == [
+        "ix_pipeline_runs_election_id"
+    ]
+    assert [i["name"] for i in inspector.get_indexes("dataset_versions")] == [
+        "ix_dataset_versions_election_id"
+    ]
+
+
+_RUN_COLUMNS = (
+    "election_id, status, llm_provider, llm_model, generation_mode, prompt_versions, "
+    "llm_calls, input_tokens, output_tokens, created_at"
+)
+
+
+def _seed_run_and_version(engine: Engine) -> None:
+    _seed_party_and_document(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                f"INSERT INTO pipeline_runs (id, {_RUN_COLUMNS}) VALUES "
+                "(1, 1, 'validating', 'fake', 'fake-model', 'precomputed', '{}', 0, 0, 0, "
+                "'2026-10-19 00:00:00')"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO dataset_versions (id, election_id, pipeline_run_id, status, created_at) "
+                "VALUES (1, 1, 1, 'candidate', '2026-10-19 00:00:00')"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO statements (dataset_version_id, position, text, topic) "
+                "VALUES (1, 1, 'x', 'economy')"
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        f"INSERT INTO pipeline_runs ({_RUN_COLUMNS}) VALUES "
+        "(1, 'bogus', 'fake', 'm', 'precomputed', '{}', 0, 0, 0, '2026-10-19 00:00:00')",
+        f"INSERT INTO pipeline_runs ({_RUN_COLUMNS}) VALUES "
+        "(1, 'queued', 'fake', 'm', 'sometimes', '{}', 0, 0, 0, '2026-10-19 00:00:00')",
+        f"INSERT INTO pipeline_runs ({_RUN_COLUMNS}) VALUES "
+        "(999, 'queued', 'fake', 'm', 'precomputed', '{}', 0, 0, 0, '2026-10-19 00:00:00')",
+        "INSERT INTO dataset_versions (election_id, pipeline_run_id, status, created_at) "
+        "VALUES (1, 1, 'bogus', '2026-10-19 00:00:00')",
+        "INSERT INTO dataset_versions (election_id, pipeline_run_id, status, created_at) "
+        "VALUES (1, 1, 'candidate', '2026-10-19 00:00:00')",
+        "INSERT INTO dataset_versions (election_id, pipeline_run_id, status, created_at) "
+        "VALUES (1, 999, 'candidate', '2026-10-19 00:00:00')",
+        "INSERT INTO statements (dataset_version_id, position, text, topic) "
+        "VALUES (1, 1, 'again', 'economy')",
+        "INSERT INTO statements (dataset_version_id, position, text, topic) "
+        "VALUES (1, 0, 'zero', 'economy')",
+        "INSERT INTO statements (dataset_version_id, position, text, topic) "
+        "VALUES (999, 2, 'x', 'economy')",
+    ],
+    ids=[
+        "bad-run-status",
+        "bad-generation-mode",
+        "run-unknown-election",
+        "bad-dataset-version-status",
+        "duplicate-pipeline-run-id",
+        "unknown-pipeline-run",
+        "duplicate-position",
+        "position-zero",
+        "unknown-dataset-version",
+    ],
+)
+def test_pipeline_constraints_reject_bad_rows(migrated_engine: Engine, statement: str) -> None:
+    _seed_run_and_version(migrated_engine)
+    with pytest.raises(IntegrityError):
+        with migrated_engine.begin() as conn:
+            conn.execute(sa.text(statement))
+
+
+def test_deleting_an_election_cascades_to_pipeline_rows(migrated_engine: Engine) -> None:
+    _seed_run_and_version(migrated_engine)
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM elections"))
+        for table in ("pipeline_runs", "dataset_versions", "statements"):
+            assert conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar_one() == 0

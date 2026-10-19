@@ -8,7 +8,7 @@ None.
 
 - How often URL Source Documents are re-fetched and hashed for change detection in `live` mode.
 
-- The exact prompts and chunking strategy for long manifestos.
+- The exact prompts for Party Position extraction and how to chunk manifestos for it. Settled for Statements (`pipeline-generate-statements`): map/reduce over chunks of whole pages of at most 40,000 characters (one `statement_candidates` call per chunk, then one `generate_statements` call), prompts `v1`, at most 200 LLM calls per run; real-LLM quality is checked only in `e2e-real-2023-election`.
 - The Share Link encoding format and its versioning.
 - The fuzzy-match tolerance for Evidence quote verification.
 - What happens when a Party fails coverage: fail the whole run, or exclude the Party and publish with a notice? Initial position: fail the run.
@@ -37,6 +37,7 @@ None.
 - **Electoral and legal exposure.** Possible scrutiny under electoral rules (LOREG, Junta Electoral Central) close to election day, and claims of misrepresentation. Needs a disclaimer, a methodology page and a legal check before a public launch.
 - **Non-determinism.** Re-runs yield different Questionnaires; Share Links pin Dataset Versions to contain this. In `live` mode a regeneration after a source change can replace the Questionnaire mid-campaign.
 - **Provider cost/availability**, especially in `live` mode.
+- **Runs stuck in `running`.** A crash between a Pipeline Run's commits (after `running`, before the result is recorded) leaves it in `running`; there is no recovery command yet, so the Operator queues a new run. The Source Documents a run used are not recorded per run either; revisit in `pipeline-extract-positions` or `live-mode-source-change-trigger`.
 
 ## Research Tasks
 
