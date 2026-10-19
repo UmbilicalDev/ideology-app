@@ -24,6 +24,7 @@ from ideology_app.models import (
 from ideology_app.pipeline import TOPICS
 
 LLM_ENV_VARS = ("ANTHROPIC_API_KEY", "LLM_PROVIDER", "LLM_MODEL", "GENERATION_MODE")
+CONFIG_ENV_VARS = (*LLM_ENV_VARS, "VALIDATION_MIN_PARTY_COVERAGE_PERCENT")
 
 PARTIES = (("Partido Alfa", "PA"), ("Bloque Beta", "BB"))
 
@@ -35,8 +36,8 @@ PAGES = {
 
 
 def offline_guard(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unset LLM settings and block every socket connection."""
-    for name in LLM_ENV_VARS:
+    """Unset LLM and Validation settings and block every socket connection."""
+    for name in CONFIG_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
 
     def _blocked(*args: object, **kwargs: object) -> None:
@@ -133,6 +134,9 @@ def statements_payload(count: int = 30) -> dict[str, Any]:
 _CHUNK_START = "(cada página va precedida de su marcador):\n\n"
 _CHUNK_END = "\n\nIndica la posición"
 _PAGE = re.compile(r"\[página (\d+)\]\n(.*?)(?=\n\n\[página \d+\]\n|\Z)", re.DOTALL)
+_STATEMENTS_START = "(una por línea, con su número entre corchetes):\n\n"
+_STATEMENTS_END = "\n\nCitas candidatas"
+_STATEMENT = re.compile(r"^\[(\d+)\] ", re.MULTILINE)
 _CANDIDATE = re.compile(
     r"^C(\d+) \[(programa principal|programa adicional)\] \[afirmación (\d+)\] "
     r"\[valor (-?\d+)\] \[página (\d+)\] «(.*)»$",
@@ -161,6 +165,12 @@ def candidate_lines(request: LLMRequest[Any]) -> list[dict[str, Any]]:
     ]
 
 
+def statement_numbers(request: LLMRequest[Any]) -> list[int]:
+    """The Statement numbers listed in a ``party_positions`` request."""
+    listed = request.prompt.split(_STATEMENTS_START, 1)[1].split(_STATEMENTS_END, 1)[0]
+    return [int(n) for n in _STATEMENT.findall(listed)]
+
+
 def findings_response(value: int = 1) -> Callable[[LLMRequest[Any]], dict[str, Any]]:
     """One finding per page of the chunk: Statement n = page n, quote = page text."""
 
@@ -175,17 +185,32 @@ def findings_response(value: int = 1) -> Callable[[LLMRequest[Any]], dict[str, A
     return _respond
 
 
-def positions_response() -> Callable[[LLMRequest[Any]], dict[str, Any]]:
-    """For each Statement, the value of its first candidate, citing that candidate."""
+def positions_response(fill: bool = False) -> Callable[[LLMRequest[Any]], dict[str, Any]]:
+    """For each Statement, the value of its first candidate, citing that candidate.
+
+    With ``fill`` every listed Statement gets a stance: one without a candidate
+    of its own uses the Party's first candidate (so its quote is still real
+    page text on the cited page).
+    """
 
     def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
+        candidates = candidate_lines(request)
         chosen: dict[int, dict[str, int]] = {}
-        for c in candidate_lines(request):
+        for c in candidates:
             chosen.setdefault(
                 c["statement"],
                 {"statement": c["statement"], "value": c["value"], "evidence": c["number"]},
             )
-        return {"positions": list(chosen.values())}
+        if not fill:
+            return {"positions": list(chosen.values())}
+        first = candidates[0]
+        return {
+            "positions": [
+                chosen.get(n)
+                or {"statement": n, "value": first["value"], "evidence": first["number"]}
+                for n in statement_numbers(request)
+            ]
+        }
 
     return _respond
 
@@ -195,7 +220,7 @@ def default_responses() -> dict[str, Any]:
         "statement_candidates": candidates_response(),
         "generate_statements": statements_payload(),
         "position_findings": findings_response(),
-        "party_positions": positions_response(),
+        "party_positions": positions_response(fill=True),
     }
 
 

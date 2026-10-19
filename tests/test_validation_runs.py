@@ -1,6 +1,7 @@
 """Validation at the run level: ``execute_run`` / ``validate_run`` with the fake provider.
 
-validation-evidence-quotes Scenarios 1, 2 and 6.
+validation-evidence-quotes Scenarios 1, 2 and 6; validation-party-coverage
+Scenario 4.
 """
 
 from typing import Any
@@ -12,12 +13,13 @@ from pipeline_fixtures import (
     fake_provider,
     findings_response,
     offline_guard,
+    positions_response,
     seed_election,
 )
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
 
-from ideology_app.config import GenerationMode
+from ideology_app.config import ConfigError, GenerationMode, ValidationSettings
 from ideology_app.db import session_scope
 from ideology_app.elections import InvalidInputError, NotFoundError
 from ideology_app.llm import FakeProvider, LLMRequest
@@ -27,6 +29,8 @@ from ideology_app.models import (
     PartyPosition,
     PipelineRun,
     PipelineRunStatus,
+    SourceDocument,
+    SourceDocumentStatus,
     Statement,
     ValidationReportEntry,
     ValidationResult,
@@ -72,7 +76,7 @@ def validating_run(engine: Engine, provider: FakeProvider | None = None) -> int:
     provider = provider or fake_provider()
     run_id = queue(engine, provider)
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(runs_module, "validate_run", lambda engine, run_id: None)
+        mp.setattr(runs_module, "validate_run", lambda engine, run_id, **kwargs: None)
         execute_run(engine, run_id, provider)
     assert read_run(engine, run_id).status is PipelineRunStatus.VALIDATING
     return run_id
@@ -143,19 +147,30 @@ def test_real_quotes_pass(seeded: Engine) -> None:
         assert version.status is DatasetVersionStatus.CANDIDATE
         stored = s.scalars(select(ValidationResult)).all()
         assert [(r.pipeline_run_id, r.check_name, r.passed, r.entries) for r in stored] == [
-            (run_id, "evidence_quotes", True, [])
+            (run_id, "evidence_quotes", True, []),
+            (run_id, "party_coverage", True, []),
         ]
         assert stored[0].created_at is not None
-    assert results(seeded, run_id) == [("evidence_quotes", True, [])]
+    assert results(seeded, run_id) == [
+        ("evidence_quotes", True, []),
+        ("party_coverage", True, []),
+    ]
 
 
 # Scenario 2: an invented quote fails the run with a report entry
 
 
 def _invented_for_party2(request: LLMRequest[Any]) -> dict[str, Any]:
-    if dict(chunk_pages(request)).get(1) == PAGES[2][0]:
-        return {"findings": [{"statement": 1, "value": 1, "quote": INVENTED, "page": 1}]}
-    return findings_response()(request)
+    """Party 2 cites an invented quote for Statement 1 only.
+
+    Its real Statement 2 finding comes first, so the default (filling) fake
+    cites the real quote on every other Statement.
+    """
+    real = findings_response()(request)
+    if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
+        return real
+    kept = [f for f in real["findings"] if f["statement"] != 1]
+    return {"findings": [*kept, {"statement": 1, "value": 1, "quote": INVENTED, "page": 1}]}
 
 
 def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
@@ -178,7 +193,7 @@ def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
         "dataset_versions": 1,
         "statements": 30,
         "party_positions": 60,
-        "validation_results": 1,
+        "validation_results": 2,
         "validation_report_entries": 1,
     }
     with Session(seeded) as s:
@@ -193,7 +208,8 @@ def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
             "evidence_quotes",
             False,
             [(statement_id(seeded, 1), 2, "quote not found in source document 2")],
-        )
+        ),
+        ("party_coverage", True, []),
     ]
 
 
@@ -280,7 +296,10 @@ def test_default_checks_pass_a_validating_run(seeded: Engine) -> None:
     outcome = validate_run(seeded, run_id)
 
     assert outcome.status is PipelineRunStatus.PASSED
-    assert results(seeded, run_id) == [("evidence_quotes", True, [])]
+    assert results(seeded, run_id) == [
+        ("evidence_quotes", True, []),
+        ("party_coverage", True, []),
+    ]
 
 
 def test_long_entry_messages_are_cut(seeded: Engine) -> None:
@@ -369,3 +388,145 @@ def test_validate_run_rejects_a_queued_run(seeded: Engine) -> None:
 def test_validate_run_unknown_run(migrated_engine: Engine) -> None:
     with pytest.raises(NotFoundError, match="^pipeline run 5 not found$"):
         validate_run(migrated_engine, 5)
+
+
+# validation-party-coverage Scenario 4: party_coverage at the run level
+
+PARTY2_ZERO = "party 2 has positions on 0 of 30 statements (0%); minimum is 70%"
+
+
+def _no_findings_for_party2(request: LLMRequest[Any]) -> dict[str, Any]:
+    if dict(chunk_pages(request)).get(1) == PAGES[2][0]:
+        return {"findings": []}
+    return findings_response()(request)
+
+
+def _fail_party2_document(engine: Engine) -> None:
+    with session_scope(engine) as s:
+        s.execute(
+            update(SourceDocument)
+            .where(SourceDocument.id == 2)
+            .values(status=SourceDocumentStatus.FAILED)
+        )
+
+
+def _assert_kept_candidate(engine: Engine) -> None:
+    assert table_counts(engine)["party_positions"] == 60
+    with Session(engine) as s:
+        version = s.get(DatasetVersion, 1)
+        assert version is not None and version.status is DatasetVersionStatus.CANDIDATE
+        party2 = s.scalars(select(PartyPosition).where(PartyPosition.party_id == 2)).all()
+        assert len(party2) == 30 and all(p.value is None for p in party2)
+
+
+@pytest.mark.parametrize("cause", ["no-document", "no-findings"])
+def test_party_with_no_stance_fails_the_run_on_coverage(seeded: Engine, cause: str) -> None:
+    if cause == "no-document":
+        _fail_party2_document(seeded)
+        provider = fake_provider()
+    else:
+        provider = fake_provider(position_findings=_no_findings_for_party2)
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: party_coverage"
+    assert outcome.failed_checks == ("party_coverage",)
+    assert read_run(seeded, run_id).failure_reason == "validation failed: party_coverage"
+    assert results(seeded, run_id) == [
+        ("evidence_quotes", True, []),
+        ("party_coverage", False, [(None, 2, PARTY2_ZERO)]),
+    ]
+    _assert_kept_candidate(seeded)
+
+
+def test_both_checks_failing_are_named(seeded: Engine) -> None:
+    provider = fake_provider(
+        position_findings=_invented_for_party2, party_positions=positions_response()
+    )
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.failure_reason == "validation failed: evidence_quotes, party_coverage"
+    assert outcome.failed_checks == ("evidence_quotes", "party_coverage")
+    [quotes, coverage] = results(seeded, run_id)
+    assert quotes[:2] == ("evidence_quotes", False)
+    assert coverage == (
+        "party_coverage",
+        False,
+        [
+            (None, 1, "party 1 has positions on 2 of 30 statements (6%); minimum is 70%"),
+            (None, 2, "party 2 has positions on 2 of 30 statements (6%); minimum is 70%"),
+        ],
+    )
+
+
+def test_execute_run_passes_its_validation_settings(seeded: Engine) -> None:
+    _fail_party2_document(seeded)
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider, ValidationSettings(0))
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert results(seeded, run_id) == [
+        ("evidence_quotes", True, []),
+        ("party_coverage", True, []),
+    ]
+
+
+def test_validate_run_with_explicit_settings(seeded: Engine) -> None:
+    _fail_party2_document(seeded)
+    run_id = validating_run(seeded)
+
+    outcome = validate_run(seeded, run_id, settings=ValidationSettings(0))
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert results(seeded, run_id)[1] == ("party_coverage", True, [])
+
+
+@pytest.mark.parametrize(("raw", "status"), [("0", "passed"), ("71", "failed")])
+def test_validate_run_reads_settings_from_env_when_none(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch, raw: str, status: str
+) -> None:
+    # Party 2 without findings: party 1 covers every Statement, party 2 none.
+    run_id = validating_run(seeded, fake_provider(position_findings=_no_findings_for_party2))
+    monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", raw)
+
+    outcome = validate_run(seeded, run_id)
+
+    assert outcome.status.value == status
+
+
+def test_validate_run_with_invalid_env_changes_nothing(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_id = validating_run(seeded)
+    monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "70%")
+    before = table_counts(seeded)
+
+    with pytest.raises(ConfigError, match="^Invalid VALIDATION_MIN_PARTY_COVERAGE_PERCENT"):
+        validate_run(seeded, run_id)
+
+    run = read_run(seeded, run_id)
+    assert run.status is PipelineRunStatus.VALIDATING
+    assert run.failure_reason is None
+    assert results(seeded, run_id) == []
+    assert table_counts(seeded) == before
+
+
+def test_execute_run_with_invalid_env_changes_nothing(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+    monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "abc")
+
+    with pytest.raises(ConfigError):
+        execute_run(seeded, run_id, provider)
+
+    assert read_run(seeded, run_id).status is PipelineRunStatus.QUEUED
+    assert provider.calls == []
+    assert table_counts(seeded)["dataset_versions"] == 0

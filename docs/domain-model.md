@@ -40,7 +40,7 @@
 
 1. Every Statement is unique and a single proposition (no "and/or" compounds).
 2. Every non-`no stance` Position has Evidence whose quote, normalised, starts on the cited page (or runs onto the next) of a Source Document the run read for that Party. Normalisation folds case, accents and ligatures and drops whitespace and punctuation; otherwise the match is exact.
-3. Each Party has positions on ≥ 70% of Statements.
+3. Each Party has positions (not `no stance`) on at least the configured share of Statements (default 70%); otherwise the whole run fails.
 4. Each Statement separates the parties: at least two different Position values among them.
 5. The Statement count is within the configured range (initially 25–35).
 6. Topics are spread out: no single topic accounts for more than a configured share of the Statements.
@@ -57,6 +57,6 @@
 - A coalition whose joint manifesto contradicts a member party's own manifesto: the joint manifesto takes precedence (prompt rule).
 - A party that split from a ticket after the election (e.g. Podemos from Sumar) is not a separate Party for that Election.
 - A manifesto available only as a scanned PDF (no text layer).
-- A party with no manifesto for the Election → not enough coverage → Validation fails or the party is excluded (see open questions).
+- A party with no manifesto for the Election → 0% coverage → Validation fails the run (Parties are never excluded).
 - The user skips every Statement → no ranking; prompt them to answer more.
 - In `live` mode a source change can supersede the Questionnaire a Voter is in the middle of; their session keeps the Dataset Version it started with.

@@ -85,7 +85,7 @@ def messages(positions: Sequence[PositionRow], documents: dict[int, RunDocument]
 
 
 def test_registry_has_evidence_quotes_first() -> None:
-    assert [c.name for c in CHECKS] == ["evidence_quotes"]
+    assert [c.name for c in CHECKS][0] == "evidence_quotes"
     assert EVIDENCE_QUOTES.name == "evidence_quotes"
 
 
@@ -293,7 +293,7 @@ def test_run_checks_reports_a_failed_evidence_quotes_result() -> None:
         party_ids=(1,),
         documents={1: document(PAGES)},
     )
-    [result] = run_checks(data)
+    [result] = run_checks(data, (EVIDENCE_QUOTES,))
     assert result.name == "evidence_quotes"
     assert not result.passed
     assert result.entries == (ReportEntry("quote not found in source document 1", 101, 1),)

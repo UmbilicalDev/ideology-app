@@ -4,6 +4,9 @@ Statement generation (pipeline-generate-statements Scenarios 1, 2, 3, 5, 6) and
 Party Position extraction at the run level (pipeline-extract-positions
 Scenarios 1, 3, 4, 6, 7 and 8). Since validation-evidence-quotes a run that
 generates successfully is validated too, so the default fakes end ``passed``.
+Since validation-party-coverage the default fake gives every Party a stance on
+every Statement; tests that build a sparse run on purpose pass
+``ValidationSettings(0)`` or expect ``party_coverage`` to fail.
 """
 
 import datetime as dt
@@ -19,13 +22,14 @@ from pipeline_fixtures import (
     chunk_pages,
     fake_provider,
     offline_guard,
+    positions_response,
     seed_election,
     statements_payload,
 )
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from ideology_app.config import GenerationMode
+from ideology_app.config import GenerationMode, ValidationSettings
 from ideology_app.db import session_scope
 from ideology_app.elections import InvalidInputError, NotFoundError, add_party, create_election
 from ideology_app.llm import FakeProvider, LLMOutputError, LLMProviderError, LLMRequest
@@ -54,6 +58,7 @@ from ideology_app.pipeline import (
     get_dataset_version,
     list_positions,
     list_runs,
+    list_validation_results,
     queue_run,
 )
 from ideology_app.pipeline import positions as positions_module
@@ -499,7 +504,8 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
     )
     run_id = queue(seeded, provider)
 
-    outcome = execute_run(seeded, run_id, provider)
+    # A sparse run on purpose: coverage is not what this test checks.
+    outcome = execute_run(seeded, run_id, provider, ValidationSettings(0))
 
     assert outcome.status is PipelineRunStatus.PASSED
     assert outcome.statement_count == 30
@@ -565,9 +571,11 @@ def test_quotes_are_stored_exactly_as_returned(seeded: Engine) -> None:
     )
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    # The odd quote is on no page, so Validation fails; the quotes stay as returned.
+    # The odd quote is on no page and each Party covers 1 of 30 Statements, so
+    # both checks fail; the quotes stay as returned.
     assert outcome.status is PipelineRunStatus.FAILED
-    assert outcome.failure_reason == "validation failed: evidence_quotes"
+    assert outcome.failure_reason == "validation failed: evidence_quotes, party_coverage"
+    assert outcome.failed_checks == ("evidence_quotes", "party_coverage")
     stances = [r for r in position_rows(seeded) if r.value is not None]
     assert [(r.party_id, r.value, r.evidence_quote, r.evidence_page) for r in stances] == [
         (1, 0, odd, 2),
@@ -586,10 +594,11 @@ def test_document_roles_are_recorded_and_additional_evidence_is_kept(
         add_parsed_document(
             s, party_id=1, document_id=4, pages=["Anexo uno.", "Anexo dos.", "Anexo tres."]
         )
-    provider = fake_provider()
+    # Without fill, so only Statements with a finding of their own get a stance.
+    provider = fake_provider(party_positions=positions_response())
     run_id = queue(migrated_engine, provider)
 
-    outcome = execute_run(migrated_engine, run_id, provider)
+    outcome = execute_run(migrated_engine, run_id, provider, ValidationSettings(0))
 
     assert outcome.status is PipelineRunStatus.PASSED
     assert run_documents(migrated_engine, run_id) == {
@@ -646,8 +655,25 @@ def _no_party2_findings(request: LLMRequest[Any]) -> dict[str, Any]:
 
 
 def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
-    assert outcome.status is PipelineRunStatus.PASSED
+    # A Party with no stance at all fails coverage; the run keeps every row.
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: party_coverage"
+    assert outcome.failed_checks == ("party_coverage",)
     assert outcome.position_count == 60
+    with Session(engine) as s:
+        version = s.get(DatasetVersion, outcome.dataset_version_id)
+        assert version is not None and version.status is DatasetVersionStatus.CANDIDATE
+        assert [
+            (r.check_name, r.passed, [(e.statement_id, e.party_id, e.message) for e in r.entries])
+            for r in list_validation_results(s, outcome.run_id)
+        ] == [
+            ("evidence_quotes", True, []),
+            (
+                "party_coverage",
+                False,
+                [(None, 2, "party 2 has positions on 0 of 30 statements (0%); minimum is 70%")],
+            ),
+        ]
     rows = position_rows(engine)
     party2 = [r for r in rows if r.party_id == 2]
     assert len(party2) == 30
@@ -656,7 +682,8 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
          r.evidence_url) == (None, None, None, None, None)
         for r in party2
     )
-    assert [r.value for r in rows if r.party_id == 1 and r.value is not None] == [1]
+    # The default fake fills Party 1's one finding into every Statement.
+    assert [r.value for r in rows if r.party_id == 1 and r.value is not None] == [1] * 30
 
 
 def test_party_without_findings_gets_no_stance_and_no_reduce(seeded: Engine) -> None:

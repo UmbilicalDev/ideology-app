@@ -267,6 +267,7 @@ def pipeline_run(app: AppContext, election_id: int) -> None:
     """Generate Statements and Party Positions (a candidate Dataset Version)."""
     try:
         mode = config.generation_mode()
+        settings = config.validation_settings()
         provider = _provider()
     except config.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -280,7 +281,7 @@ def pipeline_run(app: AppContext, election_id: int) -> None:
                 generation_mode=mode,
             )
             run_id = run.id
-        outcome = pipelines.execute_run(app.engine, run_id, provider)
+        outcome = pipelines.execute_run(app.engine, run_id, provider, settings)
     finally:
         close = getattr(provider, "close", None)
         if callable(close):
@@ -309,7 +310,11 @@ def _raise_if_failed(outcome: pipelines.RunOutcome) -> None:
 @requires_db
 def pipeline_validate(app: AppContext, run_id: int) -> None:
     """Validate a run left in ``validating`` (needs no LLM provider)."""
-    outcome = pipelines.validate_run(app.engine, run_id)
+    try:
+        settings = config.validation_settings()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    outcome = pipelines.validate_run(app.engine, run_id, settings=settings)
     _raise_if_failed(outcome)
     click.echo(f"Pipeline run {outcome.run_id}: {outcome.status.value}")
 

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from ideology_app.config import ValidationSettings
 from ideology_app.models import (
     Party,
     PartyPosition,
@@ -62,15 +63,17 @@ class ValidationInput:
 
     ``statements`` are in position order; ``positions`` by Statement position
     then Party id; ``party_ids`` are the Election's Parties in id order;
-    ``documents`` maps document id to every Source Document the run read.
-    A check that needs more (e.g. a configured threshold) adds a field here and
-    fills it in ``load_input``.
+    ``documents`` maps document id to every Source Document the run read;
+    ``settings`` holds the configured thresholds. A check that needs more data
+    adds a field here and fills it in ``load_input``; a check that needs a new
+    threshold adds a field to ``config.ValidationSettings`` instead.
     """
 
     statements: tuple[StatementRow, ...]
     positions: tuple[PositionRow, ...]
     party_ids: tuple[int, ...]
     documents: Mapping[int, RunDocument] = field(default_factory=dict)
+    settings: ValidationSettings = ValidationSettings()
 
 
 @dataclass(frozen=True)
@@ -104,10 +107,12 @@ class CheckResult:
         return not self.entries
 
 
-def load_input(session: Session, run: PipelineRun) -> ValidationInput:
+def load_input(
+    session: Session, run: PipelineRun, settings: ValidationSettings
+) -> ValidationInput:
     """Read the run's Dataset Version and the Source Documents it read.
 
-    The run must have a Dataset Version.
+    ``settings`` is passed through unchanged. The run must have a Dataset Version.
     """
     version = run.dataset_version
     assert version is not None
@@ -160,4 +165,5 @@ def load_input(session: Session, run: PipelineRun) -> ValidationInput:
             )
             for link, d in run_documents
         },
+        settings=settings,
     )
