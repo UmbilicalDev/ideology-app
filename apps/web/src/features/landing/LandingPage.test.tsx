@@ -1,0 +1,179 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
+import { describe, expect, test, vi } from "vitest";
+
+import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@ideology-app/core";
+
+import { App } from "../../app/App";
+import { electionJson, jsonResponse, textResponse } from "../../test/fetch-mocks";
+
+const DISCLOSURE_TEXT =
+  "Las afirmaciones y las posiciones de los partidos las ha generado automáticamente una " +
+  "inteligencia artificial a partir de sus programas electorales, sin revisión humana, y pueden " +
+  "contener errores. Cada posición se apoya en una cita literal del programa que podrás " +
+  "consultar. Esta herramienta no es una recomendación de voto.";
+
+function renderLanding(fetch: FetchLike) {
+  return render(
+    <MemoryRouter initialEntries={["/"]}>
+      <App api={createPublicApiClient({ fetch })} />
+    </MemoryRouter>,
+  );
+}
+
+function fetchResolving(...responses: HttpResponseLike[]) {
+  const fetch = vi.fn<FetchLike>();
+  for (const response of responses) {
+    fetch.mockResolvedValueOnce(response);
+  }
+  return fetch;
+}
+
+function expectDisclosureAndMethodology() {
+  const disclosure = screen.getByRole("region", { name: "Contenido generado con IA" });
+  expect(within(disclosure).getByText(DISCLOSURE_TEXT)).toBeTruthy();
+  expect(screen.getByRole("heading", { level: 2, name: "Cómo funciona" })).toBeTruthy();
+  expect(
+    screen.getByText("La explicación completa de la metodología se publicará próximamente."),
+  ).toBeTruthy();
+}
+
+describe("LandingPage", () => {
+  test("Scenario 1: shows loading, then the published Election link, disclosure and methodology", async () => {
+    let resolve: (response: HttpResponseLike) => void = () => {};
+    const fetch = vi.fn<FetchLike>(
+      () =>
+        new Promise<HttpResponseLike>((r) => {
+          resolve = r;
+        }),
+    );
+    renderLanding(fetch);
+
+    expect(screen.getByRole("status").textContent).toBe("Cargando elecciones…");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "Comparador de programas electorales",
+    );
+    expectDisclosureAndMethodology();
+
+    resolve(jsonResponse({ elections: [electionJson()] }));
+    const link = await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" });
+    expect(link.getAttribute("href")).toBe("/elecciones/1/cuestionario");
+    expect(within(link).getByText("23 de julio de 2023")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+    expectDisclosureAndMethodology();
+    expect(
+      screen.getByText(
+        "Responde a una serie de afirmaciones y descubre qué partidos se acercan más a tus " +
+          "respuestas, según sus programas electorales.",
+      ),
+    ).toBeTruthy();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/v1/elections", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  });
+
+  test("keeps the main content order: h1, intro, disclosure, Elections, methodology", async () => {
+    renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
+    await screen.findByRole("link", { name: /Generales 2023/ });
+    const main = screen.getByRole("main");
+    const order = Array.from(main.querySelectorAll("h1, h2")).map((h) => h.textContent);
+    expect(order).toEqual([
+      "Comparador de programas electorales",
+      "Contenido generado con IA",
+      "Elecciones disponibles",
+      "Cómo funciona",
+    ]);
+    expect(main.firstElementChild?.tagName).toBe("H1");
+    expect(main.children[1]?.tagName).toBe("P");
+  });
+
+  test("has no methodology link", async () => {
+    renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
+    await screen.findByRole("link", { name: /Generales 2023/ });
+    expect(screen.queryByRole("link", { name: /metodología/i })).toBeNull();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+  });
+
+  test("Scenario 4: an empty list shows the empty message and no link", async () => {
+    renderLanding(fetchResolving(jsonResponse({ elections: [] })));
+    expect(
+      await screen.findByText(
+        "Ahora mismo no hay elecciones disponibles. Vuelve a consultarlo más adelante.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.queryByRole("list")).toBeNull();
+    expectDisclosureAndMethodology();
+  });
+
+  test.each([
+    ["a 500 response", () => vi.fn<FetchLike>().mockResolvedValueOnce(textResponse(500))],
+    [
+      "a rejected fetch",
+      () => vi.fn<FetchLike>().mockRejectedValueOnce(new TypeError("Failed to fetch")),
+    ],
+    [
+      "an invalid body",
+      () =>
+        vi
+          .fn<FetchLike>()
+          .mockResolvedValueOnce(jsonResponse({ elections: [electionJson({ date: "23/07/2023" })] })),
+    ],
+  ])("Scenario 5: %s shows the alert, and Reintentar loads the list", async (_label, makeFetch) => {
+    const fetch = makeFetch();
+    let resolve: (response: HttpResponseLike) => void = () => {};
+    fetch.mockImplementationOnce(
+      () =>
+        new Promise<HttpResponseLike>((r) => {
+          resolve = r;
+        }),
+    );
+    renderLanding(fetch);
+
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText(
+      "No se han podido cargar las elecciones. Comprueba tu conexión e inténtalo de nuevo.",
+    )).toBeTruthy();
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expectDisclosureAndMethodology();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
+    expect(screen.getByRole("status").textContent).toBe("Cargando elecciones…");
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    resolve(jsonResponse({ elections: [electionJson()] }));
+    expect(
+      await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" }),
+    ).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  test("Scenario 6: several Elections keep the API order and identical styling", async () => {
+    renderLanding(
+      fetchResolving(
+        jsonResponse({
+          elections: [
+            electionJson({ id: 3, date: "2027-07-01", name: "Generales 2027", published_dataset_version_id: 2 }),
+            electionJson(),
+          ],
+        }),
+      ),
+    );
+    await screen.findByRole("link", { name: /Generales 2027/ });
+    const links = screen.getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Generales 2027 1 de julio de 2027",
+      "Generales 2023 23 de julio de 2023",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/elecciones/3/cuestionario",
+      "/elecciones/1/cuestionario",
+    ]);
+    expect(links[0]?.className).toBe("election-link");
+    expect(links[1]?.className).toBe(links[0]?.className);
+    expect(links.every((link) => link.getAttribute("style") === null)).toBe(true);
+  });
+});

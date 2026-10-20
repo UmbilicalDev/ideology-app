@@ -66,8 +66,11 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - The Match Score MUST be computed only by `packages/core/src/domain/match-score.ts` in the client. The server MUST NOT get an endpoint that receives Answers. Reason: the invariant that voter answers are never stored or sent to the server.
 - `packages/core` MUST NOT import React, DOM or platform APIs, and `match-score.ts` MUST have no imports and use no globals beyond the language built-ins. Reason: the core is shared by the web and (later) mobile clients and tested under Node.
 - Client code MUST NOT put Answers in any request (path, query string, body or headers); only the URL fragment carries them (Share Links). Reason: the invariant above, and server access logs record full request lines.
+- Client code MUST reach the public API only through the `packages/core` client (`createPublicApiClient`); components MUST NOT call `fetch` (only `apps/web/src/main.tsx` passes the browser `fetch` in). Reason: one place that checks the API contract and maps keys, and one place to audit that no request carries Answers.
+- Web tests MUST NOT reach the network: `apps/web/src/test/setup.ts` stubs global `fetch` to throw, and tests inject a mocked `FetchLike`. Reason: a deterministic, offline CI.
 - npm dependencies MUST be exact-pinned and installed with `npm ci` from the committed `package-lock.json`; any new runtime dependency MUST be justified in its feature spec. Reason: a reproducible verification gate and a small client.
 
 ## Web Client Serving
 
 - New server routes MUST be registered in `create_app` before `web_router`, and the SPA fallback MUST NOT serve `/api/` or `/health` paths. Reason: the catch-all `GET /{path:path}` matches every path, so anything included after it is unreachable, and unknown API paths must keep their JSON `404`.
+- Client route segments MUST NOT contain a `.`. Reason: the SPA fallback answers a missing path whose last segment has a `.` with `404`, so such a route would break on deep links and reloads.
