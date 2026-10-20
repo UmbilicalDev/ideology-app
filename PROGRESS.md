@@ -7,9 +7,9 @@
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22.13 and npm on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `web-install` (`npm ci` from the committed `package-lock.json`), `web-typecheck`, `web-test` (Vitest), `web-build` (`apps/web/dist`))
 - Manual start (from the repo root, after `./init.sh`): `.venv/bin/uvicorn ideology_app.main:app --reload` (web client at `http://127.0.0.1:8000/`, served from `WEB_DIST_DIR`, default `apps/web/dist`; `GET /health` → 200 `{"status": "ok"}`; public read-only API under `/api/v1/`, OpenAPI at `/api/openapi.json`; reads `DATABASE_URL`, migrate first with `ideology db upgrade`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url`, `source list|text`, `pipeline run|list|statements|positions|validate|checks|report`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `live-mode-source-change-trigger`; `landing-election-picker` (unblocked by the accepted `web-client-skeleton`)
+- Current next ready features: `live-mode-source-change-trigger`; `landing-election-picker` is `accepted` (`questionnaire-answer-flow` builds on it)
 - Current blocker: none
-- Last verified at: 2026-10-19 (`CI=true ./init.sh` on `feature/web-client-skeleton`: pytest 867 passed, Vitest 43 passed, `vite build` ok, alembic head `0008`)
+- Last verified at: 2026-10-20 (`CI=true ./init.sh` on `feature/landing-election-picker`: pytest 867 passed, Vitest 82 passed, `vite build` ok, alembic head `0008`)
 
 ## Session Log
 
@@ -352,3 +352,24 @@
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (settled: web build serving, match-score port; new: container must build with `npm ci && npm run build` and set `WEB_DIST_DIR`, TypeScript 7 compiler-API support, trailing-slash/HEAD Low; access-log risk renamed to deployment only).
 - Validation: independent validator **accept** (2026-10-20). Re-ran `CI=true ./init.sh` (867 pytest, 43 Vitest, build ok); four negative gate copies; 80,000-call match-score differential with 0 mismatches; live uvicorn + curl serving and traversal checks; browser check in Chrome 155 (chrome-devtools MCP) at 375x812 and 1280x800 with a clean console and only same-origin 200 requests. Low notes accepted: trailing-slash 307 -> 404, `HEAD /` 405, core tsconfig excludes `vitest.config.ts`. Status `accepted`.
 - Next best step: plan `landing-election-picker` with `$feature-spec`.
+
+### Session 033
+
+- Date: 2026-10-20
+- Goal: Implement `landing-election-picker` (issue #31) per `docs/specs/landing-election-picker.md` (branch `feature/landing-election-picker`).
+- Completed: `packages/core` public API client (`src/domain/election.ts`, `src/application/public-api.ts`, `src/infrastructure/http/public-api-client.ts`, re-exports in `src/index.ts`, `test/infrastructure/public-api-client.test.ts`); `react-router@7.18.4` (exact) in `apps/web`; `apps/web` routes and screens (`features/paths.ts`, `features/landing/{LandingPage.tsx,useElections.ts,format-date.ts,LandingPage.test.tsx}`, `features/questionnaire/QuestionnairePlaceholderPage.tsx`, `features/not-found/NotFoundPage.tsx`, `app/App.tsx` + `App.test.tsx`, `main.tsx` with `BrowserRouter` and the API client, `ui/components.css`, `test/setup.ts` blocking global `fetch`, `test/fetch-mocks.ts`, `vite.config.ts` `setupFiles`); deleted `features/home/`; docs `ARCHITECTURE.md`, `CONSTRAINTS.md`, `docs/risks-and-open-questions.md`.
+- Verification run: `CI=true ./init.sh` from a clean `node_modules` exit 0 (pytest 867, Vitest 82 = 41 + 24 core + 17 web, build ok); browser walk-through in Chrome 155 (chrome-devtools MCP) at 375x812 and 1280x800 against four uvicorn servers on scratch databases outside the repo (published, empty, unmigrated, two active Elections): list, click, Back/Forward, `Volver al inicio`, deep-link reload, four not-found paths, keyboard focus, empty, error + retry, API order; console clean apart from the expected 500 line; one same-origin `GET /api/v1/elections` per Landing load, none on the placeholder, no voter data. Details in `feature_list.json` -> `landing-election-picker.evidence`.
+- Evidence captured: `feature_list.json` -> `landing-election-picker.evidence` (status `passing`).
+- Deviations: (1) `Volver al inicio` got a `.back-link` class (inline-flex, min-height 48px) because the plain text link was 19px high, below the `DESIGN.md` 48px tap target. (2) `PublicApiError`'s constructor is `(kind, message, status = null)`. (3) Sections carry `aria-labelledby` on their h2 (the Elections and methodology sections too), so they are exposed as named regions. (4) A fourth scratch database with two active Elections was added to see Scenario 6 in the browser. (5) A client-side Back re-runs the Landing effect, so it makes one more `GET /api/v1/elections` (no client caching, as the spec's non-goals say).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (settled: archived Elections hidden on the Landing; new: React Router pinned at 7 for the Node floor; Landing copy is part of the legal check).
+- Next best step: independent validation of `landing-election-picker` with `$feature-validator`.
+
+### Session 034
+
+- Date: 2026-10-20
+- Goal: Independently validate and accept `landing-election-picker` (issue #31).
+- Completed: `$feature-validator` verdict `accept`, no Critical/High/Medium findings; status set to `accepted` in `feature_list.json`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 867, Vitest 4 files / 82 tests, vite build ok); diff review against the spec, the OpenAPI `ElectionOut` contract, `CONSTRAINTS.md` and `DESIGN.md`; independent browser check in Chrome 155 (chrome-devtools MCP, isolated context) at 375x812 and 1280x800 against the FastAPI-served build on scratch databases outside the repo (published + draft, empty, unmigrated, two active): list with draft hidden, click to placeholder, Back/Forward/`Volver al inicio`, deep-link reload, four not-found paths, keyboard focus, empty state, 500 alert + `Reintentar` with recovery, API order with identical cards; console clean except the expected 500 line; one same-origin `GET /api/v1/elections` per Landing load, no voter data.
+- Evidence captured: `feature_list.json` -> `landing-election-picker.evidence` (independent validator accept entry).
+- Known risk or unresolved issue: Low note, the Landing honours the API's `Cache-Control: public, max-age=60`, so a reload within 60s may show a cached list (expected by the spec). Others: see `docs/risks-and-open-questions.md`.
+- Next best step: plan `questionnaire-answer-flow` with `$feature-spec`.
