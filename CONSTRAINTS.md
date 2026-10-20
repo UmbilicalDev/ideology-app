@@ -21,6 +21,9 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Only `src/ideology_app/http_fetch.py` MAY fetch Source Document URLs (`urllib.request` / `http.client`), and it MUST allow only `http`/`https`, including after redirects (no `file:`, `ftp:` or `data:` handler). Reason: one place to harden downloads, and an Operator-typed URL must not read local files.
 - Every caught `urllib.error.HTTPError` MUST be closed. Reason: on Python 3.15 an unclosed `HTTPError` emits `ResourceWarning: Implicitly cleaning up`, even with `fp=None`, which fails the gate; test fakes build it with `io.BytesIO(b"")` (`tests/http_fakes.py`).
 - Tests MUST NOT open a network connection: mock `ideology_app.http_fetch._open` (or pass `fetch=` to `add_url_document`) and keep the autouse socket guard in every module that touches URL fetching. Reason: a deterministic, offline CI.
+- A URL Source Document whose re-fetched bytes changed MUST become a new row (same Party and URL); the old row MUST only get `replaced_by_id` and `last_checked_at`, and its content hash, pages and stored file MUST NOT change. Reason: Evidence of older Dataset Versions points at the old row (`evidence_source_document_id`, `pipeline_run_source_documents`).
+- Pipeline input MUST be only current documents (`replaced_by_id IS NULL`, via `runs._parsed_documents_query`). Reason: one version per URL lineage; a replaced version must never be read again.
+- A re-fetch MUST NOT write a Source Document row, a file or a Pipeline Run when the download, the PDF check or the text extraction fails (pages are extracted before the replacement row is inserted); only `last_checked_at` is recorded. Reason: a failing site must never hide the parsed document or queue a run.
 
 ## LLM Providers
 
@@ -69,6 +72,7 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - The Match Score MUST be computed only by `packages/core/src/domain/match-score.ts` in the client. The server MUST NOT get an endpoint that receives Answers. Reason: the invariant that voter answers are never stored or sent to the server.
 - `packages/core` MUST NOT import React, DOM or platform APIs, and `match-score.ts` MUST have no imports and use no globals beyond the language built-ins. Reason: the core is shared by the web and (later) mobile clients and tested under Node.
 - Client code MUST NOT put Answers in any request (path, query string, body or headers); only the URL fragment carries them (Share Links). Reason: the invariant above, and server access logs record full request lines.
+- Client code MUST NOT write Answers to `localStorage`, `sessionStorage`, cookies or IndexedDB. Reason: answers stay in memory until a deliberate feature (Share Links) decides otherwise; shared devices must not keep them.
 - Client code MUST reach the public API only through the `packages/core` client (`createPublicApiClient`); components MUST NOT call `fetch` (only `apps/web/src/main.tsx` passes the browser `fetch` in). Reason: one place that checks the API contract and maps keys, and one place to audit that no request carries Answers.
 - Web tests MUST NOT reach the network: `apps/web/src/test/setup.ts` stubs global `fetch` to throw, and tests inject a mocked `FetchLike`. Reason: a deterministic, offline CI.
 - npm dependencies MUST be exact-pinned and installed with `npm ci` from the committed `package-lock.json`; any new runtime dependency MUST be justified in its feature spec. Reason: a reproducible verification gate and a small client.

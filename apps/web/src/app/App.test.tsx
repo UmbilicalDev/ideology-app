@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { createPublicApiClient, type FetchLike } from "@ideology-app/core";
 
-import { electionJson, jsonResponse } from "../test/fetch-mocks";
+import { datasetVersionJson, electionJson, jsonResponse } from "../test/fetch-mocks";
 import { App } from "./App";
 
 function renderAt(path: string, fetch: FetchLike) {
@@ -16,34 +16,41 @@ function renderAt(path: string, fetch: FetchLike) {
 }
 
 describe("App routes", () => {
-  test("Scenario 2: choosing an Election shows the placeholder, and Volver al inicio returns", async () => {
-    const fetch = vi.fn<FetchLike>(async () => jsonResponse({ elections: [electionJson()] }));
+  test("choosing an Election opens the Questionnaire, and Volver al inicio returns from the end", async () => {
+    const fetch = vi.fn<FetchLike>(async (url) => {
+      if (url === "/api/v1/elections") return jsonResponse({ elections: [electionJson()] });
+      if (url === "/api/v1/elections/1") return jsonResponse(electionJson());
+      if (url === "/api/v1/dataset-versions/1") return jsonResponse(datasetVersionJson({ statements: 1 }));
+      throw new Error(`unexpected request ${url}`);
+    });
     renderAt("/", fetch);
 
     fireEvent.click(await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" }));
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Cuestionario");
     expect(
-      screen.getByText("El cuestionario de estas elecciones estará disponible muy pronto."),
+      await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" }),
     ).toBeTruthy();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "Saltar esta afirmación" }));
+    expect(screen.getByText("Has respondido 0 de 1 afirmaciones y has saltado 1.")).toBeTruthy();
     fireEvent.click(screen.getByRole("link", { name: "Volver al inicio" }));
     expect(
       await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" }),
     ).toBeTruthy();
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      "/api/v1/elections",
+      "/api/v1/elections/1",
+      "/api/v1/dataset-versions/1",
+      "/api/v1/elections",
+    ]);
   });
 
-  test("Scenario 3: the Questionnaire deep link renders without an API request", () => {
-    const fetch = vi.fn<FetchLike>();
-    renderAt("/elecciones/1/cuestionario", fetch);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Cuestionario");
-    expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  test("Scenario 3: the largest valid id renders the placeholder", () => {
-    renderAt("/elecciones/2147483647/cuestionario", vi.fn<FetchLike>());
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Cuestionario");
+  test("the largest valid id loads that Election", async () => {
+    const fetch = vi.fn<FetchLike>(async () => jsonResponse({ error: {} }, 404));
+    renderAt("/elecciones/2147483647/cuestionario", fetch);
+    expect(await screen.findByText("Página no encontrada")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith("/api/v1/elections/2147483647", expect.anything());
   });
 
   test.each([
@@ -53,7 +60,7 @@ describe("App routes", () => {
     "/elecciones/2147483648/cuestionario",
     "/nada",
     "/metodologia/x",
-  ])("Scenario 3: %s renders Página no encontrada without an API request", (path) => {
+  ])("%s renders Página no encontrada without an API request", (path) => {
     const fetch = vi.fn<FetchLike>();
     renderAt(path, fetch);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Página no encontrada");

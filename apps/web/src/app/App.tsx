@@ -8,14 +8,14 @@ import { LandingPage } from "../features/landing/LandingPage";
 import { MethodologyPage } from "../features/methodology/MethodologyPage";
 import { NotFoundPage } from "../features/not-found/NotFoundPage";
 import { HOME_PATH, METHODOLOGY_PATH, QUESTIONNAIRE_ROUTE } from "../features/paths";
-import { QuestionnairePlaceholderPage } from "../features/questionnaire/QuestionnairePlaceholderPage";
+import { QuestionnairePage } from "../features/questionnaire/QuestionnairePage";
 
 export function App({ api }: { readonly api: PublicApi }) {
   return (
     <Routes>
       <Route path={HOME_PATH} element={<LandingPage api={api} />} />
       <Route path={METHODOLOGY_PATH} element={<MethodologyPage />} />
-      <Route path={QUESTIONNAIRE_ROUTE} element={<QuestionnairePlaceholderPage />} />
+      <Route path={QUESTIONNAIRE_ROUTE} element={<QuestionnairePage api={api} />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
