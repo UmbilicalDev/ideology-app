@@ -2,10 +2,21 @@ import { NO_STANCE, SKIP, type BreakdownPosition, type BreakdownRow } from "@ide
 
 import { SCALE_LABELS } from "../scale-labels";
 
-const INTRO =
-  "Tu respuesta y la posición de cada partido en cada afirmación. Las posiciones y las citas " +
+const INTRO_REST =
+  "y la posición de cada partido en cada afirmación. Las posiciones y las citas " +
   "las ha extraído una inteligencia artificial de los programas electorales: abre una posición " +
   "para leer la cita en la que se basa y comprobarla.";
+
+/**
+ * Whose Answers the rows show: the Voter's own (end screen) or a Share
+ * Link's (shared result, which the opener may not have written).
+ */
+export type AnswerOwner = "voter" | "link";
+
+const OWNER_COPY: Readonly<Record<AnswerOwner, { readonly intro: string; readonly answer: string }>> = {
+  voter: { intro: `Tu respuesta ${INTRO_REST}`, answer: "Tu respuesta:" },
+  link: { intro: `La respuesta del enlace ${INTRO_REST}`, answer: "Respuesta del enlace:" },
+};
 
 export const NO_STANCE_LABEL = "Sin posición en el programa";
 export const SKIPPED_LABEL = "Saltada (no cuenta para la afinidad)";
@@ -22,14 +33,21 @@ const NO_STANCE_SENTENCE =
  * Parties follow the ranking order) and treats every Party the same.
  * AI-generated text is rendered as React text, never as HTML.
  */
-export function ResultsBreakdown({ rows }: { readonly rows: readonly BreakdownRow[] }) {
+export function ResultsBreakdown({
+  rows,
+  answerOwner = "voter",
+}: {
+  readonly rows: readonly BreakdownRow[];
+  readonly answerOwner?: AnswerOwner;
+}) {
+  const copy = OWNER_COPY[answerOwner];
   return (
     <section className="breakdown-section" aria-labelledby="breakdown-title">
       <h3 id="breakdown-title">Detalle por afirmación</h3>
-      <p>{INTRO}</p>
+      <p>{copy.intro}</p>
       <ol className="breakdown" role="list" aria-labelledby="breakdown-title">
         {rows.map((row) => (
-          <Row key={row.statementId} row={row} />
+          <Row key={row.statementId} row={row} answerPrefix={copy.answer} />
         ))}
       </ol>
     </section>
@@ -42,13 +60,13 @@ function answerLabel(answer: BreakdownRow["answer"]): string {
   return SCALE_LABELS[answer];
 }
 
-function Row({ row }: { readonly row: BreakdownRow }) {
+function Row({ row, answerPrefix }: { readonly row: BreakdownRow; readonly answerPrefix: string }) {
   return (
     <li className="breakdown-row">
       <p className="breakdown-row__number">{`Afirmación ${row.position}`}</p>
       <h4 className="breakdown-row__statement">{row.text}</h4>
       <p className="breakdown-row__answer">
-        Tu respuesta: <strong>{answerLabel(row.answer)}</strong>
+        {answerPrefix} <strong>{answerLabel(row.answer)}</strong>
         {row.important ? (
           <>
             {" "}

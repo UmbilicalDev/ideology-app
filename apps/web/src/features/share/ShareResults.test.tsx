@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -151,7 +151,8 @@ describe("ShareResults", () => {
     expect(field.value).toBe(url);
     expect(field.readOnly).toBe(true);
     expect(field.className).toBe("share__field");
-    expect(document.activeElement).toBe(field);
+    // Focus is moved in a passive effect, which can run just after the text appears.
+    await vi.waitFor(() => expect(document.activeElement).toBe(field));
     expect(field.selectionStart).toBe(0);
     expect(field.selectionEnd).toBe(url.length);
     return field;
@@ -229,20 +230,30 @@ describe("ShareResults", () => {
     expect(document.cookie).toBe("");
   });
 
-  test("Scenario 6: /resultados shows the placeholder without reading the fragment or a request", () => {
-    const fetch = vi.fn<FetchLike>();
-    renderAt("/resultados#v1-1-dddddA", fetch);
+  test("Scenario 6: the copied link opens the same result at /resultados", async () => {
+    const writeText = vi.fn(async (_text: string) => undefined);
+    defineClipboard({ writeText });
+    await finish(SCENARIO_1);
+    const ranking = Array.from(document.querySelectorAll(".ranking-row")).map((li) => li.textContent);
+    fireEvent.click(button("Copiar enlace"));
+    await screen.findByText("Enlace copiado.");
+    const url = writeText.mock.calls[0]![0];
+    cleanup();
+
+    const fetch = sixStatementFetch();
+    renderAt(url.slice(window.location.origin.length), fetch);
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toBe("Resultado compartido");
     expect(document.activeElement).toBe(h1);
-    expect(
-      screen.getByText(
-        "Todavía no se pueden abrir resultados compartidos. Puedes responder el cuestionario tú " +
-          "mismo desde el inicio.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+    await screen.findByRole("heading", { level: 2, name: "Afinidad con cada partido" });
+    expect(Array.from(document.querySelectorAll(".ranking-row")).map((li) => li.textContent)).toEqual(
+      ranking,
+    );
+    expect(currentLocation).toBe("/resultados#v1-1-dddddA");
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      "/api/v1/dataset-versions/1",
+      "/api/v1/elections/1",
+    ]);
     expect(screen.queryByText("Página no encontrada")).toBeNull();
-    expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -84,6 +84,13 @@ h2[tabindex="-1"]:focus {
   cursor: pointer;
 }
 
+/* A link styled as the primary button (shared result CTAs). */
+a.button-primary {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
 .button-primary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -554,4 +561,10 @@ main h1[tabindex="-1"]:focus {
 
 .share .questionnaire__note {
   margin-bottom: 0;
+}
+
+/* Superseded notice on the shared result: a neutral card, not an alert. */
+.shared-notice h2 {
+  font-size: var(--font-size-body);
+  font-weight: 600;
 }

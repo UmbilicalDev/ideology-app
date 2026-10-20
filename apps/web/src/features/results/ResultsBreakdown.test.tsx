@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import type { BreakdownPosition, BreakdownRow } from "@ideology-app/core";
@@ -174,5 +174,35 @@ describe("ResultsBreakdown", () => {
     renderBreakdown([]);
     expect(screen.getByRole("heading", { level: 3 }).textContent).toBe("Detalle por afirmación");
     expect(screen.getByRole("list", { name: "Detalle por afirmación" }).children).toHaveLength(0);
+  });
+
+  test('answerOwner="link" names the link\'s Answer; markup otherwise identical', () => {
+    const voter = renderBreakdown().container.innerHTML;
+    cleanup();
+    const { container } = render(<ResultsBreakdown rows={ROWS} answerOwner="link" />);
+    expect(
+      screen.getByText(
+        "La respuesta del enlace y la posición de cada partido en cada afirmación. Las posiciones " +
+          "y las citas las ha extraído una inteligencia artificial de los programas electorales: " +
+          "abre una posición para leer la cita en la que se basa y comprobarla.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(INTRO)).toBeNull();
+    expect(rows().map((r) => r.querySelector(".breakdown-row__answer")?.textContent)).toEqual([
+      "Respuesta del enlace: De acuerdo Importante (cuenta el doble)",
+      "Respuesta del enlace: Saltada (no cuenta para la afinidad)",
+      "Respuesta del enlace: Sin responder",
+    ]);
+    expect(container.textContent).not.toContain("Tu respuesta");
+    const normalise = (html: string) =>
+      html
+        .replace("La respuesta del enlace y", "Tu respuesta y")
+        .replaceAll("Respuesta del enlace:", "Tu respuesta:");
+    expect(normalise(container.innerHTML)).toBe(voter);
+  });
+
+  test('answerOwner="voter" is the default copy', () => {
+    render(<ResultsBreakdown rows={ROWS} answerOwner="voter" />);
+    expect(screen.getByText(INTRO)).toBeTruthy();
   });
 });
