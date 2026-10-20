@@ -2,7 +2,7 @@ import { Link } from "react-router";
 
 import type { Election, PublicApi } from "@ideology-app/core";
 
-import { questionnairePath } from "../paths";
+import { METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { formatElectionDate } from "./format-date";
 import { useElections, type ElectionsState } from "./useElections";
 
@@ -45,7 +45,11 @@ export function LandingPage({ api }: { readonly api: PublicApi }) {
           cosas, que cada cita aparece en el programa. Tus respuestas se quedan en tu navegador: no
           se envían ni se guardan en ningún servidor.
         </p>
-        <p>La explicación completa de la metodología se publicará próximamente.</p>
+        <p>
+          <Link className="text-link" to={METHODOLOGY_PATH}>
+            Lee la metodología completa
+          </Link>
+        </p>
       </section>
     </main>
   );

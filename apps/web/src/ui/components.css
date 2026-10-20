@@ -104,11 +104,23 @@ h2[tabindex="-1"]:focus {
   border-color: var(--color-primary);
 }
 
-/* Text link that still meets the 48px minimum tap target. */
-.back-link {
+/* Text links that still meet the 48px minimum tap target. */
+.back-link,
+.text-link {
   display: inline-flex;
   align-items: center;
   min-height: 48px;
+}
+
+/* Bulleted lists in page copy; the election list keeps its own reset. */
+.plain-list {
+  margin: 0 0 var(--space-md);
+  padding-left: var(--space-lg);
+}
+
+/* A heading focused on page open is not interactive: no focus ring. */
+main h1[tabindex="-1"]:focus {
+  outline: none;
 }
 
 /* Questionnaire (DESIGN.md Core Screens 2). No party content and no
