@@ -66,4 +66,4 @@ Treat the report as a claim. Before publishing, the orchestrator checks:
 - new migrations and dependency changes are expected (`git diff --name-only <base> <branch> -- <migrations dir> <manifests>`);
 - `CI=true ./init.sh` passes, either in the worktree or after the merge on the base branch.
 
-When features ran in parallel, merge them one at a time. Merge the base branch into each later branch, then resolve `PROGRESS.md` by keeping both sides' entries and renumbering the later branch's sessions after the base branch's. Re-run the gate before pushing the merge.
+When features ran in parallel, merge them one at a time and update each later branch with `.agents/skills/github-flow/references/parallel-merges.md`.

@@ -35,6 +35,30 @@ worktrees, base SHA and pushes always use plain git.
 - Report anything a fallback cannot check as `unchecked`, never as checked.
 - Stop and report if a permission, dependency or environment is missing.
 - Never search for tokens or credentials to work around missing auth.
+## Other Contributors
+Other people push to this repository too (so far Miguel García and
+`mostroh`), including merges into feature branches and PRs of their own.
+- Before publishing or merging, check for open PRs/MRs by others and for new
+  commits on the base branch (`git fetch`, `gh pr list --state open`). Report
+  any that overlap the features at hand, for example a docs PR that changes
+  the frontend stack before web features run.
+- Before updating or pushing a feature branch, check for remote-only commits
+  (`git log HEAD..<remote>/<branch>`). If someone already resolved a merge
+  there, use their commit and verify it; never overwrite or force-push it.
+- Never delete or rewrite someone else's branch or PR without the user's
+  explicit approval.
+## Parallel Branches
+After one PR/MR of a parallel batch merges, bring each remaining branch up
+to date by merging the base into it (never rebase a published branch), one
+at a time, before its own PR/MR merges. Resolve conflicts with
+`references/parallel-merges.md`. In particular, for `PROGRESS.md`, keep both
+branches' sessions and renumber the later branch's sessions after the base
+branch's.
+## Practical Notes
+Read `references/practical-notes.md` before running git or verification
+commands. It covers checking a worktree's build in the browser through a
+temporary `.claude/launch.json` entry, and the zsh and BSD `sed` pitfalls
+already hit in this repository.
 ## Output
 Once: forge, remote, base SHA, resolved issue and PR/MR modes, and why
 (for example `gh unavailable: not on PATH`).
