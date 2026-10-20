@@ -6,10 +6,10 @@
 - Standard startup path: `./init.sh`
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22.13 and npm on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `web-install` (`npm ci` from the committed `package-lock.json`), `web-typecheck`, `web-test` (Vitest), `web-build` (`apps/web/dist`))
 - Manual start (from the repo root, after `./init.sh`): `.venv/bin/uvicorn ideology_app.main:app --reload` (web client at `http://127.0.0.1:8000/`, served from `WEB_DIST_DIR`, default `apps/web/dist`; `GET /health` → 200 `{"status": "ok"}`; public read-only API under `/api/v1/`, OpenAPI at `/api/openapi.json`; reads `DATABASE_URL`, migrate first with `ideology db upgrade`)
-- Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url` (in `GENERATION_MODE=live` it also queues a Pipeline Run), `source list|text`, `pipeline run|run-queued|list|statements|positions|validate|checks|report`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `live-mode-url-refetch`, `questionnaire-answer-flow`, `methodology-page` (`landing-election-picker` and `live-mode-source-change-trigger` are both `accepted`)
+- Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url` (in `GENERATION_MODE=live` it also queues a Pipeline Run), `source refetch [--election N]` (re-downloads due URL documents, interval `SOURCE_REFETCH_INTERVAL_HOURS`, default 6; changed bytes register a replacement document and, in `live`, queue a run), `source list|text`, `pipeline run|run-queued|list|statements|positions|validate|checks|report`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
+- Current next ready features: `questionnaire-important-flag`, `methodology-page` (`live-mode-url-refetch` and `questionnaire-answer-flow` accepted 2026-10-20)
 - Current blocker: none
-- Last verified at: 2026-10-20 (`CI=true ./init.sh` after merging `main` (with `landing-election-picker`) into `feature/live-mode-source-change-trigger`: pytest 910 passed, Vitest 82 passed, `vite build` ok, alembic head `0008`)
+- Last verified at: 2026-10-20 (`CI=true ./init.sh` after merging `main` (with `live-mode-url-refetch`) into `feature/questionnaire-answer-flow`: pytest 966 passed, Vitest 148 passed, `vite build` ok, alembic head `0009`)
 
 ## Session Log
 
@@ -389,6 +389,27 @@
 ### Session 036
 
 - Date: 2026-10-20
+- Goal: Implement `live-mode-url-refetch` per `docs/specs/live-mode-url-refetch.md` (branch `feature/live-mode-url-refetch`).
+- Completed: migration `0009_source_document_refetch.py` (`source_documents.replaced_by_id` INTEGER without FK and `last_checked_at`, both nullable, `recreate='never'` both ways); `SourceDocument.replaced_by_id` / `last_checked_at`; `config.source_refetch_interval()` (`SOURCE_REFETCH_INTERVAL_HOURS`, default 6); `source_documents.due_url_document_ids`, `refetch_url_document`, `RefetchResult`, `RefetchOutcome`, `_set_parsed_pages` (shared with `_store_and_parse`, no `add_*` behaviour change); `runs._parsed_documents_query` filters `replaced_by_id IS NULL` and `_start` orders by lineage root so a re-fetched main manifesto stays `main`; `cli._now()` seam, `source refetch [--election N]`, `replaced_by` column in `source list` (with `_echo_trigger` shared with `source add`). Tests: new `tests/test_source_refetch.py` (16), `tests/test_cli_source_refetch.py` (22), `tests/test_config.py` (13); `tests/test_pipeline_runs.py` +2, `tests/test_migrations.py` +3 (head `0009`); `source list` header updated in `tests/test_cli_source.py` and `tests/test_source_url.py`. Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md`, `CONTEXT.md`, `docs/domain-model.md`, `docs/technical-discovery.md`, `docs/risks-and-open-questions.md`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 966, was 910; Vitest 82; build ok); alembic head `0009`, `alembic check` clean; three mutations caught (lineage ordering, current-only filter, `last_checked_at`); no `if mode == ...` outside `config.py` / `triggers.py`; offline CLI smoke on a scratch database (nothing due, invalid interval, unknown election). Browser validation not applicable (CLI/data only). Details in `feature_list.json` -> `live-mode-url-refetch.evidence`.
+- Evidence captured: `feature_list.json` -> `live-mode-url-refetch.evidence` (status `passing`).
+- Deviations: (1) `refetch_url_document` takes an optional `interval`; the CLI passes it so the per-document transaction re-checks that the row is still due, and a row that is no longer due (a concurrent re-fetch) raises `InvalidInputError` and is reported as an error for that document. (2) Interval parsing tests live in a new `tests/test_config.py` (the spec allowed it). (3) The CLI test for Scenario 9 makes the trigger fail by patching `triggers.queue_run` to raise `InvalidInputError`, so the failure is reported and counted rather than crashing the command.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (settled: re-fetch interval, per-Party unique hash; new: a reverted URL is not applied, one `source refetch` at a time and replaced files never deleted; URL allow-list deferred to the first feature that accepts URLs from a web or admin surface; scheduling deferred to the first deployment feature).
+- Next best step: independent validation of `live-mode-url-refetch` with `$feature-validator`.
+
+### Session 037
+
+- Date: 2026-10-20
+- Goal: Independent validation and acceptance of `live-mode-url-refetch` (feature-flow orchestrator, branch `feature/live-mode-url-refetch`).
+- Completed: validator verdict `accept`; status set to `accepted`.
+- Verification run: validator ran `CI=true ./init.sh` exit 0 (pytest 966 passed, Vitest 4 files / 82 passed, vite build ok); focused pytest on the five refetch/runs/migrations/config test files 185 passed; alembic head `0009`, `alembic check` clean; eight validator mutations each caught (due filter, duplicate check, replaced_by_id mark, extract-before-insert, naive-UTC datetimes, last_checked_at on failure, lineage ordering, current-only filter); offline CLI smoke; no mode branching outside `triggers.py`; tests offline with `FakeProvider` and no API key. Browser validation not applicable (CLI/data only).
+- Evidence captured: `feature_list.json` -> `live-mode-url-refetch.evidence` (status `accepted`).
+- Known risk or unresolved issue: two Low notes added to `docs/risks-and-open-questions.md` ("Operator cleanup gaps"): a trigger failure after the replacement file is stored leaves an orphan content-addressed file and records no `last_checked_at`; an unexpected non-`ElectionsError` exception stops the `source refetch` batch without the summary.
+- Next best step: plan `questionnaire-answer-flow` with `$feature-spec`.
+
+### Session 038
+
+- Date: 2026-10-20
 - Goal: Implement `questionnaire-answer-flow` (issue #36) per `docs/specs/questionnaire-answer-flow.md` (branch `feature/questionnaire-answer-flow`).
 - Completed: `packages/core`: `src/domain/dataset-version.ts` (types), `src/domain/questionnaire.ts` (`startQuestionnaire`, `reduceQuestionnaire`, `summarize`, `isAtEnd`, `currentStatementId`), `PublicApi.getElection` / `getDatasetVersion` in the port and the HTTP client (`parseDatasetVersion` with the spec's contract checks, one `getParsed` helper for every method), re-exports in `src/index.ts`; tests `test/domain/questionnaire.test.ts` and additions to `test/infrastructure/public-api-client.test.ts`. `apps/web`: `features/questionnaire/{QuestionnairePage.tsx,QuestionnaireFlow.tsx,useQuestionnaireData.ts,QuestionnairePage.test.tsx}`, route in `app/App.tsx`, `App.test.tsx` updated, `test/fetch-mocks.ts` `datasetVersionJson`, `ui/components.css` (scale options, secondary/disabled buttons, progress bar, focus); `QuestionnairePlaceholderPage.tsx` deleted. Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md` (no Answers in Web Storage, cookies or IndexedDB), `docs/risks-and-open-questions.md` (Statement order note, memory-only Answers question, `(results-ranking)` on the minimum-answered entry).
 - Verification run: `CI=true ./init.sh` exit 0 before (pytest 910, Vitest 98) and after (pytest 910, Vitest 6 files / 148 tests, build ok); storage and `fetch(` greps clean; browser walk-through in Chrome 155 (chrome-devtools MCP) at 375x812 and 1280x800 against the worktree's FastAPI-served build on scratch databases outside the repo (fake provider, 30 Statements): Scenarios 1-8 incl. all 30 Statements at both widths, a keyboard-only pass of Statements 2-4, accessibility tree, reload and Back, draft / unknown / invalid-id / 500 + retry recovery; network shows only the two GETs after the Landing and nothing after the Dataset Version load; storage, cookie and URL clean; console clean apart from the expected 404/500 resource lines. Details in `feature_list.json` -> `questionnaire-answer-flow.evidence`.
@@ -397,7 +418,7 @@
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (new: memory-only Answers are lost on reload or Back with no warning; Statement order stays open).
 - Next best step: independent validation of `questionnaire-answer-flow` with `$feature-validator`.
 
-### Session 037
+### Session 039
 
 - Date: 2026-10-20
 - Goal: Independently validate `questionnaire-answer-flow` (issue #36) and record acceptance.

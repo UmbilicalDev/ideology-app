@@ -5,7 +5,7 @@
 - **Country** — e.g. Spain. Container for Elections.
 - **Election** — country, type (`general` for the MVP), date, name.
 - **Party** — a ballot ticket (single party or coalition): name, short name, logo (optional). Linked to an Election (inclusion is per Election; the same real party can appear in several).
-- **Source Document** — belongs to a Party in an Election; origin `upload` or `url`; stored text plus page mapping for locators, and a content hash for change detection. A coalition's joint manifesto is its main Source Document; member parties' manifestos may be attached as extra ones.
+- **Source Document** — belongs to a Party in an Election; origin `upload` or `url`; stored text plus page mapping for locators, and a content hash for change detection. A coalition's joint manifesto is its main Source Document (the first registered version of it, which stays main when a re-fetch replaces it); member parties' manifestos may be attached as extra ones.
 - **Pipeline Run** — belongs to an Election; records the LLM provider, model, prompt versions, Generation Mode, timestamps, LLM usage (calls and tokens), status, the Validation thresholds it was validated with, and Validation report. `ideology pipeline report` shows all of it, read-only.
 - **Dataset Version** — produced by one successful Pipeline Run; contains the Questionnaire and the Party Positions. Immutable.
 - **Statement** — text, topic tag, order; belongs to a Dataset Version.
@@ -25,14 +25,14 @@
 
 **Election**: `draft` → `active` (has a Published Dataset Version; set by its first publish, in the same transaction) → `archived` (after the election day; still viewable, labelled as historical).
 
-**Source Document**: `registered` → `fetched` (URL downloaded or upload stored) → `parsed` (text extracted) | `failed`.
+**Source Document**: `registered` → `fetched` (URL downloaded or upload stored) → `parsed` (text extracted) | `failed`. A `parsed` URL document can also be marked **replaced** (`replaced_by_id`, not a status) when a re-fetch found new bytes: a new `parsed` row for the same Party and URL takes its place, and the old row keeps its hash, pages and file for the Evidence of older Dataset Versions. Pipeline Runs read only current (not replaced) documents.
 
 **Pipeline Run**: `queued` → `running` → `validating` → `passed` | `failed`.
 - `passed` → its Dataset Version is published automatically, in the same transaction as its Validation results, and replaces the previous one, unless the Published version belongs to a newer run (higher Pipeline Run id): then it stays `candidate` and the newer version stays live. Publish order is queue order, so an older run never rolls Voters back to staler data.
 - `failed` → nothing is published and the previous Published version stays live; the Validation report says why. The Operator can re-run.
 - A run that fails Validation keeps its `candidate` Dataset Version, which is never published.
 
-**Run triggers**: in `precomputed` mode, the Operator. In `live` mode, a Pipeline Run is queued automatically when a Source Document is added (ending `parsed`) or its content hash changes, in the same transaction as the document, and executed by the Operator's queue command (`ideology pipeline run-queued`). At most one run per Election is `queued`: later changes join it, since it reads every parsed document when it starts. A run already `running` or `validating` does not absorb a change; a new run is queued. Same bytes for the same Party are a duplicate, so nothing is queued. URL sources will be re-fetched periodically to detect content changes (`live-mode-url-refetch`).
+**Run triggers**: in `precomputed` mode, the Operator. In `live` mode, a Pipeline Run is queued automatically when a Source Document is added (ending `parsed`) or its content hash changes, in the same transaction as the document, and executed by the Operator's queue command (`ideology pipeline run-queued`). At most one run per Election is `queued`: later changes join it, since it reads every parsed document when it starts. A run already `running` or `validating` does not absorb a change; a new run is queued. Same bytes for the same Party are a duplicate, so nothing is queued. URL sources are re-fetched by the Operator's `ideology source refetch` (to be scheduled, e.g. by cron) once their last check is at least `SOURCE_REFETCH_INTERVAL_HOURS` old (default 6), in both modes: new bytes register a replacement document, and in `live` that queues (or joins) a run in the same transaction; the same bytes only record the check time; bytes another document of the same Party already has are reported as a duplicate and change nothing; a failed download keeps the old document and queues nothing.
 
 **Dataset Version**: `candidate` → `published` → `superseded`. Superseded versions stay readable so old Share Links keep working. The status is the only thing that ever changes; a superseded version is never published again.
 

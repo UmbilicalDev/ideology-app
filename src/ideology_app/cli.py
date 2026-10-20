@@ -82,6 +82,11 @@ def requires_db(f: Callable[..., Any]) -> Callable[..., Any]:
     return update_wrapper(wrapper, f)
 
 
+def _now() -> dt.datetime:
+    """The current time (UTC). Tests patch this seam to control the clock."""
+    return dt.datetime.now(dt.UTC)
+
+
 def _print_rows(header: list[str], rows: list[list[object]]) -> None:
     click.echo("\t".join(header))
     for row in rows:
@@ -220,6 +225,11 @@ def source_add(app: AppContext, party_id: int, file_path: Path | None, url: str 
     if status is SourceDocumentStatus.FAILED:
         raise click.ClickException(f"source document {document_id} failed: {reason}")
     click.echo(f"Created source document {document_id}: {status.value} ({page_count} pages)")
+    _echo_trigger(trigger, mode)
+
+
+def _echo_trigger(trigger: pipelines.SourceChangeOutcome, mode: config.GenerationMode) -> None:
+    """Print what the live trigger did (nothing when no run was queued or joined)."""
     if trigger.run_id is None:
         return
     if trigger.newly_queued:
@@ -231,6 +241,82 @@ def source_add(app: AppContext, party_id: int, file_path: Path | None, url: str 
         click.echo(
             f"Pipeline run {trigger.run_id} is already queued "
             f"for election {trigger.election_id}"
+        )
+
+
+@source.command("refetch")
+@click.option(
+    "--election", "election_id", type=int, default=None, help="Only this Election's documents."
+)
+@requires_db
+def source_refetch(app: AppContext, election_id: int | None) -> None:
+    """Download again every current URL Source Document whose last check is due.
+
+    Due means checked (or, if never checked, created) at least
+    SOURCE_REFETCH_INTERVAL_HOURS ago (default 6). Changed bytes register a new
+    Source Document that replaces the old one (which stays for the Evidence of
+    older Dataset Versions); in live Generation Mode that also queues a
+    Pipeline Run. A failed download keeps the old document; the next document
+    is still checked and the exit code is 1. Run one re-fetch at a time.
+    """
+    # Resolve the configuration before any fetch or write.
+    try:
+        interval = config.source_refetch_interval()
+        mode = config.generation_mode()
+        llm = config.llm_settings() if pipelines.queues_on_source_change(mode) else None
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    now = _now()
+    files_dir = config.source_files_dir()
+    with session_scope(app.engine) as session:
+        document_ids = sources.due_url_document_ids(
+            session, now=now, interval=interval, election_id=election_id
+        )
+    if not document_ids:
+        click.echo("No source documents due for re-fetch")
+        return
+    failures = 0
+    for document_id in document_ids:
+        trigger = None
+        try:
+            # One transaction per document: the replacement, the old row's
+            # replaced_by_id and the run it queues commit together.
+            with session_scope(app.engine) as session:
+                outcome = sources.refetch_url_document(
+                    session, document_id, now=now, files_dir=files_dir, interval=interval
+                )
+                replacement = outcome.replacement
+                if replacement is not None:
+                    trigger = pipelines.queue_run_for_source_change(
+                        session, replacement, generation_mode=mode, llm=llm
+                    )
+                    replacement_id = replacement.id
+                    page_count = replacement.page_count
+        except service.ElectionsError as exc:
+            failures += 1
+            click.echo(f"Error: source document {document_id}: {exc}", err=True)
+            continue
+        result = outcome.result
+        if result is sources.RefetchResult.FAILED:
+            failures += 1
+            click.echo(f"Error: source document {document_id}: {outcome.reason}", err=True)
+        elif result is sources.RefetchResult.UNCHANGED:
+            click.echo(f"Source document {document_id}: unchanged")
+        elif result is sources.RefetchResult.DUPLICATE:
+            click.echo(
+                f"Source document {document_id}: content matches source document "
+                f"{outcome.duplicate_of_id} of the same party; nothing changed"
+            )
+        else:
+            click.echo(
+                f"Source document {document_id}: replaced by source document "
+                f"{replacement_id} ({page_count} pages)"
+            )
+            assert trigger is not None
+            _echo_trigger(trigger, mode)
+    if failures:
+        raise click.ClickException(
+            f"{failures} of {len(document_ids)} source documents could not be re-fetched"
         )
 
 
@@ -250,11 +336,22 @@ def source_list(app: AppContext, party_id: int) -> None:
                 d.original_filename,
                 d.source_url,
                 d.failure_reason,
+                d.replaced_by_id,
             ]
             for d in sources.list_documents(session, party_id)
         ]
     _print_rows(
-        ["id", "origin", "status", "pages", "content_hash", "filename", "url", "failure_reason"],
+        [
+            "id",
+            "origin",
+            "status",
+            "pages",
+            "content_hash",
+            "filename",
+            "url",
+            "failure_reason",
+            "replaced_by",
+        ],
         rows,
     )
 

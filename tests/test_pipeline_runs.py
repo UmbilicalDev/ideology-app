@@ -1034,3 +1034,60 @@ def test_deleting_the_election_cascades_to_positions(seeded: Engine) -> None:
         conn.execute(sa.text("DELETE FROM elections"))
     assert position_rows(seeded) == []
     assert run_documents(seeded, run_id) == {}
+
+
+# live-mode-url-refetch Scenario 8: only current documents are read, and a
+# re-fetched main manifesto stays main.
+
+
+def test_replaced_documents_are_not_read_and_the_main_role_survives(
+    migrated_engine: Engine,
+) -> None:
+    seed_election(migrated_engine, with_failed_document=False)
+    with session_scope(migrated_engine) as s:
+        # Document 1 (Party 1's main manifesto) is a URL document.
+        s.execute(
+            sa.text(
+                "UPDATE source_documents SET origin = 'url', "
+                "source_url = 'https://example.org/alfa.pdf' WHERE id = 1"
+            )
+        )
+        add_parsed_document(s, party_id=1, document_id=4, pages=["Anexo uno."])
+        add_parsed_document(
+            s,
+            party_id=1,
+            document_id=5,
+            pages=["Programa nuevo sobre vivienda.", "Programa nuevo sobre sanidad."],
+            source_url="https://example.org/alfa.pdf",
+        )
+        s.flush()
+        s.get(SourceDocument, 1).replaced_by_id = 5
+    provider = fake_provider(party_positions=positions_response())
+    run_id = queue(migrated_engine, provider)
+
+    outcome = execute_run(migrated_engine, run_id, provider, ValidationSettings(0))
+
+    assert outcome.dataset_version_id is not None
+    assert run_documents(migrated_engine, run_id) == {
+        5: SourceDocumentRole.MAIN,
+        2: SourceDocumentRole.MAIN,
+        4: SourceDocumentRole.ADDITIONAL,
+    }
+    findings = [c for c in provider.calls if c.task == "position_findings"]
+    prompts = "\n".join(c.prompt for c in provider.calls)
+    for text in PAGES[1]:
+        assert text not in prompts
+    # Party 1's chunks: the replacement (main) first, then the additional document.
+    assert "Programa nuevo sobre vivienda." in findings[0].prompt
+    assert "Anexo uno." in findings[1].prompt
+
+
+def test_queue_run_finds_parsed_input_after_a_replacement(migrated_engine: Engine) -> None:
+    seed_election(migrated_engine, with_failed_document=False)
+    with session_scope(migrated_engine) as s:
+        add_parsed_document(s, party_id=1, document_id=5, pages=["Nuevo."])
+        s.get(SourceDocument, 1).replaced_by_id = 5
+
+    run_id = queue(migrated_engine)
+
+    assert read_run(migrated_engine, run_id).status is PipelineRunStatus.QUEUED

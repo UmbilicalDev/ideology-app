@@ -5,10 +5,13 @@ Functions take a Session and leave committing to the caller, like
 ``<files_dir>/<content_hash>.pdf`` and are never overwritten or edited.
 """
 
+import datetime as dt
 import hashlib
 import os
 import tempfile
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -19,6 +22,7 @@ from sqlalchemy.orm import Session
 from ideology_app import http_fetch
 from ideology_app.elections import DuplicateError, InvalidInputError, NotFoundError
 from ideology_app.models import (
+    Election,
     Party,
     SourceDocument,
     SourceDocumentOrigin,
@@ -127,14 +131,19 @@ def _store_and_parse(
         document.failure_reason = exc.reason
         document.page_count = exc.page_count
     else:
-        document.pages = [
-            SourceDocumentPage(page_number=number, text=text)
-            for number, text in enumerate(pages, start=1)
-        ]
-        document.page_count = len(pages)
-        document.status = SourceDocumentStatus.PARSED
+        _set_parsed_pages(document, pages)
     session.flush()
     return document
+
+
+def _set_parsed_pages(document: SourceDocument, pages: Sequence[str]) -> None:
+    """Attach the extracted ``pages`` (1-based) and mark ``document`` ``parsed``."""
+    document.pages = [
+        SourceDocumentPage(page_number=number, text=text)
+        for number, text in enumerate(pages, start=1)
+    ]
+    document.page_count = len(pages)
+    document.status = SourceDocumentStatus.PARSED
 
 
 def _validate_url(url: str) -> str:
@@ -248,3 +257,190 @@ def get_document(session: Session, document_id: int) -> SourceDocument:
     if document is None:
         raise NotFoundError(f"source document {document_id} not found")
     return document
+
+
+# --- Periodic re-fetch of URL documents (``ideology source refetch``) ---------
+
+
+class RefetchResult(StrEnum):
+    """What one re-fetch of a URL Source Document found."""
+
+    UNCHANGED = "unchanged"  # same bytes: only last_checked_at was written
+    REPLACED = "replaced"  # new bytes: a new row replaces the document
+    DUPLICATE = "duplicate"  # bytes of another document of the same Party
+    FAILED = "failed"  # download, PDF or URL problem: only last_checked_at
+
+
+@dataclass(frozen=True)
+class RefetchOutcome:
+    """The result of ``refetch_url_document``.
+
+    ``replacement`` is the new row (``replaced`` only, still attached to the
+    session); ``duplicate_of_id`` the matching document (``duplicate`` only);
+    ``reason`` the failure cause (``failed`` only).
+    """
+
+    document_id: int
+    result: RefetchResult
+    replacement: SourceDocument | None = None
+    duplicate_of_id: int | None = None
+    reason: str | None = None
+
+
+def _as_utc(value: dt.datetime) -> dt.datetime:
+    """SQLite returns naive datetimes; they are stored in UTC."""
+    return value.replace(tzinfo=dt.UTC) if value.tzinfo is None else value
+
+
+def _is_due(
+    last_checked_at: dt.datetime | None,
+    created_at: dt.datetime,
+    *,
+    now: dt.datetime,
+    interval: dt.timedelta,
+) -> bool:
+    return _as_utc(last_checked_at or created_at) <= now - interval
+
+
+def _is_current_parsed_url(document: SourceDocument) -> bool:
+    return (
+        document.origin is SourceDocumentOrigin.URL
+        and document.status is SourceDocumentStatus.PARSED
+        and document.replaced_by_id is None
+    )
+
+
+def due_url_document_ids(
+    session: Session,
+    *,
+    now: dt.datetime,
+    interval: dt.timedelta,
+    election_id: int | None = None,
+) -> list[int]:
+    """Ids (ascending) of current parsed URL documents last checked at least ``interval`` ago.
+
+    A document never checked counts from its ``created_at``. With
+    ``election_id`` only that Election's Parties are considered (NotFoundError
+    if it does not exist). Upload, ``failed`` and replaced documents are never
+    due.
+    """
+    query = select(
+        SourceDocument.id, SourceDocument.last_checked_at, SourceDocument.created_at
+    ).where(
+        SourceDocument.origin == SourceDocumentOrigin.URL,
+        SourceDocument.status == SourceDocumentStatus.PARSED,
+        SourceDocument.replaced_by_id.is_(None),
+    )
+    if election_id is not None:
+        if session.get(Election, election_id) is None:
+            raise NotFoundError(f"election {election_id} not found")
+        query = query.join(Party, SourceDocument.party_id == Party.id).where(
+            Party.election_id == election_id
+        )
+    rows = session.execute(query.order_by(SourceDocument.id)).all()
+    return [
+        document_id
+        for document_id, last_checked_at, created_at in rows
+        if _is_due(last_checked_at, created_at, now=now, interval=interval)
+    ]
+
+
+def refetch_url_document(
+    session: Session,
+    document_id: int,
+    *,
+    now: dt.datetime,
+    files_dir: Path,
+    fetch: Callable[[str], bytes] | None = None,
+    interval: dt.timedelta | None = None,
+) -> RefetchOutcome:
+    """Download a current parsed URL document again and record what changed. Never commits.
+
+    Always sets ``last_checked_at = now``. New bytes (a text PDF whose hash no
+    document of the Party has) become a new ``parsed`` row for the same Party
+    and URL, and the old row gets ``replaced_by_id``; its hash, pages and file
+    never change. The fetch and page extraction happen before any row is
+    inserted, so a failure writes only ``last_checked_at``.
+
+    Raises NotFoundError for an unknown id, InvalidInputError when the row is
+    not a current parsed URL document (or, with ``interval``, is no longer
+    due), and DuplicateError if the per-Party content hash is hit in a race.
+    """
+    document = session.scalars(
+        select(SourceDocument).where(SourceDocument.id == document_id).with_for_update()
+    ).one_or_none()
+    if document is None:
+        raise NotFoundError(f"source document {document_id} not found")
+    if not _is_current_parsed_url(document):
+        raise InvalidInputError(
+            f"source document {document_id} is not a current parsed URL document"
+        )
+    if interval is not None and not _is_due(
+        document.last_checked_at, document.created_at, now=now, interval=interval
+    ):
+        raise InvalidInputError(f"source document {document_id} is not due for re-fetch")
+
+    document.last_checked_at = now
+
+    def failed(reason: str) -> RefetchOutcome:
+        session.flush()
+        return RefetchOutcome(document_id, RefetchResult.FAILED, reason=reason)
+
+    assert document.source_url is not None  # the CHECK for origin = url
+    try:
+        url = _validate_url(document.source_url)
+    except InvalidInputError as exc:
+        return failed(str(exc))
+    fetch = fetch or _default_fetch
+    try:
+        data = fetch(url)
+        if not data.startswith(PDF_MAGIC):
+            raise http_fetch.FetchError("response is not a PDF (it does not start with %PDF-)")
+    except http_fetch.FetchError as exc:
+        return failed(exc.reason)
+
+    content_hash = hashlib.sha256(data).hexdigest()
+    if content_hash == document.content_hash:
+        session.flush()
+        return RefetchOutcome(document_id, RefetchResult.UNCHANGED)
+    duplicate_of_id = session.scalar(
+        select(SourceDocument.id)
+        .where(
+            SourceDocument.party_id == document.party_id,
+            SourceDocument.content_hash == content_hash,
+        )
+        .order_by(SourceDocument.id)
+        .limit(1)
+    )
+    if duplicate_of_id is not None:
+        session.flush()
+        return RefetchOutcome(
+            document_id, RefetchResult.DUPLICATE, duplicate_of_id=duplicate_of_id
+        )
+    try:
+        pages = extract_pages(data)
+    except PdfTextError as exc:
+        return failed(exc.reason)
+
+    replacement = SourceDocument(
+        party_id=document.party_id,
+        origin=SourceDocumentOrigin.URL,
+        status=SourceDocumentStatus.REGISTERED,
+        source_url=document.source_url,
+        original_filename=_filename_from_url(document.source_url),
+        content_hash=content_hash,
+        last_checked_at=now,
+    )
+    session.add(replacement)
+    try:
+        session.flush()
+    except IntegrityError as exc:
+        raise DuplicateError(
+            f"party {document.party_id} already has a source document "
+            f"with content hash {content_hash}"
+        ) from exc
+    _store_file(Path(files_dir), f"{content_hash}.pdf", data)
+    _set_parsed_pages(replacement, pages)
+    document.replaced_by_id = replacement.id
+    session.flush()
+    return RefetchOutcome(document_id, RefetchResult.REPLACED, replacement=replacement)
