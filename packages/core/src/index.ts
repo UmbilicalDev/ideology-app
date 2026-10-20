@@ -30,6 +30,7 @@ export {
   reduceQuestionnaire,
   startQuestionnaire,
   summarize,
+  toMatchScoreAnswers,
 } from "./domain/questionnaire";
 export type {
   AnswerValue,

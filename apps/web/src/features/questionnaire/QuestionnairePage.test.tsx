@@ -186,6 +186,131 @@ describe("QuestionnairePage", () => {
     expect(screen.getAllByRole("radio").every((r) => r.getAttribute("name") === "answer-102")).toBe(true);
   });
 
+  describe("Important flag", () => {
+    function toggle() {
+      return button("Importante para mí");
+    }
+
+    function pressed() {
+      return toggle().getAttribute("aria-pressed");
+    }
+
+    test("Scenario 1: the toggle flips on and off without advancing, focus stays on it", async () => {
+      await openQuestionnaire();
+      const star = toggle();
+      expect(star.type).toBe("button");
+      expect(pressed()).toBe("false");
+      const hint = document.getElementById(star.getAttribute("aria-describedby") ?? "");
+      expect(hint?.textContent).toBe(
+        "Las afirmaciones importantes cuentan el doble al calcular la afinidad.",
+      );
+      expect(hint?.className).toBe("questionnaire__hint");
+      expect(star.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      // The hint follows the toggle, and both come before the radiogroup.
+      const group = screen.getByRole("radiogroup");
+      expect(heading2().compareDocumentPosition(star) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(star.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      star.focus();
+      fireEvent.click(star);
+      expect(pressed()).toBe("true");
+      expect(toggle().textContent).toBe("Importante para mí");
+      expect(document.activeElement).toBe(toggle());
+      expect(heading2().textContent).toBe("Afirmación de prueba 1");
+      expect(screen.getByText("Afirmación 1 de 3")).toBeTruthy();
+      expect(button("Siguiente").disabled).toBe(true);
+      expect(checkedRadios()).toHaveLength(0);
+
+      fireEvent.click(toggle());
+      expect(pressed()).toBe("false");
+      expect(document.activeElement).toBe(toggle());
+    });
+
+    test("Scenarios 2-4: the flag survives Siguiente, Anterior and Saltar, and works before rating", async () => {
+      await openQuestionnaire();
+
+      // Scenario 2.
+      fireEvent.click(toggle());
+      fireEvent.click(radio("De acuerdo"));
+      fireEvent.click(button("Siguiente"));
+      expect(heading2().textContent).toBe("Afirmación de prueba 2");
+      expect(pressed()).toBe("false");
+      fireEvent.click(button("Anterior"));
+      expect(heading2().textContent).toBe("Afirmación de prueba 1");
+      expect(radio("De acuerdo").checked).toBe(true);
+      expect(pressed()).toBe("true");
+
+      // Scenario 3.
+      fireEvent.click(button("Siguiente"));
+      fireEvent.click(toggle());
+      fireEvent.click(button("Saltar esta afirmación"));
+      expect(heading2().textContent).toBe("Afirmación de prueba 3");
+      expect(pressed()).toBe("false");
+      fireEvent.click(button("Anterior"));
+      expect(screen.getByText("Has saltado esta afirmación.")).toBeTruthy();
+      expect(pressed()).toBe("true");
+      fireEvent.click(radio("Muy de acuerdo"));
+      expect(pressed()).toBe("true");
+      fireEvent.click(button("Siguiente"));
+
+      // Scenario 4.
+      expect(heading2().textContent).toBe("Afirmación de prueba 3");
+      fireEvent.click(toggle());
+      fireEvent.click(button("Anterior"));
+      fireEvent.click(button("Siguiente"));
+      expect(heading2().textContent).toBe("Afirmación de prueba 3");
+      expect(checkedRadios()).toHaveLength(0);
+      expect(pressed()).toBe("true");
+      expect(button("Siguiente").disabled).toBe(true);
+    });
+
+    test("Scenario 5: the end screen counts rated Important Statements; Scenario 7 in jsdom", async () => {
+      const fetch = happyFetch();
+      await openQuestionnaire(fetch);
+      const answered = "Has respondido 2 de 3 afirmaciones y has saltado 1.";
+
+      // 1: rated + Important. 2: rated + Important. 3: skipped + Important.
+      fireEvent.click(toggle());
+      fireEvent.click(radio("De acuerdo"));
+      fireEvent.click(button("Siguiente"));
+      fireEvent.click(toggle());
+      fireEvent.click(radio("En desacuerdo"));
+      fireEvent.click(button("Siguiente"));
+      fireEvent.click(toggle());
+      fireEvent.click(button("Saltar esta afirmación"));
+      const summary = screen.getByText(answered);
+      const sentence = screen.getByText("Has marcado 2 afirmaciones como importantes.");
+      expect(summary.nextElementSibling).toBe(sentence);
+
+      fireEvent.click(button("Volver a la última afirmación"));
+      expect(heading2().textContent).toBe("Afirmación de prueba 3");
+      expect(pressed()).toBe("true");
+
+      // Unmark Statement 2.
+      fireEvent.click(button("Anterior"));
+      fireEvent.click(toggle());
+      fireEvent.click(button("Siguiente"));
+      fireEvent.click(button("Siguiente"));
+      expect(screen.getByText("Has marcado 1 afirmación como importante.")).toBeTruthy();
+
+      // Unmark Statement 1 too.
+      fireEvent.click(button("Volver a la última afirmación"));
+      fireEvent.click(button("Anterior"));
+      fireEvent.click(button("Anterior"));
+      fireEvent.click(toggle());
+      fireEvent.click(button("Siguiente"));
+      fireEvent.click(button("Siguiente"));
+      fireEvent.click(button("Siguiente"));
+      expect(screen.getByText(answered)).toBeTruthy();
+      expect(screen.getByText("No has marcado ninguna afirmación como importante.")).toBeTruthy();
+
+      expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
+      expect(localStorage.length).toBe(0);
+      expect(sessionStorage.length).toBe(0);
+      expect(document.cookie).toBe("");
+    });
+  });
+
   test("Scenario 7: no Published version shows not available after one request", async () => {
     const fetch = routes({
       "/api/v1/elections/2": () =>

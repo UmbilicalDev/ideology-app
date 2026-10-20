@@ -29,7 +29,7 @@ None.
 - Owed by `share-link-create`: switch the methodology page's privacy paragraph from "se usará un enlace" to present tense.
 - The minimum number of answered Statements before showing a ranking (`results-ranking`).
 - Order in which Statements are shown (random or by topic) to reduce order bias. `questionnaire-answer-flow` shows them in API `position` order and hides the topic; randomisation stays open.
-- Answers are memory-only (`questionnaire-answer-flow`), so a reload, browser Back or leaving the page loses them, with no warning. Revisit in `results-ranking` / `share-link-create`.
+- Answers and Important flags are memory-only (`questionnaire-answer-flow`, `questionnaire-important-flag`), so a reload, browser Back or leaving the page loses them, with no warning. Revisit in `results-ranking` / `share-link-create`.
 
 ## Later / Not MVP
 

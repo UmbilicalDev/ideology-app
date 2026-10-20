@@ -234,6 +234,54 @@ main h1[tabindex="-1"]:focus {
   outline: none;
 }
 
+/* Important toggle. Amber only when pressed (and on focus, above); the
+   filled vs outline star and the text weight carry the state too. */
+.important-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 48px;
+  min-width: 48px;
+  padding: 0 var(--space-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.important-toggle:hover {
+  border-color: var(--color-primary);
+}
+
+.important-toggle__star {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: var(--color-secondary);
+}
+
+/* 1px less padding so the 2px border does not shift the layout. */
+.important-toggle[aria-pressed="true"] {
+  padding: 0 calc(var(--space-md) - 1px);
+  border: 2px solid var(--color-accent);
+  font-weight: 600;
+}
+
+.important-toggle[aria-pressed="true"] .important-toggle__star {
+  fill: var(--color-accent);
+  stroke: var(--color-text);
+}
+
+.questionnaire__hint {
+  color: var(--color-secondary);
+  font-size: 15px;
+  margin: var(--space-sm) 0 var(--space-md);
+}
+
 .questionnaire__skipped {
   color: var(--color-text);
   font-style: italic;
