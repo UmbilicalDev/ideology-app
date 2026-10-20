@@ -443,6 +443,18 @@ def list_runs(session: Session, election_id: int) -> Sequence[PipelineRun]:
     ).all()
 
 
+def list_queued_run_ids(session: Session, election_id: int | None = None) -> list[int]:
+    """The ids of ``queued`` Pipeline Runs in id order, of one Election or all.
+
+    Raises NotFoundError for an unknown Election.
+    """
+    query = select(PipelineRun.id).where(PipelineRun.status == PipelineRunStatus.QUEUED)
+    if election_id is not None:
+        _get_election(session, election_id)
+        query = query.where(PipelineRun.election_id == election_id)
+    return list(session.scalars(query.order_by(PipelineRun.id)))
+
+
 def get_dataset_version(session: Session, dataset_version_id: int) -> DatasetVersion:
     """A Dataset Version with its Statements. Raises NotFoundError."""
     version = session.get(DatasetVersion, dataset_version_id)

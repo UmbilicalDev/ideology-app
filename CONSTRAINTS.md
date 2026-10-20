@@ -37,6 +37,9 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Evidence quotes MUST be stored exactly as the LLM returned them (pages too). Any normalisation MUST happen only when matching (`validation-evidence-quotes`) or for display. Reason: Validation and Voters must see what the model actually cited.
 - A Dataset Version MUST be written only together with all its Statements and Party Positions, in one transaction (`runs._finish`). Reason: a partial Dataset Version could be validated or published without positions.
 - `ideology_app.pipeline` MUST depend on the `LLMProvider` protocol (`llm.base`), never on a concrete provider or `build_provider`; the CLI resolves the provider in `cli._provider`. Reason: the provider is configuration, and tests inject `FakeProvider`.
+- Generation Mode MUST get its behaviour only from `pipeline.triggers.QUEUE_ON_SOURCE_CHANGE` (via `queues_on_source_change`); no `if mode == …` branches elsewhere. Elsewhere the mode is only recorded on the run. Reason: Generation Mode is configuration, not code branches scattered around (`AGENTS.md`).
+- The live trigger (`queue_run_for_source_change`) MUST run in the same transaction as the Source Document it reacts to, and MUST NOT call an LLM, build a provider or read an API key; it only records a `queued` run. Reason: a document must never commit without its run (or vice versa), and adding a document must stay fast and free.
+- Request handlers (`api/`, `web.py`, `main.py`) MUST NOT queue or execute Pipeline Runs. Reason: nothing is ever generated per user; runs are queued by the Operator's `source add` and executed by `pipeline run` / `pipeline run-queued`.
 
 ## Validation
 

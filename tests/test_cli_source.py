@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner, Result
 from pdf_factory import blank_pdf, make_text_pdf
+from pipeline_fixtures import offline_guard
 
 from ideology_app.cli import NOT_INITIALISED, main
 from ideology_app.db import run_migrations
@@ -11,6 +12,12 @@ from ideology_app.pdf_text import NO_TEXT_LAYER
 
 HEADER = ["id", "origin", "status", "pages", "content_hash", "filename", "url", "failure_reason"]
 TEXT_PAGES = ["Programa electoral\nSubir el salario mínimo.", "Página dos: educación."]
+
+
+@pytest.fixture(autouse=True)
+def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unset GENERATION_MODE / LLM_* from the shell, so source add stays precomputed."""
+    offline_guard(monkeypatch)
 
 
 @pytest.fixture

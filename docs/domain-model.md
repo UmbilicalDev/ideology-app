@@ -32,7 +32,7 @@
 - `failed` → nothing is published and the previous Published version stays live; the Validation report says why. The Operator can re-run.
 - A run that fails Validation keeps its `candidate` Dataset Version, which is never published.
 
-**Run triggers**: in `precomputed` mode, the Operator. In `live` mode, a Source Document being added or its content hash changing (URL sources are re-fetched periodically to detect this).
+**Run triggers**: in `precomputed` mode, the Operator. In `live` mode, a Pipeline Run is queued automatically when a Source Document is added (ending `parsed`) or its content hash changes, in the same transaction as the document, and executed by the Operator's queue command (`ideology pipeline run-queued`). At most one run per Election is `queued`: later changes join it, since it reads every parsed document when it starts. A run already `running` or `validating` does not absorb a change; a new run is queued. Same bytes for the same Party are a duplicate, so nothing is queued. URL sources will be re-fetched periodically to detect content changes (`live-mode-url-refetch`).
 
 **Dataset Version**: `candidate` → `published` → `superseded`. Superseded versions stay readable so old Share Links keep working. The status is the only thing that ever changes; a superseded version is never published again.
 
