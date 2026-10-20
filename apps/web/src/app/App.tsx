@@ -17,7 +17,7 @@ export function App({ api }: { readonly api: PublicApi }) {
       <Route path={HOME_PATH} element={<LandingPage api={api} />} />
       <Route path={METHODOLOGY_PATH} element={<MethodologyPage />} />
       <Route path={QUESTIONNAIRE_ROUTE} element={<QuestionnairePage api={api} />} />
-      <Route path={SHARED_RESULTS_PATH} element={<SharedResultsPage />} />
+      <Route path={SHARED_RESULTS_PATH} element={<SharedResultsPage api={api} />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

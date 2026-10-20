@@ -3,20 +3,17 @@ import { Link } from "react-router";
 
 import {
   SKIP,
-  buildBreakdown,
+  buildResults,
   currentStatementId,
-  rankParties,
   reduceQuestionnaire,
   startQuestionnaire,
   summarize,
-  toMatchScoreAnswers,
   type AnswerValue,
-  type BreakdownRow,
   type DatasetVersion,
   type Election,
   type QuestionnaireAction,
   type QuestionnaireState,
-  type RankedParty,
+  type Results,
   type ScaleValue,
   type Statement,
 } from "@ideology-app/core";
@@ -56,6 +53,10 @@ const RESULTS_NOTE =
   "Tus respuestas siguen solo en este navegador: si recargas la página, vuelves atrás con el " +
   "navegador o sales de aquí, se pierden.";
 
+// Only when there is a share section to point at.
+const RESULTS_NOTE_SHARE =
+  "Para volver a verlo más tarde, copia antes el enlace de «Comparte tu resultado».";
+
 const IMPORTANT_HINT = "Las afirmaciones importantes cuentan el doble al calcular la afinidad.";
 
 /**
@@ -90,21 +91,8 @@ export function QuestionnaireFlow({
   const statementId = currentStatementId(state);
   const statement = datasetVersion.statements.find((s) => s.id === statementId);
   // Recomputed from the in-memory state on every change; nothing is cached
-  // or sent anywhere.
-  const ranking = useMemo(
-    () => rankParties(toMatchScoreAnswers(state), datasetVersion.parties),
-    [state, datasetVersion],
-  );
-  const breakdown = useMemo(
-    () =>
-      buildBreakdown(
-        datasetVersion.statements,
-        datasetVersion.parties,
-        toMatchScoreAnswers(state),
-        ranking.map((party) => party.partyId),
-      ),
-    [state, datasetVersion, ranking],
-  );
+  // or sent anywhere. The shared result (Share Link) uses the same function.
+  const results = useMemo(() => buildResults(datasetVersion, state), [state, datasetVersion]);
 
   return (
     <>
@@ -113,8 +101,7 @@ export function QuestionnaireFlow({
         <EndScreen
           datasetVersionId={datasetVersion.id}
           state={state}
-          ranking={ranking}
-          breakdown={breakdown}
+          results={results}
           headingRef={headingRef}
           onBack={() => move({ type: "back" })}
           onFirst={() => move({ type: "first" })}
@@ -227,23 +214,21 @@ function StatementStep({
 function EndScreen({
   datasetVersionId,
   state,
-  ranking,
-  breakdown,
+  results,
   headingRef,
   onBack,
   onFirst,
 }: {
   readonly datasetVersionId: number;
   readonly state: QuestionnaireState;
-  readonly ranking: readonly RankedParty[];
-  readonly breakdown: readonly BreakdownRow[];
+  readonly results: Results;
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly onBack: () => void;
   readonly onFirst: () => void;
 }) {
   const { answered, skipped, important, total } = summarize(state);
   // A ranking needs one rated Statement on which some Party has a stance.
-  const hasScores = ranking.some((party) => party.matchScore !== null);
+  const { ranking, breakdown, hasScores } = results;
   return (
     <>
       <h2 id="results-title" tabIndex={-1} ref={headingRef}>
@@ -277,7 +262,9 @@ function EndScreen({
         </Link>
       </p>
       <ResultsBreakdown rows={breakdown} />
-      <p className="questionnaire__note">{RESULTS_NOTE}</p>
+      <p className="questionnaire__note">
+        {hasScores ? `${RESULTS_NOTE} ${RESULTS_NOTE_SHARE}` : RESULTS_NOTE}
+      </p>
       <p>
         <Link className="back-link" to={HOME_PATH}>
           Volver al inicio

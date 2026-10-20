@@ -139,7 +139,9 @@ export function MethodologyPage() {
           Puedes compartir tu resultado con un enlace que lleva tus respuestas al final de la
           dirección, tras el símbolo «#». Los navegadores no envían esa parte de la dirección al
           servidor y el enlace no se guarda en ningún sitio: quien lo tenga puede ver tus
-          respuestas.
+          respuestas. Al abrir el enlace se ve el mismo resultado, calculado de nuevo en el
+          navegador con la misma versión del cuestionario; si después se ha publicado una más
+          reciente, se avisa.
         </p>
       </section>
 

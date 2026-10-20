@@ -72,6 +72,12 @@ const LABELS = [
   "Muy de acuerdo",
 ];
 
+const LOSS_NOTE =
+  "Tus respuestas siguen solo en este navegador: si recargas la página, vuelves atrás con el " +
+  "navegador o sales de aquí, se pierden.";
+const LOSS_NOTE_SHARE =
+  "Para volver a verlo más tarde, copia antes el enlace de «Comparte tu resultado».";
+
 describe("QuestionnairePage", () => {
   test("Scenario 1: loading, then the first Statement with five unchecked radios", async () => {
     const fetch = happyFetch();
@@ -527,12 +533,9 @@ describe("QuestionnairePage", () => {
             "programas, según una inteligencia artificial que puede equivocarse.",
         ),
       ).toBeTruthy();
-      expect(
-        screen.getByText(
-          "Tus respuestas siguen solo en este navegador: si recargas la página, vuelves atrás con " +
-            "el navegador o sales de aquí, se pierden.",
-        ).className,
-      ).toBe("questionnaire__note");
+      expect(screen.getByText(`${LOSS_NOTE} ${LOSS_NOTE_SHARE}`).className).toBe(
+        "questionnaire__note",
+      );
       expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
     });
 
@@ -576,6 +579,9 @@ describe("QuestionnairePage", () => {
       expect(
         screen.getByRole("link", { name: "Cómo se calcula la afinidad (se abre en una pestaña nueva)" }),
       ).toBeTruthy();
+      // No share section without scores, so the loss note does not point to it.
+      expect(screen.getByText(LOSS_NOTE).className).toBe("questionnaire__note");
+      expect(screen.queryByText(new RegExp(LOSS_NOTE_SHARE))).toBeNull();
 
       fireEvent.click(button("Revisar mis respuestas"));
       expect(heading2().textContent).toBe("Afirmación de prueba 1");

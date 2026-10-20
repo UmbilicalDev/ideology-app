@@ -96,12 +96,22 @@ describe("App routes", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  test("the /resultados deep link renders the Share Link placeholder without an API request", () => {
-    const fetch = vi.fn<FetchLike>();
+  test("the /resultados deep link opens the Share Link with two id-only requests", async () => {
+    const fetch = vi.fn<FetchLike>(async (url) => {
+      if (url === "/api/v1/dataset-versions/1") return jsonResponse(datasetVersionJson({ statements: 6 }));
+      if (url === "/api/v1/elections/1") return jsonResponse(electionJson());
+      throw new Error(`unexpected request ${url}`);
+    });
     renderAt("/resultados#v1-1-dddddA", fetch);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Resultado compartido");
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Afinidad con cada partido" }),
+    ).toBeTruthy();
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
-    expect(fetch).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      "/api/v1/dataset-versions/1",
+      "/api/v1/elections/1",
+    ]);
   });
 
   test("global fetch is blocked in web tests", () => {

@@ -42,7 +42,13 @@ export { buildBreakdown, evidenceHref } from "./domain/breakdown";
 export type { BreakdownPosition, BreakdownRow, EvidenceView } from "./domain/breakdown";
 export { rankParties } from "./domain/ranking";
 export type { RankedParty } from "./domain/ranking";
+export { buildResults } from "./domain/results";
+export type { Results } from "./domain/results";
+export { isQuestionnaireAvailable, sharedVersionStatus } from "./domain/shared-result";
+export type { SharedVersionStatus } from "./domain/shared-result";
 export type { PublicApi } from "./application/public-api";
+export { openShareLink } from "./application/open-share-link";
+export type { OpenShareLinkResult } from "./application/open-share-link";
 export { PublicApiError, createPublicApiClient } from "./infrastructure/http/public-api-client";
 export type {
   FetchLike,

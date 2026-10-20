@@ -94,6 +94,7 @@ Soft 12px radius on cards and scale options; 48px minimum tap targets.
 2. Questionnaire.
 3. Results: ranking + per-Statement breakdown + share.
 4. Methodology: how Statements and Positions are generated and validated.
+5. Shared result (`/resultados#…`): read-only ranking + breakdown from a Share Link, a neutral superseded notice (a card, not an alert), and friendly link errors.
 
 ## Responsive Baseline
 
