@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import {
   SKIP,
+  buildBreakdown,
   currentStatementId,
   rankParties,
   reduceQuestionnaire,
@@ -10,6 +11,7 @@ import {
   summarize,
   toMatchScoreAnswers,
   type AnswerValue,
+  type BreakdownRow,
   type DatasetVersion,
   type Election,
   type QuestionnaireAction,
@@ -20,18 +22,16 @@ import {
 } from "@ideology-app/core";
 
 import { HOME_PATH, METHODOLOGY_PATH } from "../paths";
+import { ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
+import { SCALE_LABELS } from "../scale-labels";
 import { ShareResults } from "../share/ShareResults";
 
 // The five options in scale order. Meaning is carried by the text, never by
 // colour alone (DESIGN.md).
-const SCALE_OPTIONS: readonly { readonly value: ScaleValue; readonly label: string }[] = [
-  { value: -2, label: "Muy en desacuerdo" },
-  { value: -1, label: "En desacuerdo" },
-  { value: 0, label: "Ni de acuerdo ni en desacuerdo" },
-  { value: 1, label: "De acuerdo" },
-  { value: 2, label: "Muy de acuerdo" },
-];
+const SCALE_OPTIONS: readonly { readonly value: ScaleValue; readonly label: string }[] = (
+  [-2, -1, 0, 1, 2] as const
+).map((value) => ({ value, label: SCALE_LABELS[value] }));
 
 const NOTE =
   "Las afirmaciones las ha generado una inteligencia artificial a partir de los programas " +
@@ -95,6 +95,16 @@ export function QuestionnaireFlow({
     () => rankParties(toMatchScoreAnswers(state), datasetVersion.parties),
     [state, datasetVersion],
   );
+  const breakdown = useMemo(
+    () =>
+      buildBreakdown(
+        datasetVersion.statements,
+        datasetVersion.parties,
+        toMatchScoreAnswers(state),
+        ranking.map((party) => party.partyId),
+      ),
+    [state, datasetVersion, ranking],
+  );
 
   return (
     <>
@@ -104,6 +114,7 @@ export function QuestionnaireFlow({
           datasetVersionId={datasetVersion.id}
           state={state}
           ranking={ranking}
+          breakdown={breakdown}
           headingRef={headingRef}
           onBack={() => move({ type: "back" })}
           onFirst={() => move({ type: "first" })}
@@ -217,6 +228,7 @@ function EndScreen({
   datasetVersionId,
   state,
   ranking,
+  breakdown,
   headingRef,
   onBack,
   onFirst,
@@ -224,6 +236,7 @@ function EndScreen({
   readonly datasetVersionId: number;
   readonly state: QuestionnaireState;
   readonly ranking: readonly RankedParty[];
+  readonly breakdown: readonly BreakdownRow[];
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly onBack: () => void;
   readonly onFirst: () => void;
@@ -263,6 +276,7 @@ function EndScreen({
           Cómo se calcula la afinidad (se abre en una pestaña nueva)
         </Link>
       </p>
+      <ResultsBreakdown rows={breakdown} />
       <p className="questionnaire__note">{RESULTS_NOTE}</p>
       <p>
         <Link className="back-link" to={HOME_PATH}>

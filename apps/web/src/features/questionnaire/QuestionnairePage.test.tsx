@@ -570,7 +570,7 @@ describe("QuestionnairePage", () => {
       walk(["skip", "skip", "skip", "skip", "skip", "skip"]);
       expect(heading2().textContent).toBe("Tus resultados");
       expect(screen.getByText(PROMPT)).toBeTruthy();
-      expect(screen.queryByRole("list")).toBeNull();
+      expect(screen.queryByRole("list", { name: "Tus resultados" })).toBeNull();
       expect(screen.queryByText(/%/)).toBeNull();
       expect(screen.queryByText(LEGEND)).toBeNull();
       expect(

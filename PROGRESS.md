@@ -7,9 +7,9 @@
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22.13 and npm on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `web-install` (`npm ci` from the committed `package-lock.json`), `web-typecheck`, `web-test` (Vitest), `web-build` (`apps/web/dist`))
 - Manual start (from the repo root, after `./init.sh`): `.venv/bin/uvicorn ideology_app.main:app --reload` (web client at `http://127.0.0.1:8000/`, served from `WEB_DIST_DIR`, default `apps/web/dist`; `GET /health` → 200 `{"status": "ok"}`; public read-only API under `/api/v1/`, OpenAPI at `/api/openapi.json`; reads `DATABASE_URL`, migrate first with `ideology db upgrade`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url` (in `GENERATION_MODE=live` it also queues a Pipeline Run), `source refetch [--election N]` (re-downloads due URL documents, interval `SOURCE_REFETCH_INTERVAL_HOURS`, default 6; changed bytes register a replacement document and, in `live`, queue a run), `source list|text`, `pipeline run|run-queued|list|statements|positions|validate|checks|report`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: see `feature_list.json` (`share-link-create`, `results-ranking`, `questionnaire-important-flag`, `live-mode-url-refetch`, `questionnaire-answer-flow` and `methodology-page` accepted 2026-10-20)
+- Current next ready features: see `feature_list.json` (`share-link-open` is next; `results-ranking`, `questionnaire-important-flag`, `live-mode-url-refetch`, `questionnaire-answer-flow`, `methodology-page`, `results-breakdown-evidence` and `share-link-create` accepted 2026-10-20)
 - Current blocker: none
-- Last verified at: 2026-10-20 (`CI=true ./init.sh` on `feature/share-link-create`: pytest 966 passed, Vitest 247 passed, `vite build` ok)
+- Last verified at: 2026-10-20 (`CI=true ./init.sh` on `feature/share-link-create` after merging `main` (with `results-breakdown-evidence`): pytest 966 passed, Vitest 283 passed, `vite build` ok; orchestrator browser check of the combined results screen in the Claude desktop built-in browser at 375px and desktop: ranking, share fallback and breakdown together, console clean, answers only after `#`)
 
 ## Session Log
 
@@ -468,6 +468,26 @@
 ### Session 043
 
 - Date: 2026-10-20
+- Goal: Implement `results-breakdown-evidence` (issue #45) per `docs/specs/results-breakdown-evidence.md` (branch `feature/results-breakdown-evidence`).
+- Completed: core `packages/core/src/domain/breakdown.ts` (`buildBreakdown(statements, parties, answers, partyOrder) -> BreakdownRow[]`, `evidenceHref({ url, page })`: http/https only, fragment replaced by `#page=N`), exported. Web: `features/scale-labels.ts` (`SCALE_LABELS`, used by `SCALE_OPTIONS`), `features/results/ResultsBreakdown.tsx` (`Detalle por afirmación` section after the methodology link: one card per Statement with `Afirmación n`, the h4 text, `Tu respuesta: …` + `Importante (cuenta el doble)`, one native `<details>` per Party in ranking order revealing the Georgia quote and the locator link / upload page sentence / no-stance sentence), `QuestionnaireFlow.tsx` seam edits only (imports, labels, one `useMemo`, one prop, one render line), `components.css` breakdown block + `summary:focus-visible`. MethodologyPage copy now present tense ("En los resultados puedes abrir la posición…") with a test. Tests: `breakdown.test.ts`, `ResultsBreakdown.test.tsx`, `ResultsBreakdownFlow.test.tsx`. Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md` (Party order inside rows from `rankParties`; AI text never as HTML, links only from `evidenceHref` with `noopener noreferrer`), `DESIGN.md` (Breakdown row; stacked at every width), `docs/risks-and-open-questions.md` (uploaded-documents entry rewritten as deferred; new risk "Evidence links point at a URL's current content"; "Quote verified but stance misread" notes the quotes are now one click away).
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 966, Vitest 232, was 196; typecheck and build ok); spec greps clean. Real-browser check in Chrome 155 (chrome-devtools MCP, isolated context) at 375x812 and 1280x800 on the uvicorn-served worktree build (port 8021) with a fake-provider scratch DB outside the repo and a URL document on a loopback static server (8022): Runs A-C from the spec (order Gamma/Alfa/Beta in every row; Important and Saltada labels; no-stance sentence; upload page sentence; link to `gamma.pdf#page=2` opens Chrome's PDF viewer on page 2/2 in a new tab with `window.opener` null and no referrer; keyboard Tab/Enter/Space with the amber ring; review -> 88/81/54 with rows reordered; all skipped -> prompt + rows in name order), console clean, only the document/asset/API GETs with no query strings, URL/storage/cookies/IndexedDB empty of Answers, no horizontal scroll, 48px targets, identical Party items. Servers stopped, scratch deleted. Details in `feature_list.json` -> `results-breakdown-evidence.evidence`.
+- Evidence captured: `feature_list.json` -> `results-breakdown-evidence.evidence` (status `passing`, ready for independent validation).
+- Deviations: one assertion in `QuestionnairePage.test.tsx` (Scenario 4, `queryByRole("list")` -> `queryByRole("list", { name: "Tus resultados" })`), because the spec puts the breakdown lists on the prompt path; recorded in the spec's Implementation Findings. Open items close again after `Revisar mis respuestas` (the end screen re-mounts; persisting open state is a non-goal). The server ran from a background shell, so no temporary `.claude/launch.json` entry was added.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (uploaded documents have no link; URL links show the current document).
+- Next best step: independent validation of `results-breakdown-evidence` with `$feature-validator`.
+
+### Session 044
+
+- Date: 2026-10-20
+- Goal: Independent validation of `results-breakdown-evidence` (issue #45).
+- Verification run: validator re-ran `CI=true ./init.sh` (exit 0; pytest 966, Vitest 232, typecheck and build ok), spec greps, diff scope review, and its own real-browser run in Chrome (chrome-devtools MCP, isolated context) at 375x812 and 1280x800 on a fake-provider scratch DB (uvicorn 8021, URL document on loopback 8022): Runs A-C pass, quote in Georgia, `#page=2` link opens the PDF on page 2 in a new tab with no opener/referrer, upload page sentence, no stance labelled, console empty, no request/URL/storage carries Answers.
+- Evidence captured: `feature_list.json` -> `results-breakdown-evidence.evidence` (validator accept); status `accepted`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md`.
+- Next best step: the orchestrating session publishes the branch and merges it with `share-link-create`.
+
+### Session 045
+
+- Date: 2026-10-20
 - Goal: Implement `share-link-create` (issue #46) per `docs/specs/share-link-create.md` (branch `feature/share-link-create`).
 - Completed: core `packages/core/src/infrastructure/share-link/share-link-codec.ts` (format v1 `v1-<datasetVersionId>-<a-e/s per Statement, upper case = Important>`; `encodeShareLink`, strict `decodeShareLink` with `ShareLinkError` kinds `malformed` / `unsupported_version` / `statement_count_mismatch`, `restoreQuestionnaire`; exported from `index.ts`). Web: `paths.ts` (`SHARED_RESULTS_PATH = "/resultados"`, `sharedResultsUrl`), `features/share/ShareResults.tsx` (`Comparte tu resultado`, `Copiar enlace` via `navigator.clipboard.writeText`, always-rendered `role="status"`, read-only focused and selected fallback field, no-storage note), `features/share/SharedResultsPage.tsx` placeholder and its route in `App.tsx`; `QuestionnaireFlow.tsx` changed by one prop and one line only (share section when scores exist); `components.css` one appended `.share` block; methodology privacy paragraph in present tense. Tests: `share-link-codec.test.ts`, `ShareResults.test.tsx`, `App.test.tsx` (+1), `MethodologyPage.test.tsx` (paragraph). Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md` (three Share Link rules), `DESIGN.md` (Share button), `docs/risks-and-open-questions.md` (format settled, methodology entry removed, memory-only entry reworded for `share-link-open`, new risk "Share Links expose answers to whoever holds them").
 - Verification run: `CI=true ./init.sh` exit 0 (pytest 966, Vitest 247, was 196; typecheck and build ok); spec greps clean. Real-browser check in the Claude desktop built-in browser of the uvicorn-served worktree build with a fake-provider scratch DB outside the repo, at 375x812 and 1280x800: Runs A-E (copy, real `NotAllowedError` fallback, missing-clipboard fallback, placeholder page, all-skipped, methodology), no request after copying, URL/history/storage/cookie unchanged, access log `GET /resultados HTTP/1.1` without the fragment, console clean, no horizontal scroll at 375px. Temporary launch entry reverted, scratch DB deleted. Details in `feature_list.json` -> `share-link-create.evidence`.
@@ -476,7 +496,7 @@
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (Share Links expose answers; reopening owned by `share-link-open`).
 - Next best step: independent validation of `share-link-create` with `$feature-validator`.
 
-### Session 044
+### Session 046
 
 - Date: 2026-10-20
 - Goal: Independent validation of `share-link-create` (issue #46) on branch `feature/share-link-create`.
