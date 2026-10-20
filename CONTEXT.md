@@ -54,7 +54,7 @@ A URL that encodes the Dataset Version and the user's Answers so the result can 
 The person who runs the system: registers Elections, Parties and Source Documents, and triggers Pipeline Runs. Cannot edit AI output.
 
 ### Generation Mode
-Configuration that decides when Pipeline Runs happen: `precomputed` (the Operator triggers runs; static data is served) or `live` (a run starts automatically when a Source Document is added or its content changes). Neither mode generates per user.
+Configuration that decides when Pipeline Runs happen: `precomputed` (the Operator triggers runs; static data is served) or `live` (a Pipeline Run is queued automatically when a Source Document is added or its content changes, and executed by the Operator's queue command, `ideology pipeline run-queued`). Neither mode generates per user.
 
 ## Rejected / Ambiguous Terms
 

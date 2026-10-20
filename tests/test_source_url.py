@@ -12,6 +12,7 @@ import pytest
 from click.testing import CliRunner, Result
 from http_fakes import FakeResponse, http_error
 from pdf_factory import blank_pdf, encrypt_pdf, make_text_pdf
+from pipeline_fixtures import LLM_ENV_VARS
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -43,7 +44,9 @@ HEADER = ["id", "origin", "status", "pages", "content_hash", "filename", "url", 
 
 @pytest.fixture(autouse=True)
 def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No socket can connect."""
+    """No socket can connect, and GENERATION_MODE / LLM_* from the shell are unset."""
+    for name in LLM_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
 
     def _blocked(*args: object, **kwargs: object) -> None:
         raise AssertionError("network access is blocked in source URL tests")

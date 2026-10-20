@@ -189,6 +189,12 @@ def source_add(app: AppContext, party_id: int, file_path: Path | None, url: str 
     """Attach a PDF (from a file or a URL) to a Party and extract its text page by page."""
     if (file_path is None) == (url is None):
         raise click.UsageError("pass exactly one of --file or --url")
+    # Resolve the configuration before any write.
+    try:
+        mode = config.generation_mode()
+        llm = config.llm_settings() if pipelines.queues_on_source_change(mode) else None
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
     with session_scope(app.engine) as session:
         if url is not None:
             document = sources.add_url_document(
@@ -202,6 +208,10 @@ def source_add(app: AppContext, party_id: int, file_path: Path | None, url: str 
                 file_path=file_path,
                 files_dir=config.source_files_dir(),
             )
+        # Same transaction: the document and the run it queues commit together.
+        trigger = pipelines.queue_run_for_source_change(
+            session, document, generation_mode=mode, llm=llm
+        )
         document_id = document.id
         status = document.status
         page_count = document.page_count
@@ -210,6 +220,18 @@ def source_add(app: AppContext, party_id: int, file_path: Path | None, url: str 
     if status is SourceDocumentStatus.FAILED:
         raise click.ClickException(f"source document {document_id} failed: {reason}")
     click.echo(f"Created source document {document_id}: {status.value} ({page_count} pages)")
+    if trigger.run_id is None:
+        return
+    if trigger.newly_queued:
+        click.echo(
+            f"Queued pipeline run {trigger.run_id} for election {trigger.election_id} "
+            f"(generation mode {mode.value})"
+        )
+    else:
+        click.echo(
+            f"Pipeline run {trigger.run_id} is already queued "
+            f"for election {trigger.election_id}"
+        )
 
 
 @source.command("list")
@@ -295,6 +317,57 @@ def pipeline_run(app: AppContext, election_id: int) -> None:
             close()
     # The failed run is committed above; report it as an error afterwards.
     _raise_if_failed(outcome)
+    _echo_passed(outcome)
+
+
+@pipeline.command("run-queued")
+@click.option(
+    "--election", "election_id", type=int, default=None, help="Only this Election's runs."
+)
+@requires_db
+def pipeline_run_queued(app: AppContext, election_id: int | None) -> None:
+    """Execute every queued Pipeline Run in id order, one at a time, in the foreground.
+
+    Runs are queued by "ideology source add" in live Generation Mode. A run
+    that fails is reported and the next one still executes; the exit code is 1
+    if any failed. Run one executor at a time.
+    """
+    try:
+        settings = config.validation_settings()
+        provider = _provider()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    failures = 0
+    try:
+        with session_scope(app.engine) as session:
+            run_ids = pipelines.list_queued_run_ids(session, election_id)
+        if not run_ids:
+            click.echo("No queued pipeline runs")
+            return
+        for run_id in run_ids:
+            try:
+                outcome = pipelines.execute_run(app.engine, run_id, provider, settings)
+            except service.ElectionsError as exc:
+                failures += 1
+                click.echo(f"Error: {exc}", err=True)
+                continue
+            if outcome.status is PipelineRunStatus.FAILED:
+                failures += 1
+                click.echo(f"Error: {_failure_message(outcome)}", err=True)
+                continue
+            _echo_passed(outcome)
+    finally:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
+    if failures:
+        raise click.ClickException(
+            f"{failures} of {len(run_ids)} queued pipeline runs failed"
+        )
+
+
+def _echo_passed(outcome: pipelines.RunOutcome) -> None:
+    """Print a finished run's summary line and what publishing did."""
     click.echo(
         f"Pipeline run {outcome.run_id}: {outcome.status.value} "
         f"(dataset version {outcome.dataset_version_id}, "
@@ -328,10 +401,14 @@ def _raise_if_failed(outcome: pipelines.RunOutcome) -> None:
     """Report a committed ``failed`` run as an error, pointing at its checks if any failed."""
     if outcome.status is not PipelineRunStatus.FAILED:
         return
+    raise click.ClickException(_failure_message(outcome))
+
+
+def _failure_message(outcome: pipelines.RunOutcome) -> str:
     message = f"pipeline run {outcome.run_id} failed: {outcome.failure_reason}"
     if outcome.failed_checks:
         message += f'; see "ideology pipeline checks --run {outcome.run_id}"'
-    raise click.ClickException(message)
+    return message
 
 
 @pipeline.command("validate")

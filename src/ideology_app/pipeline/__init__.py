@@ -52,10 +52,17 @@ from ideology_app.pipeline.runs import (
     execute_run,
     get_dataset_version,
     list_positions,
+    list_queued_run_ids,
     list_runs,
     list_validation_results,
     queue_run,
     validate_run,
+)
+from ideology_app.pipeline.triggers import (
+    QUEUE_ON_SOURCE_CHANGE,
+    SourceChangeOutcome,
+    queue_run_for_source_change,
+    queues_on_source_change,
 )
 
 __all__ = [
@@ -69,6 +76,7 @@ __all__ = [
     "POSITION_FINDINGS",
     "PROMPTS",
     "PROMPT_VERSIONS",
+    "QUEUE_ON_SOURCE_CHANGE",
     "STATEMENT_CANDIDATES",
     "TARGET_STATEMENT_COUNT",
     "TOPICS",
@@ -85,6 +93,7 @@ __all__ = [
     "PublishOutcome",
     "RunOutcome",
     "RunReport",
+    "SourceChangeOutcome",
     "StatementDraft",
     "StatementSet",
     "Usage",
@@ -97,10 +106,13 @@ __all__ = [
     "get_published_dataset_version",
     "get_run_report",
     "list_positions",
+    "list_queued_run_ids",
     "list_runs",
     "list_validation_results",
     "plan_position_calls",
     "publish_dataset_version",
     "queue_run",
+    "queue_run_for_source_change",
+    "queues_on_source_change",
     "validate_run",
 ]
