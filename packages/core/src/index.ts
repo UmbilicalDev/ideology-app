@@ -38,6 +38,8 @@ export type {
   QuestionnaireState,
   QuestionnaireSummary,
 } from "./domain/questionnaire";
+export { buildBreakdown, evidenceHref } from "./domain/breakdown";
+export type { BreakdownPosition, BreakdownRow, EvidenceView } from "./domain/breakdown";
 export { rankParties } from "./domain/ranking";
 export type { RankedParty } from "./domain/ranking";
 export type { PublicApi } from "./application/public-api";

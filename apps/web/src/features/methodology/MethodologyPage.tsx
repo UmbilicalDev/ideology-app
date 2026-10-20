@@ -76,9 +76,10 @@ export function MethodologyPage() {
           instrucciones le prohíben deducir la posición de la ideología general del partido.
         </p>
         <p>
-          Podrás consultar la cita de cada posición para comprobarla. Las comprobaciones
-          automáticas verifican que la cita está en el programa, pero no pueden confirmar que
-          respalde la posición asignada; por eso es importante que puedas leerla.
+          En los resultados puedes abrir la posición de cada partido en cada afirmación para
+          leer la cita y comprobarla. Las comprobaciones automáticas verifican que la cita está
+          en el programa, pero no pueden confirmar que respalde la posición asignada; por eso es
+          importante que puedas leerla.
         </p>
       </section>
 
