@@ -79,6 +79,10 @@ Send only dynamic handoff context:
 
 Do not duplicate the subagent role prompts in this skill. The stable role instructions live in the configured subagent files.
 
+## Starting A Feature-Flow Session From Another Session
+
+When an orchestrating session (for example `$github-flow` in `run` mode) starts a separate session to run this skill for one feature, write the brief with `references/session-brief.md`. It covers the facts to gather first, the prompt template, the background a fresh session needs, and the checks the orchestrator runs before publishing. In that setup the feature-flow session stops at the local acceptance commit; pushing, PRs and merging belong to the orchestrator.
+
 ## Orchestration Loop
 
 Default behavior for this skill is until-accepted mode for one selected feature. Do not stop after a planner, implementer, or repair step while the next required role is clear.
