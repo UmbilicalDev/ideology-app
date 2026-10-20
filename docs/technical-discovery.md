@@ -46,7 +46,7 @@ Rules:
 | --- | --- | --- |
 | `LLM_PROVIDER` / model | e.g. anthropic, openai, local | Provider abstraction with structured-output support; the provider and model are recorded per Pipeline Run. |
 | `GENERATION_MODE` | `precomputed`, `live` | `precomputed` is the default (the Operator triggers runs). `live` regenerates automatically when a Source Document is added or changes. |
-| URL re-fetch interval | e.g. 6h | `live` only: how often URL sources are re-fetched and hashed. |
+| URL re-fetch interval | `SOURCE_REFETCH_INTERVAL_HOURS`, default 6 | Whole hours. Applied by `ideology source refetch` in both modes (a due URL source is downloaded and hashed; changed bytes register a replacement document); only `live` queues a Pipeline Run. Scheduling the command belongs to the first deployment feature. |
 | `SOURCE_INGESTION` | `upload`, `url` (both allowed) | Per Source Document: chosen by the CLI flag `ideology source add --file` or `--url`, not an environment variable. |
 | Validation thresholds | coverage %, statement range, topic share | Per Election overrides allowed. |
 

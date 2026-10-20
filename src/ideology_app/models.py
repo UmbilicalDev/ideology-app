@@ -136,6 +136,13 @@ class SourceDocument(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         sa.DateTime(timezone=True), default=_utcnow
     )
+    # Set only by ``ideology source refetch`` when the URL served new bytes: the
+    # id of the newer row (same Party and URL) that replaces this one. No
+    # FOREIGN KEY (migration 0009 cannot add one on SQLite without a table
+    # recreate); null means current.
+    replaced_by_id: Mapped[int | None] = mapped_column(sa.Integer)
+    # When ``ideology source refetch`` last downloaded this URL (any outcome).
+    last_checked_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
 
     party: Mapped[Party] = relationship(back_populates="source_documents")
     pages: Mapped[list["SourceDocumentPage"]] = relationship(

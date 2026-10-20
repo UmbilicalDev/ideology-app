@@ -1,5 +1,6 @@
 """Runtime configuration read from the environment."""
 
+import datetime as dt
 import os
 from dataclasses import dataclass
 from enum import StrEnum
@@ -34,6 +35,8 @@ DEFAULT_MIN_PARTY_COVERAGE_PERCENT = 70
 DEFAULT_MIN_STATEMENTS = 25
 DEFAULT_MAX_STATEMENTS = 35
 DEFAULT_MAX_TOPIC_SHARE_PERCENT = 30
+
+DEFAULT_SOURCE_REFETCH_INTERVAL_HOURS = 6
 
 
 @dataclass(frozen=True)
@@ -188,3 +191,16 @@ def validation_settings() -> ValidationSettings:
         max_statements=max_statements,
         max_topic_share_percent=share,
     )
+
+
+def source_refetch_interval() -> dt.timedelta:
+    """How old a URL Source Document's last check must be before ``source refetch`` fetches it.
+
+    ``SOURCE_REFETCH_INTERVAL_HOURS`` is a whole number of hours of at least 1
+    (default 6); anything else (``0``, signs, decimals, units such as ``6h``)
+    raises ``ConfigError``.
+    """
+    hours = _positive_int_env(
+        "SOURCE_REFETCH_INTERVAL_HOURS", DEFAULT_SOURCE_REFETCH_INTERVAL_HOURS
+    )
+    return dt.timedelta(hours=hours)

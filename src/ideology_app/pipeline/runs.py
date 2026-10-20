@@ -93,8 +93,35 @@ def _parsed_documents_query(election_id: int) -> Select[tuple[SourceDocument]]:
         .where(
             Party.election_id == election_id,
             SourceDocument.status == SourceDocumentStatus.PARSED,
+            # Only current documents: a re-fetched URL's older version stays
+            # for old Evidence but is never read again.
+            SourceDocument.replaced_by_id.is_(None),
         )
     )
+
+
+def _lineage_roots(session: Session, election_id: int) -> dict[int, int]:
+    """For every Source Document of the Election, the id of its first version.
+
+    A document that ``source refetch`` registered as the replacement of
+    another one shares that one's root, so a re-fetched main manifesto stays
+    first in its Party.
+    """
+    rows = session.execute(
+        select(SourceDocument.id, SourceDocument.replaced_by_id)
+        .join(Party, SourceDocument.party_id == Party.id)
+        .where(Party.election_id == election_id)
+    ).all()
+    predecessor = {new: old for old, new in rows if new is not None}
+    roots: dict[int, int] = {}
+    for document_id, _ in rows:
+        root = document_id
+        seen = {root}
+        while root in predecessor and predecessor[root] not in seen:
+            root = predecessor[root]
+            seen.add(root)
+        roots[document_id] = root
+    return roots
 
 
 def queue_run(
@@ -138,8 +165,10 @@ class _RunInput:
 def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
     """Check the run, mark it ``running``, record and load its input. Commits.
 
-    Each Party's lowest-id parsed document is its ``main`` (joint) manifesto;
-    any other parsed document is ``additional``.
+    Only current documents (``replaced_by_id`` null) are read. Each Party's
+    parsed document with the lowest first-version id (lineage root) is its
+    ``main`` (joint) manifesto; any other parsed document is ``additional``.
+    Without re-fetched replacements this is the lowest-id document.
     """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
@@ -159,11 +188,15 @@ def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
                 select(Party.id).where(Party.election_id == run.election_id).order_by(Party.id)
             )
         )
-        documents = session.scalars(
-            _parsed_documents_query(run.election_id)
-            .options(selectinload(SourceDocument.pages))
-            .order_by(SourceDocument.party_id, SourceDocument.id)
-        ).all()
+        roots = _lineage_roots(session, run.election_id)
+        documents = sorted(
+            session.scalars(
+                _parsed_documents_query(run.election_id).options(
+                    selectinload(SourceDocument.pages)
+                )
+            ).all(),
+            key=lambda d: (d.party_id, roots.get(d.id, d.id), d.id),
+        )
         loaded: list[DocumentPages] = []
         seen_parties: set[int] = set()
         for d in documents:
