@@ -50,7 +50,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0008"
+    assert _version(db_url) == "0009"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -58,7 +58,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0008"
+    assert _version(db_url) == "0009"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -842,7 +842,7 @@ def test_downgrade_to_0007_drops_only_the_column_and_keeps_rows(db_url: str) -> 
 
     run_migrations(db_url)
     assert "validation_settings" in _pipeline_run_columns(db_url)
-    assert _version(db_url) == "0008"
+    assert _version(db_url) == "0009"
 
 
 def test_offline_postgresql_render_of_0008() -> None:
@@ -862,3 +862,143 @@ def test_offline_postgresql_render_of_0008() -> None:
     assert "ALTER TABLE pipeline_runs ADD COLUMN validation_settings JSON;" in upgrade.getvalue()
     assert "CHECK" not in upgrade.getvalue()
     assert "ALTER TABLE pipeline_runs DROP COLUMN validation_settings;" in down.getvalue()
+
+
+# Migration 0009: URL re-fetch state on source_documents (live-mode-url-refetch).
+
+
+def _source_document_columns(url: str) -> dict[str, dict[str, object]]:
+    engine = make_engine(url)
+    try:
+        return {c["name"]: c for c in sa.inspect(engine).get_columns("source_documents")}
+    finally:
+        engine.dispose()
+
+
+def _source_document_sql(url: str) -> str:
+    engine = make_engine(url)
+    try:
+        with engine.connect() as conn:
+            return conn.execute(
+                sa.text(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type = 'table' AND name = 'source_documents'"
+                )
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+
+def _counts(url: str, tables: tuple[str, ...]) -> dict[str, int]:
+    engine = make_engine(url)
+    try:
+        with engine.connect() as conn:
+            return {
+                t: conn.execute(sa.text(f"SELECT count(*) FROM {t}")).scalar_one() for t in tables
+            }
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_0009_adds_two_nullable_columns_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url, "0008")
+    engine = make_engine(db_url)
+    try:
+        _seed_party_and_document(engine)
+    finally:
+        engine.dispose()
+    before = _source_document_columns(db_url)
+    assert "replaced_by_id" not in before and "last_checked_at" not in before
+
+    run_migrations(db_url)
+
+    assert _version(db_url) == "0009"
+    after = _source_document_columns(db_url)
+    assert set(after) - set(before) == {"replaced_by_id", "last_checked_at"}
+    assert after["replaced_by_id"]["nullable"] is True
+    assert isinstance(after["replaced_by_id"]["type"], sa.Integer)
+    assert after["last_checked_at"]["nullable"] is True
+    assert isinstance(after["last_checked_at"]["type"], sa.DateTime)
+    assert _counts(db_url, ("source_documents", "source_document_pages")) == {
+        "source_documents": 1,
+        "source_document_pages": 1,
+    }
+    engine = make_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text("SELECT replaced_by_id, last_checked_at FROM source_documents")
+            ).one()
+        assert tuple(row) == (None, None)
+        # No FOREIGN KEY on replaced_by_id (the service keeps it consistent).
+        fks = sa.inspect(engine).get_foreign_keys("source_documents")
+        assert [fk["constrained_columns"] for fk in fks] == [["party_id"]]
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_to_0008_drops_only_the_columns_and_keeps_pages(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_party_and_document(engine)
+        with engine.begin() as conn:
+            conn.execute(sa.text(
+                "UPDATE source_documents SET replaced_by_id = 7, "
+                "last_checked_at = '2026-10-20 06:00:00'"
+            ))
+    finally:
+        engine.dispose()
+    sql_before = _source_document_sql(db_url)
+    columns_before = set(_source_document_columns(db_url))
+
+    downgrade(db_url, "0008")
+
+    assert _version(db_url) == "0008"
+    assert set(_source_document_columns(db_url)) == columns_before - {
+        "replaced_by_id",
+        "last_checked_at",
+    }
+    assert _tables(db_url) == ALL_TABLES
+    # Not recreated: the CHECKs stay and the cascade to pages never fires.
+    sql_after = _source_document_sql(db_url)
+    for name in (
+        "ck_source_documents_source_document_origin",
+        "ck_source_documents_source_document_status",
+        "ck_source_documents_source_url_matches_origin",
+    ):
+        assert name in sql_before and name in sql_after
+    assert _counts(db_url, ("source_documents", "source_document_pages")) == {
+        "source_documents": 1,
+        "source_document_pages": 1,
+    }
+
+    run_migrations(db_url)
+    assert {"replaced_by_id", "last_checked_at"} <= set(_source_document_columns(db_url))
+    assert _version(db_url) == "0009"
+
+
+def test_offline_postgresql_render_of_0009() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0008:0009",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0009:0008",
+        sql=True,
+    )
+
+    up_sql = upgrade.getvalue()
+    assert "ALTER TABLE source_documents ADD COLUMN replaced_by_id INTEGER;" in up_sql
+    assert (
+        "ALTER TABLE source_documents ADD COLUMN last_checked_at TIMESTAMP WITH TIME ZONE;"
+        in up_sql
+    )
+    assert "CHECK" not in up_sql and "FOREIGN KEY" not in up_sql
+    down_sql = down.getvalue()
+    assert "ALTER TABLE source_documents DROP COLUMN last_checked_at;" in down_sql
+    assert "ALTER TABLE source_documents DROP COLUMN replaced_by_id;" in down_sql
