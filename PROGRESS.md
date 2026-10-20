@@ -7,9 +7,9 @@
 - Standard verification path: `CI=true ./init.sh` (requires Node.js >= 22.13 and npm on `PATH`; creates `.venv` if missing, then steps `node`, `install` (`.[dev]`), `pytest`, `web-install` (`npm ci` from the committed `package-lock.json`), `web-typecheck`, `web-test` (Vitest), `web-build` (`apps/web/dist`))
 - Manual start (from the repo root, after `./init.sh`): `.venv/bin/uvicorn ideology_app.main:app --reload` (web client at `http://127.0.0.1:8000/`, served from `WEB_DIST_DIR`, default `apps/web/dist`; `GET /health` → 200 `{"status": "ok"}`; public read-only API under `/api/v1/`, OpenAPI at `/api/openapi.json`; reads `DATABASE_URL`, migrate first with `ideology db upgrade`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url` (in `GENERATION_MODE=live` it also queues a Pipeline Run), `source refetch [--election N]` (re-downloads due URL documents, interval `SOURCE_REFETCH_INTERVAL_HOURS`, default 6; changed bytes register a replacement document and, in `live`, queue a run), `source list|text`, `pipeline run|run-queued|list|statements|positions|validate|checks|report`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
-- Current next ready features: `questionnaire-answer-flow`, `methodology-page` (`live-mode-url-refetch` accepted 2026-10-20)
+- Current next ready features: `questionnaire-important-flag`, `methodology-page` (`live-mode-url-refetch` and `questionnaire-answer-flow` accepted 2026-10-20)
 - Current blocker: none
-- Last verified at: 2026-10-20 (`CI=true ./init.sh` on `feature/live-mode-url-refetch`: pytest 966 passed, Vitest 82 passed, `vite build` ok, alembic head `0009`)
+- Last verified at: 2026-10-20 (`CI=true ./init.sh` after merging `main` (with `live-mode-url-refetch`) into `feature/questionnaire-answer-flow`: pytest 966 passed, Vitest 148 passed, `vite build` ok, alembic head `0009`)
 
 ## Session Log
 
@@ -406,3 +406,24 @@
 - Evidence captured: `feature_list.json` -> `live-mode-url-refetch.evidence` (status `accepted`).
 - Known risk or unresolved issue: two Low notes added to `docs/risks-and-open-questions.md` ("Operator cleanup gaps"): a trigger failure after the replacement file is stored leaves an orphan content-addressed file and records no `last_checked_at`; an unexpected non-`ElectionsError` exception stops the `source refetch` batch without the summary.
 - Next best step: plan `questionnaire-answer-flow` with `$feature-spec`.
+
+### Session 038
+
+- Date: 2026-10-20
+- Goal: Implement `questionnaire-answer-flow` (issue #36) per `docs/specs/questionnaire-answer-flow.md` (branch `feature/questionnaire-answer-flow`).
+- Completed: `packages/core`: `src/domain/dataset-version.ts` (types), `src/domain/questionnaire.ts` (`startQuestionnaire`, `reduceQuestionnaire`, `summarize`, `isAtEnd`, `currentStatementId`), `PublicApi.getElection` / `getDatasetVersion` in the port and the HTTP client (`parseDatasetVersion` with the spec's contract checks, one `getParsed` helper for every method), re-exports in `src/index.ts`; tests `test/domain/questionnaire.test.ts` and additions to `test/infrastructure/public-api-client.test.ts`. `apps/web`: `features/questionnaire/{QuestionnairePage.tsx,QuestionnaireFlow.tsx,useQuestionnaireData.ts,QuestionnairePage.test.tsx}`, route in `app/App.tsx`, `App.test.tsx` updated, `test/fetch-mocks.ts` `datasetVersionJson`, `ui/components.css` (scale options, secondary/disabled buttons, progress bar, focus); `QuestionnairePlaceholderPage.tsx` deleted. Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md` (no Answers in Web Storage, cookies or IndexedDB), `docs/risks-and-open-questions.md` (Statement order note, memory-only Answers question, `(results-ranking)` on the minimum-answered entry).
+- Verification run: `CI=true ./init.sh` exit 0 before (pytest 910, Vitest 98) and after (pytest 910, Vitest 6 files / 148 tests, build ok); storage and `fetch(` greps clean; browser walk-through in Chrome 155 (chrome-devtools MCP) at 375x812 and 1280x800 against the worktree's FastAPI-served build on scratch databases outside the repo (fake provider, 30 Statements): Scenarios 1-8 incl. all 30 Statements at both widths, a keyboard-only pass of Statements 2-4, accessibility tree, reload and Back, draft / unknown / invalid-id / 500 + retry recovery; network shows only the two GETs after the Landing and nothing after the Dataset Version load; storage, cookie and URL clean; console clean apart from the expected 404/500 resource lines. Details in `feature_list.json` -> `questionnaire-answer-flow.evidence`.
+- Evidence captured: `feature_list.json` -> `questionnaire-answer-flow.evidence` (status `passing`).
+- Deviations: (1) the progress label and end-screen sentence render as one text node each (template string), so screen readers do not split them. (2) Extra exported helpers `isAtEnd` and `currentStatementId` in `questionnaire.ts`. (3) The Vitest baseline was 98, not the 82 named in the spec (main grew since planning). (4) Statements 5-30 in the browser were answered with DOM `click()` calls from `evaluate_script` (real click events on the labels and buttons); Statements 1-4, the end screen and every back/change step used real CDP clicks and key presses.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (new: memory-only Answers are lost on reload or Back with no warning; Statement order stays open).
+- Next best step: independent validation of `questionnaire-answer-flow` with `$feature-validator`.
+
+### Session 039
+
+- Date: 2026-10-20
+- Goal: Independently validate `questionnaire-answer-flow` (issue #36) and record acceptance.
+- Completed: validator verdict `accept` with no findings; status set to `accepted`.
+- Verification run: validator re-ran `CI=true ./init.sh` (exit 0: pytest 910, Vitest 6 files / 148 tests, build ok) and its own browser walk-through in Chrome 155 (chrome-devtools MCP) at 375x812 and 1280x800 against the worktree's served build: Scenarios 1-8 (answer, skip, back/change, all 30 Statements to the end screen, keyboard and accessibility tree, not available / not found / 500 + Reintentar / offline, network and storage). Only the two GETs were sent and none carried Answers; storage, cookies and URL stayed clean; console clean apart from expected resource errors.
+- Evidence captured: `feature_list.json` -> `questionnaire-answer-flow.evidence` (status `accepted`).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (memory-only Answers; Statement order).
+- Next best step: the orchestrating session publishes the branch and updates "Current next ready features" on merge.

@@ -2,7 +2,15 @@
 // contract and maps snake_case keys to camelCase once. `packages/core` has no
 // DOM types, so `fetch` and `Response` are described structurally here.
 import type { PublicApi } from "../../application/public-api";
+import type {
+  DatasetVersion,
+  Evidence,
+  Party,
+  PartyPosition,
+  Statement,
+} from "../../domain/dataset-version";
 import type { Election, ElectionStatus } from "../../domain/election";
+import { NO_STANCE, type ScaleValue } from "../../domain/match-score";
 
 export interface HttpResponseLike {
   readonly ok: boolean;
@@ -37,6 +45,7 @@ export interface PublicApiClientOptions {
 
 const ELECTION_STATUSES: readonly ElectionStatus[] = ["draft", "active", "archived"];
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 class ContractError extends Error {}
 
@@ -52,6 +61,29 @@ function requireString(item: Record<string, unknown>, key: string, path: string)
   const value = item[key];
   if (typeof value !== "string") {
     throw new ContractError(`${path}.${key} must be a string`);
+  }
+  return value;
+}
+
+function requirePositiveInteger(item: Record<string, unknown>, key: string, path: string): number {
+  const value = item[key];
+  if (!isPositiveSafeInteger(value)) {
+    throw new ContractError(`${path}.${key} must be a positive integer`);
+  }
+  return value;
+}
+
+function requireRecord(value: unknown, path: string): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new ContractError(`${path} must be an object`);
+  }
+  return value;
+}
+
+function requireArray(item: Record<string, unknown>, key: string, path: string): readonly unknown[] {
+  const value = item[key];
+  if (!Array.isArray(value)) {
+    throw new ContractError(`${path}.${key} must be an array`);
   }
   return value;
 }
@@ -103,6 +135,102 @@ function parseElectionList(body: unknown): readonly Election[] {
   return elections.map((item: unknown, index) => parseElection(item, `elections[${index}]`));
 }
 
+function parseStatements(body: Record<string, unknown>): readonly Statement[] {
+  const ids = new Set<number>();
+  let previousPosition = 0;
+  return requireArray(body, "statements", "dataset_version").map((value, index) => {
+    const path = `statements[${index}]`;
+    const item = requireRecord(value, path);
+    const id = requirePositiveInteger(item, "id", path);
+    if (ids.has(id)) {
+      throw new ContractError(`${path}.id ${id} is a duplicate`);
+    }
+    ids.add(id);
+    const position = requirePositiveInteger(item, "position", path);
+    if (position <= previousPosition) {
+      throw new ContractError(`${path}.position must be greater than the previous position`);
+    }
+    previousPosition = position;
+    const text = requireString(item, "text", path);
+    const topic = requireString(item, "topic", path);
+    return { id, position, text, topic };
+  });
+}
+
+function isScaleValue(value: unknown): value is ScaleValue {
+  return Number.isInteger(value) && (value as number) >= -2 && (value as number) <= 2;
+}
+
+function parseEvidence(value: unknown, path: string): Evidence {
+  const item = requireRecord(value, path);
+  const quote = requireString(item, "quote", path);
+  const page = requirePositiveInteger(item, "page", path);
+  const url = item["url"];
+  if (url !== null && typeof url !== "string") {
+    throw new ContractError(`${path}.url must be null or a string`);
+  }
+  const sourceDocumentId = requirePositiveInteger(item, "source_document_id", path);
+  return { quote, page, url, sourceDocumentId };
+}
+
+function parsePosition(value: unknown, path: string, statementId: number): PartyPosition {
+  const item = requireRecord(value, path);
+  if (item["statement_id"] !== statementId) {
+    throw new ContractError(`${path}.statement_id must be ${statementId} (Statement order)`);
+  }
+  const raw = item["value"];
+  if (raw !== NO_STANCE && !isScaleValue(raw)) {
+    throw new ContractError(`${path}.value must be an integer from -2 to 2 or "${NO_STANCE}"`);
+  }
+  const evidence = item["evidence"];
+  if (raw === NO_STANCE) {
+    if (evidence !== null) {
+      throw new ContractError(`${path}.evidence must be null when value is "${NO_STANCE}"`);
+    }
+    return { statementId, value: raw, evidence: null };
+  }
+  if (evidence === null) {
+    throw new ContractError(`${path}.evidence must not be null when value is not "${NO_STANCE}"`);
+  }
+  return { statementId, value: raw, evidence: parseEvidence(evidence, `${path}.evidence`) };
+}
+
+function parseParty(value: unknown, path: string, statements: readonly Statement[]): Party {
+  const item = requireRecord(value, path);
+  const id = requirePositiveInteger(item, "id", path);
+  const name = requireString(item, "name", path);
+  const shortName = requireString(item, "short_name", path);
+  const rawPositions = requireArray(item, "positions", path);
+  if (rawPositions.length !== statements.length) {
+    throw new ContractError(
+      `${path}.positions must have one entry per Statement (${statements.length}), got ${rawPositions.length}`,
+    );
+  }
+  const positions = rawPositions.map((position, index) =>
+    // The length check above guarantees statements[index] exists.
+    parsePosition(position, `${path}.positions[${index}]`, (statements[index] as Statement).id),
+  );
+  return { id, name, shortName, positions };
+}
+
+function parseDatasetVersion(body: unknown): DatasetVersion {
+  if (!isRecord(body)) {
+    throw new ContractError("response body must be an object");
+  }
+  const path = "dataset_version";
+  const id = requirePositiveInteger(body, "id", path);
+  const electionId = requirePositiveInteger(body, "election_id", path);
+  const createdAt = body["created_at"];
+  if (typeof createdAt !== "string" || !TIMESTAMP_PATTERN.test(createdAt)) {
+    throw new ContractError(`${path}.created_at must be YYYY-MM-DDTHH:MM:SSZ`);
+  }
+  const statements = parseStatements(body);
+  const parties = requireArray(body, "parties", path).map((party, index) =>
+    parseParty(party, `parties[${index}]`, statements),
+  );
+  return { id, electionId, createdAt, statements, parties };
+}
+
 export function createPublicApiClient(options: PublicApiClientOptions): PublicApi {
   // Called as a plain function: `window.fetch` invoked as a method of another
   // object throws "Illegal invocation".
@@ -133,18 +261,29 @@ export function createPublicApiClient(options: PublicApiClientOptions): PublicAp
     }
   }
 
-  return {
-    async listElections() {
-      const path = "/api/v1/elections";
-      const body = await getJson(path);
-      try {
-        return parseElectionList(body);
-      } catch (error) {
-        if (error instanceof ContractError) {
-          throw new PublicApiError("invalid_response", `GET ${path}: ${error.message}`);
-        }
-        throw error;
+  // Same error wrapping for every method: a contract violation is an
+  // `invalid_response` naming the request path and the offending field.
+  async function getParsed<T>(path: string, parse: (body: unknown) => T): Promise<T> {
+    const body = await getJson(path);
+    try {
+      return parse(body);
+    } catch (error) {
+      if (error instanceof ContractError) {
+        throw new PublicApiError("invalid_response", `GET ${path}: ${error.message}`);
       }
+      throw error;
+    }
+  }
+
+  return {
+    listElections() {
+      return getParsed("/api/v1/elections", parseElectionList);
+    },
+    getElection(id: number) {
+      return getParsed(`/api/v1/elections/${id}`, (body) => parseElection(body, "election"));
+    },
+    getDatasetVersion(id: number) {
+      return getParsed(`/api/v1/dataset-versions/${id}`, parseDatasetVersion);
     },
   };
 }

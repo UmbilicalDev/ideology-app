@@ -26,9 +26,15 @@ a {
 }
 
 a:focus-visible,
-button:focus-visible {
+button:focus-visible,
+input:focus-visible {
   outline: 3px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* Headings focused by script after a Questionnaire move: no outline. */
+h2[tabindex="-1"]:focus {
+  outline: none;
 }
 
 .election-list {
@@ -77,9 +83,157 @@ button:focus-visible {
   cursor: pointer;
 }
 
+.button-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button-secondary {
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button-secondary:hover {
+  border-color: var(--color-primary);
+}
+
 /* Text link that still meets the 48px minimum tap target. */
 .back-link {
   display: inline-flex;
   align-items: center;
   min-height: 48px;
+}
+
+/* Questionnaire (DESIGN.md Core Screens 2). No party content and no
+   red/green: the scale ramp is decorative, meaning lives in the labels. */
+.questionnaire__election,
+.questionnaire__progress-label {
+  color: var(--color-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+.questionnaire__election {
+  font-weight: 600;
+}
+
+.questionnaire__progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin: 0 0 var(--space-lg);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 4px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.questionnaire__progress::-webkit-progress-bar {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+.questionnaire__progress::-webkit-progress-value {
+  background: var(--color-primary);
+  border-radius: 4px;
+}
+
+.questionnaire__progress::-moz-progress-bar {
+  background: var(--color-primary);
+  border-radius: 4px;
+}
+
+.questionnaire__statement {
+  margin-bottom: var(--space-md);
+}
+
+.scale {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0 0 var(--space-md);
+}
+
+.scale-option {
+  --scale-ramp: var(--color-scale-disagree-strong);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--scale-ramp);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.scale-option:nth-child(2) {
+  --scale-ramp: color-mix(in srgb, var(--color-scale-disagree-strong) 75%, var(--color-scale-agree-strong));
+}
+
+.scale-option:nth-child(3) {
+  --scale-ramp: color-mix(in srgb, var(--color-scale-disagree-strong) 50%, var(--color-scale-agree-strong));
+}
+
+.scale-option:nth-child(4) {
+  --scale-ramp: color-mix(in srgb, var(--color-scale-disagree-strong) 25%, var(--color-scale-agree-strong));
+}
+
+.scale-option:nth-child(5) {
+  --scale-ramp: var(--color-scale-agree-strong);
+}
+
+.scale-option input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.scale-option:hover {
+  border-color: var(--color-primary);
+  border-left-color: var(--scale-ramp);
+}
+
+.scale-option:has(input:checked) {
+  border: 2px solid var(--color-primary);
+  border-left: 4px solid var(--scale-ramp);
+  font-weight: 600;
+}
+
+/* The outline goes on the whole option, not only the small native radio. */
+.scale-option:has(input:focus-visible) {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.scale-option input:focus-visible {
+  outline: none;
+}
+
+.questionnaire__skipped {
+  color: var(--color-text);
+  font-style: italic;
+}
+
+.questionnaire__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: 0 0 var(--space-lg);
+}
+
+.questionnaire__note {
+  color: var(--color-secondary);
 }
