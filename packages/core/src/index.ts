@@ -16,3 +16,12 @@ export type {
   ScaleValue,
   StatementId,
 } from "./domain/match-score";
+export type { Election, ElectionStatus } from "./domain/election";
+export type { PublicApi } from "./application/public-api";
+export { PublicApiError, createPublicApiClient } from "./infrastructure/http/public-api-client";
+export type {
+  FetchLike,
+  HttpResponseLike,
+  PublicApiClientOptions,
+  PublicApiErrorKind,
+} from "./infrastructure/http/public-api-client";
