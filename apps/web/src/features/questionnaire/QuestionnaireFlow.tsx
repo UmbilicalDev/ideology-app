@@ -37,10 +37,12 @@ function init(datasetVersion: DatasetVersion): QuestionnaireState {
   return startQuestionnaire(datasetVersion.statements.map((statement) => statement.id));
 }
 
+const IMPORTANT_HINT = "Las afirmaciones importantes cuentan el doble al calcular la afinidad.";
+
 /**
- * The Questionnaire itself (DESIGN.md Core Screens 2). Answers live only in
- * this component's reducer state: never in a request, the URL or browser
- * storage, so a reload or leaving the page discards them.
+ * The Questionnaire itself (DESIGN.md Core Screens 2). Answers and Important
+ * flags live only in this component's reducer state: never in a request, the
+ * URL or browser storage, so a reload or leaving the page discards them.
  */
 export function QuestionnaireFlow({
   election,
@@ -81,8 +83,10 @@ export function QuestionnaireFlow({
           index={state.currentIndex}
           total={state.statementIds.length}
           answer={state.answers.get(statement.id)}
+          important={state.important.has(statement.id)}
           headingRef={headingRef}
           onSelect={(value) => dispatch({ type: "select", value })}
+          onToggleImportant={() => dispatch({ type: "toggleImportant" })}
           onMove={move}
         />
       )}
@@ -95,16 +99,20 @@ function StatementStep({
   index,
   total,
   answer,
+  important,
   headingRef,
   onSelect,
+  onToggleImportant,
   onMove,
 }: {
   readonly statement: Statement;
   readonly index: number;
   readonly total: number;
   readonly answer: AnswerValue | undefined;
+  readonly important: boolean;
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly onSelect: (value: ScaleValue) => void;
+  readonly onToggleImportant: () => void;
   readonly onMove: (action: QuestionnaireAction) => void;
 }) {
   const n = index + 1;
@@ -122,6 +130,19 @@ function StatementStep({
       <h2 id="statement-text" className="questionnaire__statement" tabIndex={-1} ref={headingRef}>
         {statement.text}
       </h2>
+      <button
+        type="button"
+        className="important-toggle"
+        aria-pressed={important}
+        aria-describedby="important-hint"
+        onClick={onToggleImportant}
+      >
+        <StarIcon />
+        <span>Importante para mí</span>
+      </button>
+      <p id="important-hint" className="questionnaire__hint">
+        {IMPORTANT_HINT}
+      </p>
       <div role="radiogroup" aria-labelledby="statement-text" className="scale">
         {SCALE_OPTIONS.map((option) => (
           <label key={option.value} className="scale-option">
@@ -169,7 +190,7 @@ function EndScreen({
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly onBack: () => void;
 }) {
-  const { answered, skipped, total } = summarize(state);
+  const { answered, skipped, important, total } = summarize(state);
   return (
     <>
       <h2 tabIndex={-1} ref={headingRef}>
@@ -178,6 +199,7 @@ function EndScreen({
       <p>
         {`Has respondido ${answered} de ${total} afirmaciones y has saltado ${skipped}.`}
       </p>
+      <p>{importantSentence(important)}</p>
       <p>Los resultados estarán disponibles muy pronto.</p>
       <div className="questionnaire__controls">
         <button type="button" className="button-secondary" onClick={onBack}>
@@ -191,4 +213,35 @@ function EndScreen({
       </p>
     </>
   );
+}
+
+// Outline when not pressed, filled amber when pressed (components.css): the
+// shape carries the state, not only the colour.
+function StarIcon() {
+  return (
+    <svg
+      className="important-toggle__star"
+      aria-hidden="true"
+      focusable="false"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.54L12 17.5l-5.87 3.08 1.12-6.54L2.5 9.41l6.56-.95z"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function importantSentence(count: number): string {
+  if (count === 0) {
+    return "No has marcado ninguna afirmación como importante.";
+  }
+  if (count === 1) {
+    return "Has marcado 1 afirmación como importante.";
+  }
+  return `Has marcado ${count} afirmaciones como importantes.`;
 }
