@@ -23,8 +23,9 @@ None.
 - LLM cost estimate per run: tokens are recorded and shown by `ideology pipeline report`, but there is no price table, so the report prints `cost: not estimated (no price table)`. Deferred by `live-mode-source-change-trigger` to the first deployment feature, before `pipeline run-queued` is scheduled: the trigger spends nothing (it only records a `queued` run); spending happens only when the Operator runs `run-queued`, bounded by the per-run caps (≤ 200 Statement and ≤ 300 position calls) and by coalescing (≤ 1 queued run per Election).
 - Evidence links for uploaded Source Documents (`results-breakdown-evidence`): the API gives `url` only for URL documents (link `url#page=N`); uploaded manifestos have no public URL or file endpoint, so their Evidence shows the page only. Decide whether to serve stored PDFs.
 - Settled (`landing-election-picker`): the Landing hides archived Elections; it lists exactly what `GET /api/v1/elections` returns (only `active`, in API order). `/api/v1/elections/{id}` and Dataset Versions by id still serve archived ones, for Share Links (`share-link-open`). Open: nothing sets `archived` yet, and whether a "past elections" section is added is decided by the feature that archives.
-- The minimum number of answered Statements before showing a ranking.
-- Order in which Statements are shown (random or by topic) to reduce order bias.
+- The minimum number of answered Statements before showing a ranking (`results-ranking`).
+- Order in which Statements are shown (random or by topic) to reduce order bias. `questionnaire-answer-flow` shows them in API `position` order and hides the topic; randomisation stays open.
+- Answers are memory-only (`questionnaire-answer-flow`), so a reload, browser Back or leaving the page loses them, with no warning. Revisit in `results-ranking` / `share-link-create`.
 
 ## Later / Not MVP
 

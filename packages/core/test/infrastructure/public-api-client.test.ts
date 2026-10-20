@@ -188,3 +188,245 @@ describe("createPublicApiClient listElections", () => {
     expect(error.message).toContain(message);
   });
 });
+
+async function rejection(promise: Promise<unknown>): Promise<PublicApiError> {
+  const error: unknown = await promise.then(
+    () => {
+      throw new Error("expected the call to reject");
+    },
+    (reason: unknown) => reason,
+  );
+  expect(error).toBeInstanceOf(PublicApiError);
+  return error as PublicApiError;
+}
+
+describe("createPublicApiClient getElection", () => {
+  test("sends exactly one GET to /api/v1/elections/{id} with an Accept header", async () => {
+    const fetch = fetchReturning(jsonResponse(electionBody({ id: 7 })));
+    await createPublicApiClient({ fetch }).getElection(7);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/v1/elections/7", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  });
+
+  test("prefixes baseUrl", async () => {
+    const fetch = fetchReturning(jsonResponse(electionBody({ id: 7 })));
+    await createPublicApiClient({ fetch, baseUrl: "http://h/" }).getElection(7);
+    expect(fetch.mock.calls[0]?.[0]).toBe("http://h/api/v1/elections/7");
+  });
+
+  test("maps a draft Election with no Published version to camelCase", async () => {
+    const fetch = fetchReturning(
+      jsonResponse(electionBody({ id: 2, status: "draft", published_dataset_version_id: null })),
+    );
+    expect(await createPublicApiClient({ fetch }).getElection(2)).toEqual({
+      id: 2,
+      country: "ES",
+      type: "general",
+      date: "2023-07-23",
+      name: "Generales 2023",
+      status: "draft",
+      publishedDatasetVersionId: null,
+    });
+  });
+
+  test("a 404 is an http error with status 404 and json() is not called", async () => {
+    const response = jsonResponse({ error: { code: "election_not_found", message: "x" } }, 404);
+    const error = await rejection(createPublicApiClient({ fetch: fetchReturning(response) }).getElection(9));
+    expect(error.kind).toBe("http");
+    expect(error.status).toBe(404);
+    expect(response.json).not.toHaveBeenCalled();
+  });
+
+  test("a contract violation names the path and the field", async () => {
+    const fetch = fetchReturning(jsonResponse(electionBody({ date: "x" })));
+    const error = await rejection(createPublicApiClient({ fetch }).getElection(1));
+    expect(error.kind).toBe("invalid_response");
+    expect(error.message).toBe("GET /api/v1/elections/1: election.date must be YYYY-MM-DD");
+  });
+});
+
+function evidenceBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    quote: "Una cita literal.",
+    page: 4,
+    url: "https://example.org/programa.pdf",
+    source_document_id: 2,
+    ...overrides,
+  };
+}
+
+function versionBody(): Record<string, unknown> {
+  return {
+    id: 3,
+    election_id: 1,
+    created_at: "2026-10-20T09:30:00Z",
+    statements: [
+      { id: 10, position: 1, text: "Afirmación uno", topic: "economía" },
+      { id: 20, position: 2, text: "Afirmación dos", topic: "vivienda" },
+    ],
+    parties: [
+      {
+        id: 5,
+        name: "Partido A",
+        short_name: "PA",
+        positions: [
+          { statement_id: 10, value: 2, evidence: evidenceBody() },
+          { statement_id: 20, value: "no_stance", evidence: null },
+        ],
+      },
+    ],
+  };
+}
+
+type Mutate = (body: Record<string, any>) => void;
+
+function mutated(mutate: Mutate): Record<string, unknown> {
+  const body = versionBody() as Record<string, any>;
+  mutate(body);
+  return body;
+}
+
+describe("createPublicApiClient getDatasetVersion", () => {
+  test("sends exactly one GET to /api/v1/dataset-versions/{id} with an Accept header", async () => {
+    const fetch = fetchReturning(jsonResponse(versionBody()));
+    await createPublicApiClient({ fetch }).getDatasetVersion(3);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/v1/dataset-versions/3", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  });
+
+  test("prefixes baseUrl", async () => {
+    const fetch = fetchReturning(jsonResponse(versionBody()));
+    await createPublicApiClient({ fetch, baseUrl: "http://h" }).getDatasetVersion(3);
+    expect(fetch.mock.calls[0]?.[0]).toBe("http://h/api/v1/dataset-versions/3");
+  });
+
+  test("maps the body to camelCase and ignores unknown keys", async () => {
+    const body = mutated((b) => {
+      b["extra"] = true;
+      b["statements"][0]["extra"] = 1;
+      b["parties"][0]["positions"][0]["evidence"]["extra"] = "x";
+    });
+    const version = await createPublicApiClient({ fetch: fetchReturning(jsonResponse(body)) }).getDatasetVersion(3);
+    expect(version).toEqual({
+      id: 3,
+      electionId: 1,
+      createdAt: "2026-10-20T09:30:00Z",
+      statements: [
+        { id: 10, position: 1, text: "Afirmación uno", topic: "economía" },
+        { id: 20, position: 2, text: "Afirmación dos", topic: "vivienda" },
+      ],
+      parties: [
+        {
+          id: 5,
+          name: "Partido A",
+          shortName: "PA",
+          positions: [
+            {
+              statementId: 10,
+              value: 2,
+              evidence: {
+                quote: "Una cita literal.",
+                page: 4,
+                url: "https://example.org/programa.pdf",
+                sourceDocumentId: 2,
+              },
+            },
+            { statementId: 20, value: "no_stance", evidence: null },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("accepts a null evidence url, zero Statements and zero Parties", async () => {
+    const withNullUrl = mutated((b) => {
+      b["parties"][0]["positions"][0]["evidence"]["url"] = null;
+    });
+    const api = createPublicApiClient({ fetch: fetchReturning(jsonResponse(withNullUrl)) });
+    const version = await api.getDatasetVersion(3);
+    expect(version.parties[0]?.positions[0]?.evidence?.url).toBeNull();
+
+    const empty = { ...versionBody(), statements: [], parties: [] };
+    const emptyVersion = await createPublicApiClient({ fetch: fetchReturning(jsonResponse(empty)) }).getDatasetVersion(3);
+    expect(emptyVersion.statements).toEqual([]);
+    expect(emptyVersion.parties).toEqual([]);
+  });
+
+  test("a 404 is an http error with status 404 and json() is not called", async () => {
+    const response = jsonResponse({ error: { code: "dataset_version_not_found", message: "x" } }, 404);
+    const error = await rejection(
+      createPublicApiClient({ fetch: fetchReturning(response) }).getDatasetVersion(3),
+    );
+    expect(error.kind).toBe("http");
+    expect(error.status).toBe(404);
+    expect(response.json).not.toHaveBeenCalled();
+  });
+
+  test("a rejected fetch is a network error", async () => {
+    const fetch = vi.fn<FetchLike>(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const error = await rejection(createPublicApiClient({ fetch }).getDatasetVersion(3));
+    expect(error.kind).toBe("network");
+    expect(error.status).toBeNull();
+  });
+
+  test("a body that is not JSON is an invalid response", async () => {
+    const response: HttpResponseLike = {
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError("Unexpected token")),
+    };
+    const error = await rejection(createPublicApiClient({ fetch: fetchReturning(response) }).getDatasetVersion(3));
+    expect(error.kind).toBe("invalid_response");
+  });
+
+  test.each<[string, Mutate, string]>([
+    ["id 0", (b) => { b["id"] = 0; }, "dataset_version.id must be a positive integer"],
+    ['election_id "1"', (b) => { b["election_id"] = "1"; }, "dataset_version.election_id must be a positive integer"],
+    ["a bad created_at", (b) => { b["created_at"] = "2026-10-20 09:30:00"; }, "dataset_version.created_at must be YYYY-MM-DDTHH:MM:SSZ"],
+    ["a missing statements", (b) => { delete b["statements"]; }, "dataset_version.statements must be an array"],
+    ["a missing parties", (b) => { delete b["parties"]; }, "dataset_version.parties must be an array"],
+    ["a statement that is not an object", (b) => { b["statements"][1] = "x"; }, "statements[1] must be an object"],
+    ["a duplicate statement id", (b) => { b["statements"][1]["id"] = 10; }, "statements[1].id 10 is a duplicate"],
+    ["position 0", (b) => { b["statements"][0]["position"] = 0; }, "statements[0].position must be a positive integer"],
+    ["a non-increasing position", (b) => { b["statements"][1]["position"] = 1; }, "statements[1].position must be greater than the previous position"],
+    ["text null", (b) => { b["statements"][0]["text"] = null; }, "statements[0].text must be a string"],
+    ["a missing topic", (b) => { delete b["statements"][0]["topic"]; }, "statements[0].topic must be a string"],
+    ["party id 1.5", (b) => { b["parties"][0]["id"] = 1.5; }, "parties[0].id must be a positive integer"],
+    ["a missing short_name", (b) => { delete b["parties"][0]["short_name"]; }, "parties[0].short_name must be a string"],
+    ["a positions length mismatch", (b) => { b["parties"][0]["positions"].pop(); }, "parties[0].positions must have one entry per Statement (2), got 1"],
+    ["a wrong statement_id order", (b) => { b["parties"][0]["positions"].reverse(); }, "parties[0].positions[0].statement_id must be 10"],
+    ["value 3", (b) => { b["parties"][0]["positions"][0]["value"] = 3; }, 'parties[0].positions[0].value must be an integer from -2 to 2 or "no_stance"'],
+    ['value "2"', (b) => { b["parties"][0]["positions"][0]["value"] = "2"; }, 'parties[0].positions[0].value must be an integer from -2 to 2 or "no_stance"'],
+    ["value 0.5", (b) => { b["parties"][0]["positions"][0]["value"] = 0.5; }, 'parties[0].positions[0].value must be an integer from -2 to 2 or "no_stance"'],
+    ["evidence null with a value", (b) => { b["parties"][0]["positions"][0]["evidence"] = null; }, 'parties[0].positions[0].evidence must not be null when value is not "no_stance"'],
+    ["evidence present with no_stance", (b) => { b["parties"][0]["positions"][1]["evidence"] = evidenceBody(); }, 'parties[0].positions[1].evidence must be null when value is "no_stance"'],
+    ["evidence page 0", (b) => { b["parties"][0]["positions"][0]["evidence"]["page"] = 0; }, "parties[0].positions[0].evidence.page must be a positive integer"],
+    ["evidence url 7", (b) => { b["parties"][0]["positions"][0]["evidence"]["url"] = 7; }, "parties[0].positions[0].evidence.url must be null or a string"],
+    ["a missing quote", (b) => { delete b["parties"][0]["positions"][0]["evidence"]["quote"]; }, "parties[0].positions[0].evidence.quote must be a string"],
+    ["source_document_id -1", (b) => { b["parties"][0]["positions"][0]["evidence"]["source_document_id"] = -1; }, "parties[0].positions[0].evidence.source_document_id must be a positive integer"],
+  ])("%s is an invalid response naming the field", async (_label, mutate, message) => {
+    const fetch = fetchReturning(jsonResponse(mutated(mutate)));
+    const error = await rejection(createPublicApiClient({ fetch }).getDatasetVersion(3));
+    expect(error.kind).toBe("invalid_response");
+    expect(error.status).toBeNull();
+    expect(error.message.startsWith(`GET /api/v1/dataset-versions/3: ${message}`)).toBe(true);
+  });
+
+  test.each([
+    ["an array body", []],
+    ["a null body", null],
+  ])("%s is an invalid response", async (_label, body) => {
+    const error = await rejection(
+      createPublicApiClient({ fetch: fetchReturning(jsonResponse(body)) }).getDatasetVersion(3),
+    );
+    expect(error.message).toBe("GET /api/v1/dataset-versions/3: response body must be an object");
+  });
+});
