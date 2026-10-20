@@ -78,6 +78,17 @@ describe("MethodologyPage", () => {
     expect(screen.queryByText(/nunca recibe el nombre del partido/)).toBeNull();
   });
 
+  test("says the results let the Voter open each Position to read its quote", () => {
+    renderMethodology();
+    const region = screen.getByRole("region", { name: "Cómo se sitúa a cada partido" });
+    expect(
+      within(region).getByText(
+        /^En los resultados puedes abrir la posición de cada partido en cada afirmación para leer la cita y comprobarla\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Podrás consultar la cita/)).toBeNull();
+  });
+
   test("lists the six Validation checks with the default coverage threshold", () => {
     renderMethodology();
     const region = screen.getByRole("region", { name: "Comprobaciones antes de publicar" });
