@@ -86,7 +86,7 @@ Soft 12px radius on cards and scale options; 48px minimum tap targets.
 - **Statement card**: the statement text, a 5-option scale, a "skip" link, and an Important toggle (a star).
 - **Ranking row**: party name + short name (logos pending the open question), percentage bar, and a `Baja cobertura` badge when it applies. Every row looks the same; the first row is not emphasised (no winner styling, number or medal).
 - **Breakdown row**: the Statement, the Voter's answer (Saltada / Importante), and each party's position in ranking order as a native disclosure revealing the Evidence quote (serif) and its locator: a link to `url#page=N`, or the page alone for uploaded documents; `Sin posición en el programa` for no stance.
-- **Share button**: copies the Share Link; a short note explains that nothing is stored.
+- **Share button**: `Copiar enlace` copies the Share Link to the clipboard; if copying fails (no clipboard or permission denied), the link is shown in a read-only field, focused and selected, to copy by hand. A short note says that nothing is stored on any server and that anyone with the link can see the answers.
 
 ## Core Screens
 

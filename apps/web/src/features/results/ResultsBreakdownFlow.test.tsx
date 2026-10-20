@@ -140,7 +140,9 @@ describe("results breakdown", () => {
     await openSix();
     walk(SCENARIO_1);
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
-    expect(screen.getByRole("heading", { level: 3 }).textContent).toBe("Detalle por afirmación");
+    expect(
+      screen.getByRole("heading", { level: 3, name: "Detalle por afirmación" }),
+    ).toBeTruthy();
     const rows = breakdownRows();
     expect(rows).toHaveLength(6);
     rows.forEach((row, i) => {
