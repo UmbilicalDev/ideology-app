@@ -33,6 +33,11 @@ const PRIVACY_TEXT =
   "la afinidad se calcula en tu propio dispositivo. No hay cuentas de usuario ni estadísticas " +
   "sobre las respuestas.";
 
+const SHARE_TEXT =
+  "Puedes compartir tu resultado con un enlace que lleva tus respuestas al final de la " +
+  "dirección, tras el símbolo «#». Los navegadores no envían esa parte de la dirección al " +
+  "servidor y el enlace no se guarda en ningún sitio: quien lo tenga puede ver tus respuestas.";
+
 const DISCLAIMER_TEXT =
   "Esta herramienta no es una recomendación de voto. Las afirmaciones y las posiciones las " +
   "genera automáticamente una inteligencia artificial, sin revisión humana, y pueden contener " +
@@ -96,6 +101,8 @@ describe("MethodologyPage", () => {
     renderMethodology();
     const privacy = screen.getByRole("region", { name: "Tus respuestas" });
     expect(within(privacy).getByText(PRIVACY_TEXT)).toBeTruthy();
+    expect(within(privacy).getByText(SHARE_TEXT)).toBeTruthy();
+    expect(privacy.textContent).not.toContain("se usará");
     const disclaimer = screen.getByRole("region", { name: "Aviso" });
     expect(disclaimer.className).toBe("card");
     expect(within(disclaimer).getByText(DISCLAIMER_TEXT)).toBeTruthy();

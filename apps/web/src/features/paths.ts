@@ -3,6 +3,9 @@
 export const HOME_PATH = "/";
 export const METHODOLOGY_PATH = "/metodologia";
 export const QUESTIONNAIRE_ROUTE = "/elecciones/:electionId/cuestionario";
+// A Share Link opens here; only the fragment ("#...") carries data, and
+// browsers never send the fragment in a request.
+export const SHARED_RESULTS_PATH = "/resultados";
 
 const MAX_ELECTION_ID = 2147483647; // the API's id bound
 const ELECTION_ID_PATTERN = /^[1-9][0-9]{0,9}$/;
@@ -18,4 +21,9 @@ export function parseElectionId(raw: string | undefined): number | null {
   }
   const id = Number(raw);
   return id <= MAX_ELECTION_ID ? id : null;
+}
+
+/** The full Share Link: `origin` + `/resultados#` + the codec's payload. */
+export function sharedResultsUrl(origin: string, payload: string): string {
+  return `${origin}${SHARED_RESULTS_PATH}#${payload}`;
 }

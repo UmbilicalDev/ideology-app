@@ -135,9 +135,10 @@ export function MethodologyPage() {
           estadísticas sobre las respuestas.
         </p>
         <p>
-          Para volver a abrir o compartir un resultado se usará un enlace que lleva tus respuestas
-          al final de la dirección, tras el símbolo «#». Los navegadores no envían esa parte de la
-          dirección al servidor.
+          Puedes compartir tu resultado con un enlace que lleva tus respuestas al final de la
+          dirección, tras el símbolo «#». Los navegadores no envían esa parte de la dirección al
+          servidor y el enlace no se guarda en ningún sitio: quien lo tenga puede ver tus
+          respuestas.
         </p>
       </section>
 

@@ -96,6 +96,14 @@ describe("App routes", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  test("the /resultados deep link renders the Share Link placeholder without an API request", () => {
+    const fetch = vi.fn<FetchLike>();
+    renderAt("/resultados#v1-1-dddddA", fetch);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Resultado compartido");
+    expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   test("global fetch is blocked in web tests", () => {
     expect(() => fetch("/api/v1/elections")).toThrow("network access is blocked in web tests");
   });

@@ -21,6 +21,7 @@ import {
 
 import { HOME_PATH, METHODOLOGY_PATH } from "../paths";
 import { ResultsRanking } from "../results/ResultsRanking";
+import { ShareResults } from "../share/ShareResults";
 
 // The five options in scale order. Meaning is carried by the text, never by
 // colour alone (DESIGN.md).
@@ -100,6 +101,7 @@ export function QuestionnaireFlow({
       <p className="questionnaire__election">{election.name}</p>
       {statement === undefined ? (
         <EndScreen
+          datasetVersionId={datasetVersion.id}
           state={state}
           ranking={ranking}
           headingRef={headingRef}
@@ -212,12 +214,14 @@ function StatementStep({
 }
 
 function EndScreen({
+  datasetVersionId,
   state,
   ranking,
   headingRef,
   onBack,
   onFirst,
 }: {
+  readonly datasetVersionId: number;
   readonly state: QuestionnaireState;
   readonly ranking: readonly RankedParty[];
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
@@ -244,6 +248,7 @@ function EndScreen({
       ) : (
         <p>{NO_RESULTS_PROMPT}</p>
       )}
+      {hasScores ? <ShareResults datasetVersionId={datasetVersionId} state={state} /> : null}
       <div className="questionnaire__controls">
         <button type="button" className="button-primary" onClick={onFirst}>
           Revisar mis respuestas

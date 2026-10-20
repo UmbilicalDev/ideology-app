@@ -48,3 +48,16 @@ export type {
   PublicApiClientOptions,
   PublicApiErrorKind,
 } from "./infrastructure/http/public-api-client";
+export {
+  MAX_SHARE_LINK_STATEMENTS,
+  SHARE_LINK_FORMAT_VERSION,
+  ShareLinkError,
+  decodeShareLink,
+  encodeShareLink,
+  restoreQuestionnaire,
+} from "./infrastructure/share-link/share-link-codec";
+export type {
+  ShareLink,
+  ShareLinkEntry,
+  ShareLinkErrorKind,
+} from "./infrastructure/share-link/share-link-codec";
