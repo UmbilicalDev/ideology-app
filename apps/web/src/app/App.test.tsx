@@ -52,12 +52,40 @@ describe("App routes", () => {
     "/elecciones/01/cuestionario",
     "/elecciones/2147483648/cuestionario",
     "/nada",
+    "/metodologia/x",
   ])("Scenario 3: %s renders Página no encontrada without an API request", (path) => {
     const fetch = vi.fn<FetchLike>();
     renderAt(path, fetch);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Página no encontrada");
     expect(screen.getByText("Esta dirección no corresponde a ninguna página.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test("the Landing links to the methodology page, and Volver al inicio restores the title", async () => {
+    document.title = "Comparador de programas electorales";
+    const fetch = vi.fn<FetchLike>(async () => jsonResponse({ elections: [electionJson()] }));
+    renderAt("/", fetch);
+    await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" });
+
+    fireEvent.click(screen.getByRole("link", { name: "Lee la metodología completa" }));
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.textContent).toBe("Metodología");
+    expect(document.activeElement).toBe(h1);
+    expect(document.title).toBe("Metodología · Comparador de programas electorales");
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("link", { name: "Volver al inicio" }));
+    expect(
+      await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" }),
+    ).toBeTruthy();
+    expect(document.title).toBe("Comparador de programas electorales");
+  });
+
+  test("the methodology deep link renders without an API request", () => {
+    const fetch = vi.fn<FetchLike>();
+    renderAt("/metodologia", fetch);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Metodología");
     expect(fetch).not.toHaveBeenCalled();
   });
 

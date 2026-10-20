@@ -1,6 +1,7 @@
 // Client routes, defined once. Segments never contain a "." because the
 // server's SPA fallback answers such paths with 404 (see CONSTRAINTS.md).
 export const HOME_PATH = "/";
+export const METHODOLOGY_PATH = "/metodologia";
 export const QUESTIONNAIRE_ROUTE = "/elecciones/:electionId/cuestionario";
 
 const MAX_ELECTION_ID = 2147483647; // the API's id bound

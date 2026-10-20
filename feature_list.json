@@ -464,10 +464,11 @@
     "status": "not_started",
     "verification": [
       "Browser test with fixture data: the order and percentages match the engine's output",
-      "Skipping every Statement shows a prompt instead of a ranking"
+      "Skipping every Statement shows a prompt instead of a ranking",
+      "Vitest: the results page links to the methodology page (METHODOLOGY_PATH)"
     ],
     "evidence": [],
-    "notes": "No party colours on the bars."
+    "notes": "No party colours on the bars. Link to /metodologia (deferred by methodology-page); match the 'baja cobertura' wording or update MethodologyPage."
   },
   {
     "id": "results-breakdown-evidence",
@@ -494,7 +495,7 @@
       "The answers appear only after `#`"
     ],
     "evidence": [],
-    "notes": "Version the encoding format."
+    "notes": "Version the encoding format. Update the MethodologyPage privacy paragraph to present tense (deferred by methodology-page)."
   },
   {
     "id": "share-link-open",
@@ -516,11 +517,17 @@
     "title": "Methodology page explains AI generation",
     "user_visible_behavior": "A public page explains how Statements and Positions are generated and validated, the matching rule, the privacy model, and a disclaimer.",
     "depends_on": ["landing-election-picker"],
-    "status": "not_started",
+    "status": "accepted",
     "verification": [
-      "Vitest + Testing Library: the page renders and is linked from the landing and results pages"
+      "Vitest + Testing Library: the page renders, is linked from the landing page and deep-links to /metodologia (the results-page link is deferred to results-ranking)",
+      "Browser check at 375px and desktop following DESIGN.md"
     ],
-    "evidence": [],
+    "evidence": [
+      "2026-10-20 implementer self-check (not independent acceptance): CI=true ./init.sh exit 0 (pytest 910 passed, Vitest 90 passed = 82 + 8 new: MethodologyPage.test.tsx 5, App.test.tsx 'the Landing links to the methodology page, and Volver al inicio restores the title', 'the methodology deep link renders without an API request', not-found test.each '/metodologia/x'; LandingPage 'has no methodology link' replaced by 'links to the methodology page'; typecheck and vite build ok).",
+      "Browser: built-in Claude desktop browser (Chrome 152.0.7977.149) on the FastAPI-served worktree build (uvicorn port 8021, empty migrated scratch SQLite DB, temporary launch.json entry removed afterwards), at 375x812 and 1280x800. Scenario 1: link 'Lee la metodología completa' (48px) clicked after scrolling and via Tab+Enter; URL /metodologia, h1 'Metodología' focused at top (scrollY 0), title 'Metodología · Comparador de programas electorales', no new request. Scenario 2: Back -> Landing with title 'Comparador de programas electorales'; Forward -> page with h1 focused; 'Volver al inicio' -> Landing. Scenario 3: direct load/reload of /metodologia -> 200, only document + JS + CSS, no API request; /metodologia/x and /nada -> 'Página no encontrada'. Scenario 4: one h1, seven h2/named regions in spec order, 6 validation items, no img/svg, no party names (regex over body text), scrollWidth == innerWidth (375 and 1280), 720px content column on desktop, links 48px high, amber 3px focus-visible outline on both links, h1 has no outline. Console: no messages. Network: same-origin GETs only, all 200, no query strings or bodies; GET /api/v1/elections only on Landing loads.",
+      "Repair pass after validator verdict 'revise' (2026-10-20): copy/docs only, no logic change. F1: 'Programas electorales' second paragraph now reads 'Las instrucciones que recibe la inteligencia artificial nunca incluyen el nombre del partido: solo el texto de su programa, que puede mencionarlo. Todos los programas se procesan con las mismas instrucciones.' F2: 'Cómo se sitúa a cada partido' second paragraph now reads '... el partido queda sin posición en ella: sus instrucciones le prohíben deducir la posición de la ideología general del partido.' Spec lines updated identically; docs/risks-and-open-questions.md bias entry now says the prompts never add party names (the manifesto text may contain them), and the results-ranking entry adds the alphabetical tie-break consistency (F3). New MethodologyPage.test.tsx test asserts the sources paragraph exactly inside its region and that the old wording is absent. CI=true ./init.sh exit 0 (pytest 910, Vitest 91, typecheck and build ok). Real-browser re-check (built-in Claude desktop browser, Chrome) of the FastAPI-served worktree build on port 8021 with a scratch DB outside the repo, at 375x812 and 1024 desktop width: both new paragraphs visible, old wording absent, scrollWidth == innerWidth at both widths, console has no messages, /metodologia loads made only same-origin document/JS/CSS GETs (200) and no API request. Temporary launch.json entry and scratch DB removed.",
+      "2026-10-20 independent validator accept (after one revise round: the sources paragraph no longer claims the AI never sees party names, and the positions no-inference rule is phrased as an instruction; spec, risks doc and a new exact-text test were synced). CI=true ./init.sh exit 0 (pytest 910, Vitest 91, typecheck and build ok). Copy cross-checked against validation CHECKS, config defaults 70/25/35/30, match-score.ts (1−|d|/4, weight 2, threshold 5), prompts.py and publishing.py. Chrome 155 (chrome-devtools MCP) on the FastAPI-served worktree build (uvicorn :8031, scratch SQLite DB outside the repo seeded with the fake provider, 1 published Election) at 375x812 and 1280x800: Landing → 'Lee la metodología completa' (48px) → /metodologia with h1 focused at scrollY 0 and title 'Metodología · Comparador de programas electorales'; Back restores the Landing title and Forward returns to the page; 'Volver al inicio' and keyboard Tab/Enter with the 3px amber focus ring; reload or direct load of /metodologia requests only document+JS+CSS, no API call; /metodologia/x and /nada show 'Página no encontrada'; 1 h1 and 7 h2/named regions in order, 6 validation items, no img/svg, no party names, no horizontal scroll, 720px column; console clean; same-origin GETs only, no query strings or bodies, no voter data. Low note: the alphabetical tie-break is stated in present tense but is owed by results-ranking (tracked in the risks doc). Server stopped and scratch DB removed."
+    ],
     "notes": "Mitigation for the bias and legal risks. Legal wording is to be reviewed before a public launch."
   },
   {

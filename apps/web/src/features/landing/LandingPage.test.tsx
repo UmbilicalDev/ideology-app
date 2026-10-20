@@ -34,8 +34,13 @@ function expectDisclosureAndMethodology() {
   expect(within(disclosure).getByText(DISCLOSURE_TEXT)).toBeTruthy();
   expect(screen.getByRole("heading", { level: 2, name: "Cómo funciona" })).toBeTruthy();
   expect(
-    screen.getByText("La explicación completa de la metodología se publicará próximamente."),
-  ).toBeTruthy();
+    screen.getByRole("link", { name: "Lee la metodología completa" }).getAttribute("href"),
+  ).toBe("/metodologia");
+}
+
+function electionLinks() {
+  const elections = screen.getByRole("region", { name: "Elecciones disponibles" });
+  return within(elections).queryAllByRole("link");
 }
 
 describe("LandingPage", () => {
@@ -90,11 +95,14 @@ describe("LandingPage", () => {
     expect(main.children[1]?.tagName).toBe("P");
   });
 
-  test("has no methodology link", async () => {
+  test("links to the methodology page", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
     await screen.findByRole("link", { name: /Generales 2023/ });
-    expect(screen.queryByRole("link", { name: /metodología/i })).toBeNull();
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    const methodology = screen.getByRole("region", { name: "Cómo funciona" });
+    const link = within(methodology).getByRole("link", { name: "Lee la metodología completa" });
+    expect(link.getAttribute("href")).toBe("/metodologia");
+    expect(link.className).toBe("text-link");
+    expect(screen.getAllByRole("link")).toHaveLength(2);
   });
 
   test("Scenario 4: an empty list shows the empty message and no link", async () => {
@@ -104,7 +112,7 @@ describe("LandingPage", () => {
         "Ahora mismo no hay elecciones disponibles. Vuelve a consultarlo más adelante.",
       ),
     ).toBeTruthy();
-    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(electionLinks()).toHaveLength(0);
     expect(screen.queryByRole("list")).toBeNull();
     expectDisclosureAndMethodology();
   });
@@ -137,7 +145,7 @@ describe("LandingPage", () => {
     expect(within(alert).getByText(
       "No se han podido cargar las elecciones. Comprueba tu conexión e inténtalo de nuevo.",
     )).toBeTruthy();
-    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(electionLinks()).toHaveLength(0);
     expectDisclosureAndMethodology();
 
     fireEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
@@ -163,7 +171,7 @@ describe("LandingPage", () => {
       ),
     );
     await screen.findByRole("link", { name: /Generales 2027/ });
-    const links = screen.getAllByRole("link");
+    const links = electionLinks();
     expect(links.map((link) => link.textContent)).toEqual([
       "Generales 2027 1 de julio de 2027",
       "Generales 2023 23 de julio de 2023",
