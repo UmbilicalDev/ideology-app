@@ -233,6 +233,56 @@ describe("summarize important", () => {
   });
 });
 
+describe("first", () => {
+  const FIRST: QuestionnaireAction = { type: "first" };
+
+  test("goes from the end screen to 0 and keeps the Answers and the flags", () => {
+    const end = run(
+      startQuestionnaire(IDS),
+      { type: "select", value: 1 },
+      TOGGLE,
+      { type: "next" },
+      { type: "skip" },
+      TOGGLE,
+      { type: "select", value: -2 },
+      { type: "next" },
+    );
+    expect(isAtEnd(end)).toBe(true);
+    const first = reduceQuestionnaire(end, FIRST);
+    expect(first.currentIndex).toBe(0);
+    expect(currentStatementId(first)).toBe(11);
+    expect([...first.answers]).toEqual([
+      [11, 1],
+      [12, SKIP],
+      [13, -2],
+    ]);
+    expect([...first.important].sort()).toEqual([11, 13]);
+    expect(first.answers).not.toBe(end.answers);
+    expect(end.currentIndex).toBe(3);
+  });
+
+  test("goes from the middle to 0", () => {
+    const middle = run(startQuestionnaire(IDS), { type: "skip" }, { type: "skip" });
+    expect(middle.currentIndex).toBe(2);
+    const first = reduceQuestionnaire(middle, FIRST);
+    expect(first.currentIndex).toBe(0);
+    expect(first.answers.get(11)).toBe(SKIP);
+    expect(first.answers.get(12)).toBe(SKIP);
+  });
+
+  test("is a no-op at 0", () => {
+    const start = reduceQuestionnaire(startQuestionnaire(IDS), { type: "select", value: 2 });
+    expect(reduceQuestionnaire(start, FIRST)).toBe(start);
+  });
+
+  test("works with zero Statements", () => {
+    const empty = startQuestionnaire([]);
+    const after = reduceQuestionnaire(empty, FIRST);
+    expect(after).toBe(empty);
+    expect(isAtEnd(after)).toBe(true);
+  });
+});
+
 describe("toMatchScoreAnswers", () => {
   test("one entry per answered Statement in order, important always a boolean", () => {
     const state = run(
