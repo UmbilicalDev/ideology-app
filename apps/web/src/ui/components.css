@@ -297,3 +297,83 @@ main h1[tabindex="-1"]:focus {
 .questionnaire__note {
   color: var(--color-secondary);
 }
+
+/* Results ranking (DESIGN.md "Ranking row"). Every row is identical: no
+   party colour, logo, highlight or winner styling. The bar is decorative;
+   the percentage, count and badge text carry the meaning. */
+.ranking {
+  list-style: none;
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.ranking-row {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+}
+
+.ranking-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-sm);
+  margin: 0 0 var(--space-sm);
+}
+
+.ranking-row__name {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ranking-row__short {
+  color: var(--color-secondary);
+}
+
+.ranking-row__percent {
+  margin-left: auto;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ranking-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.ranking-bar__fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--color-primary);
+}
+
+.ranking-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-sm) 0 0;
+  color: var(--color-secondary);
+}
+
+/* Not amber (reserved for focus and Important), not red or green. */
+.coverage-badge {
+  display: inline-block;
+  padding: 0 var(--space-sm);
+  border: 1px solid var(--color-secondary);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.ranking-legend {
+  color: var(--color-secondary);
+  font-size: 15px;
+}

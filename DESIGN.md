@@ -84,7 +84,7 @@ Soft 12px radius on cards and scale options; 48px minimum tap targets.
 ## Components
 
 - **Statement card**: the statement text, a 5-option scale, a "skip" link, and an Important toggle (a star).
-- **Ranking row**: party logo + name, percentage bar, and a "low coverage" badge when it applies.
+- **Ranking row**: party name + short name (logos pending the open question), percentage bar, and a `Baja cobertura` badge when it applies. Every row looks the same; the first row is not emphasised (no winner styling, number or medal).
 - **Breakdown row**: the Statement, the user's answer, and each party's position as an expandable item that reveals the Evidence quote + source link.
 - **Share button**: copies the Share Link; a short note explains that nothing is stored.
 

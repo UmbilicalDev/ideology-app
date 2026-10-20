@@ -1,22 +1,26 @@
-import { useEffect, useReducer, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useReducer, useRef, type RefObject } from "react";
 import { Link } from "react-router";
 
 import {
   SKIP,
   currentStatementId,
+  rankParties,
   reduceQuestionnaire,
   startQuestionnaire,
   summarize,
+  toMatchScoreAnswers,
   type AnswerValue,
   type DatasetVersion,
   type Election,
   type QuestionnaireAction,
   type QuestionnaireState,
+  type RankedParty,
   type ScaleValue,
   type Statement,
 } from "@ideology-app/core";
 
-import { HOME_PATH } from "../paths";
+import { HOME_PATH, METHODOLOGY_PATH } from "../paths";
+import { ResultsRanking } from "../results/ResultsRanking";
 
 // The five options in scale order. Meaning is carried by the text, never by
 // colour alone (DESIGN.md).
@@ -36,6 +40,20 @@ const NOTE =
 function init(datasetVersion: DatasetVersion): QuestionnaireState {
   return startQuestionnaire(datasetVersion.statements.map((statement) => statement.id));
 }
+
+const RESULTS_INTRO = "Afinidad entre tus respuestas y el programa de cada partido, de mayor a menor.";
+
+const NO_RESULTS_PROMPT =
+  "Todavía no se puede calcular tu afinidad: no has respondido ninguna afirmación en la que " +
+  "los partidos tengan posición. Responde al menos una para ver los resultados.";
+
+const DISCLAIMER =
+  "Esto no es una recomendación de voto: solo compara tus respuestas con lo que dicen los " +
+  "programas, según una inteligencia artificial que puede equivocarse.";
+
+const RESULTS_NOTE =
+  "Tus respuestas siguen solo en este navegador: si recargas la página, vuelves atrás con el " +
+  "navegador o sales de aquí, se pierden.";
 
 const IMPORTANT_HINT = "Las afirmaciones importantes cuentan el doble al calcular la afinidad.";
 
@@ -70,12 +88,24 @@ export function QuestionnaireFlow({
 
   const statementId = currentStatementId(state);
   const statement = datasetVersion.statements.find((s) => s.id === statementId);
+  // Recomputed from the in-memory state on every change; nothing is cached
+  // or sent anywhere.
+  const ranking = useMemo(
+    () => rankParties(toMatchScoreAnswers(state), datasetVersion.parties),
+    [state, datasetVersion],
+  );
 
   return (
     <>
       <p className="questionnaire__election">{election.name}</p>
       {statement === undefined ? (
-        <EndScreen state={state} headingRef={headingRef} onBack={() => move({ type: "back" })} />
+        <EndScreen
+          state={state}
+          ranking={ranking}
+          headingRef={headingRef}
+          onBack={() => move({ type: "back" })}
+          onFirst={() => move({ type: "first" })}
+        />
       ) : (
         <StatementStep
           key={statement.id}
@@ -183,29 +213,52 @@ function StatementStep({
 
 function EndScreen({
   state,
+  ranking,
   headingRef,
   onBack,
+  onFirst,
 }: {
   readonly state: QuestionnaireState;
+  readonly ranking: readonly RankedParty[];
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly onBack: () => void;
+  readonly onFirst: () => void;
 }) {
   const { answered, skipped, important, total } = summarize(state);
+  // A ranking needs one rated Statement on which some Party has a stance.
+  const hasScores = ranking.some((party) => party.matchScore !== null);
   return (
     <>
-      <h2 tabIndex={-1} ref={headingRef}>
-        Has llegado al final del cuestionario
+      <h2 id="results-title" tabIndex={-1} ref={headingRef}>
+        Tus resultados
       </h2>
       <p>
         {`Has respondido ${answered} de ${total} afirmaciones y has saltado ${skipped}.`}
       </p>
       <p>{importantSentence(important)}</p>
-      <p>Los resultados estarán disponibles muy pronto.</p>
+      {hasScores ? (
+        <>
+          <p>{RESULTS_INTRO}</p>
+          <ResultsRanking ranking={ranking} />
+        </>
+      ) : (
+        <p>{NO_RESULTS_PROMPT}</p>
+      )}
       <div className="questionnaire__controls">
+        <button type="button" className="button-primary" onClick={onFirst}>
+          Revisar mis respuestas
+        </button>
         <button type="button" className="button-secondary" onClick={onBack}>
           Volver a la última afirmación
         </button>
       </div>
+      <p>{DISCLAIMER}</p>
+      <p>
+        <Link className="text-link" to={METHODOLOGY_PATH} target="_blank" rel="noopener">
+          Cómo se calcula la afinidad (se abre en una pestaña nueva)
+        </Link>
+      </p>
+      <p className="questionnaire__note">{RESULTS_NOTE}</p>
       <p>
         <Link className="back-link" to={HOME_PATH}>
           Volver al inicio

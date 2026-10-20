@@ -25,6 +25,7 @@ export type QuestionnaireAction =
   | { readonly type: "skip" }
   | { readonly type: "next" }
   | { readonly type: "back" }
+  | { readonly type: "first" }
   | { readonly type: "toggleImportant" };
 
 export interface QuestionnaireSummary {
@@ -82,6 +83,14 @@ export function reduceQuestionnaire(
   state: QuestionnaireState,
   action: QuestionnaireAction,
 ): QuestionnaireState {
+  if (action.type === "first") {
+    // Back to Statement 1 from anywhere (the end screen's "Revisar mis
+    // respuestas"); Answers and flags are kept.
+    if (state.currentIndex === 0) {
+      return state;
+    }
+    return { ...state, currentIndex: 0, answers: new Map(state.answers) };
+  }
   if (action.type === "back") {
     if (state.currentIndex === 0) {
       return state;

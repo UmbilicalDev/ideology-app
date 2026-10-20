@@ -38,6 +38,8 @@ export type {
   QuestionnaireState,
   QuestionnaireSummary,
 } from "./domain/questionnaire";
+export { rankParties } from "./domain/ranking";
+export type { RankedParty } from "./domain/ranking";
 export type { PublicApi } from "./application/public-api";
 export { PublicApiError, createPublicApiClient } from "./infrastructure/http/public-api-client";
 export type {
