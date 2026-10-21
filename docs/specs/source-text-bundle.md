@@ -14,6 +14,8 @@ Several developers on several machines run Pipeline Runs. Today the manifestos e
 
 User decisions (2026-10-21, binding): one Markdown file per Party manifesto with YAML front matter; the body is pypdf's page text, unchanged (no cleaning, no headings, no LLM rewriting), with each page under a `<!-- page N -->` marker; `source_url` is optional; no PDFs in git. Coalición Canaria (CCa) and Unión del Pueblo Navarro (UPN) are excluded from the bundle. Both hold one seat each, and the user excluded them for the same reason (user decision 2026-10-21), so the 2023 bundle has 9 Parties. pypdf: use the latest release, with a fixed pin only as a fallback (see Technical Approach, "pypdf version").
 
+Once a Party's `.md` is committed, its PDF is no longer needed by anyone, with or without a `source_url`: import, generation and Evidence read only the bundle, so a local-only PDF can be discarded. To replace a manifesto, the Operator puts the new PDF on their machine, re-runs `source extract … --force` over that Party's `.md` (or deletes the file and extracts it again), commits it, and every machine's next `data import` registers a replacement (Scenario 6). Document this flow in the runbook (`docs/technical-discovery.md`).
+
 ## Non-Goals
 
 - Shared checkpoints and JSONL files (`pipeline-checkpoint-shared`; that spec no longer has auto-commit). This feature only fixes the directory and slug contract they use.
