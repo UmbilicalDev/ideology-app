@@ -51,7 +51,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0010"
+    assert _version(db_url) == "0011"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -59,7 +59,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0010"
+    assert _version(db_url) == "0011"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -843,7 +843,7 @@ def test_downgrade_to_0007_drops_only_the_column_and_keeps_rows(db_url: str) -> 
 
     run_migrations(db_url)
     assert "validation_settings" in _pipeline_run_columns(db_url)
-    assert _version(db_url) == "0010"
+    assert _version(db_url) == "0011"
 
 
 def test_offline_postgresql_render_of_0008() -> None:
@@ -976,7 +976,7 @@ def test_downgrade_to_0008_drops_only_the_columns_and_keeps_pages(db_url: str) -
 
     run_migrations(db_url)
     assert {"replaced_by_id", "last_checked_at"} <= set(_source_document_columns(db_url))
-    assert _version(db_url) == "0010"
+    assert _version(db_url) == "0011"
 
 
 def test_offline_postgresql_render_of_0009() -> None:
@@ -1032,7 +1032,7 @@ def test_upgrade_0010_adds_the_calls_table_and_column_and_keeps_rows(db_url: str
 
     run_migrations(db_url)
 
-    assert _version(db_url) == "0010"
+    assert _version(db_url) == "0011"
     assert _tables(db_url) == ALL_TABLES
     columns = _pipeline_run_columns(db_url)
     assert columns["resumed_from_run_id"]["nullable"] is True
@@ -1086,7 +1086,7 @@ def test_downgrade_to_0009_drops_the_calls_and_keeps_runs_and_versions(db_url: s
         "dataset_versions": 1,
     }
     run_migrations(db_url)
-    assert _version(db_url) == "0010"
+    assert _version(db_url) == "0011"
 
 
 def test_offline_postgresql_render_of_0010() -> None:
@@ -1100,3 +1100,88 @@ def test_offline_postgresql_render_of_0010() -> None:
     assert "CREATE TABLE pipeline_run_calls" in up_sql
     assert "ON DELETE CASCADE" in up_sql
     assert "ALTER TABLE pipeline_runs ADD COLUMN resumed_from_run_id INTEGER;" in up_sql
+
+
+# Migration 0011: bundle_file on source_documents (source-text-bundle).
+
+
+def test_upgrade_0011_adds_a_nullable_bundle_file_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url, "0010")
+    engine = make_engine(db_url)
+    try:
+        _seed_party_and_document(engine)
+    finally:
+        engine.dispose()
+    before = _source_document_columns(db_url)
+    assert "bundle_file" not in before
+
+    run_migrations(db_url)
+
+    assert _version(db_url) == "0011"
+    after = _source_document_columns(db_url)
+    assert set(after) - set(before) == {"bundle_file"}
+    assert after["bundle_file"]["nullable"] is True
+    assert isinstance(after["bundle_file"]["type"], sa.String)
+    assert after["bundle_file"]["type"].length == 255
+    assert _counts(db_url, ("source_documents", "source_document_pages")) == {
+        "source_documents": 1,
+        "source_document_pages": 1,
+    }
+    engine = make_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            assert conn.execute(sa.text("SELECT bundle_file FROM source_documents")).scalar() is None
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_to_0010_drops_only_bundle_file_and_keeps_pages(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_party_and_document(engine)
+        with engine.begin() as conn:
+            conn.execute(sa.text("UPDATE source_documents SET bundle_file = 'pp.md'"))
+    finally:
+        engine.dispose()
+    sql_before = _source_document_sql(db_url)
+    columns_before = set(_source_document_columns(db_url))
+
+    downgrade(db_url, "0010")
+
+    assert _version(db_url) == "0010"
+    assert set(_source_document_columns(db_url)) == columns_before - {"bundle_file"}
+    assert _tables(db_url) == ALL_TABLES
+    # Not recreated: the CHECKs stay and the cascade to pages never fires.
+    sql_after = _source_document_sql(db_url)
+    for name in (
+        "ck_source_documents_source_document_origin",
+        "ck_source_documents_source_document_status",
+        "ck_source_documents_source_url_matches_origin",
+    ):
+        assert name in sql_before and name in sql_after
+    assert _counts(db_url, ("source_documents", "source_document_pages")) == {
+        "source_documents": 1,
+        "source_document_pages": 1,
+    }
+    run_migrations(db_url)
+    assert _version(db_url) == "0011"
+
+
+def test_offline_postgresql_render_of_0011() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0010:0011",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0011:0010",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "ALTER TABLE source_documents ADD COLUMN bundle_file VARCHAR(255);" in up_sql
+    assert "CHECK" not in up_sql
+    assert "ALTER TABLE source_documents DROP COLUMN bundle_file;" in down.getvalue()

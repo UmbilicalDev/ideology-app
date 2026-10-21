@@ -41,7 +41,7 @@ TEXT_PAGES = ["Programa electoral\nSubir el salario mínimo.", "Página dos: edu
 TEXT_PDF = make_text_pdf(TEXT_PAGES)
 HEADER = [
     "id", "origin", "status", "pages", "content_hash", "filename", "url", "failure_reason",
-    "replaced_by",
+    "replaced_by", "bundle_file",
 ]
 
 
@@ -469,7 +469,7 @@ def test_cli_http_error_commits_failed_row(
     assert result.stderr == "Error: source document 1 failed: HTTP 404: Not Found\n"
     assert _list_rows(run) == [
         HEADER,
-        ["1", "url", "failed", "", "", "", URL, "HTTP 404: Not Found", ""],
+        ["1", "url", "failed", "", "", "", URL, "HTTP 404: Not Found", "", ""],
     ]
     assert not files_dir.exists()
 
@@ -518,7 +518,7 @@ def test_cli_encoding_error_commits_failed_row(
     )
     assert result.exit_code == 1
     assert result.stderr == f"Error: source document 1 failed: {reason}\n"
-    assert _list_rows(run) == [HEADER, ["1", "url", "failed", "", "", "", URL, reason, ""]]
+    assert _list_rows(run) == [HEADER, ["1", "url", "failed", "", "", "", URL, reason, "", ""]]
     assert not files_dir.exists()
 
 
@@ -531,7 +531,7 @@ def test_cli_blank_pdf_from_url_fails(run, cli_parties, web: FakeOpen, files_dir
     assert result.exit_code == 1
     assert result.stderr == f"Error: source document 1 failed: {NO_TEXT_LAYER}\n"
     assert _list_rows(run)[1] == [
-        "1", "url", "failed", "2", _sha(data), "programa 2023.pdf", URL, NO_TEXT_LAYER, ""
+        "1", "url", "failed", "2", _sha(data), "programa 2023.pdf", URL, NO_TEXT_LAYER, "", ""
     ]
     assert (files_dir / f"{_sha(data)}.pdf").exists()
 
@@ -610,9 +610,9 @@ def test_cli_list_shows_url_column(run, cli_parties, web: FakeOpen, tmp_path: Pa
 
     assert _list_rows(run) == [
         HEADER,
-        ["1", "url", "parsed", "2", _sha(TEXT_PDF), "programa 2023.pdf", URL, "", ""],
-        ["2", "url", "failed", "", "", "", missing, "HTTP 404: Not Found", ""],
-        ["3", "upload", "parsed", "1", _sha(upload_data), "manifesto.pdf", "", "", ""],
+        ["1", "url", "parsed", "2", _sha(TEXT_PDF), "programa 2023.pdf", URL, "", "", ""],
+        ["2", "url", "failed", "", "", "", missing, "HTTP 404: Not Found", "", ""],
+        ["3", "upload", "parsed", "1", _sha(upload_data), "manifesto.pdf", "", "", "", ""],
     ]
 
 

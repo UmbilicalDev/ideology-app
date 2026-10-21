@@ -1,0 +1,2 @@
+# Source Text files are byte-exact (text_sha256): no EOL conversion; GitHub collapses their diffs.
+data/elections/**/*.md -text linguist-generated

@@ -55,6 +55,12 @@ Rules:
 - No Voter data is stored on the server.
 - Share Link: Dataset Version id plus compactly encoded Answers placed in the URL **fragment** (`#…`), so it isn't sent to the server or recorded in access logs.
 - Dataset Versions are immutable and kept indefinitely.
+- Source Text Bundles (`source-text-bundle`): the manifesto text of each Election is committed under `data/elections/<slug>/` (`election.toml` plus one `.md` per Party); PDFs are never committed. Runbook:
+  - Add a Party's manifesto: put the PDF anywhere outside `data/`, run `ideology source extract <pdf> --party <SHORT> --out data/elections/<slug>/<file>.md [--url <public PDF URL>]`, list it in `election.toml`, commit both. Without `--url` its Evidence shows the page with no link.
+  - Import into any database (fresh or existing): `ideology db upgrade`, then `ideology data import data/elections/<slug>`. It is idempotent; `ideology data check data/elections/<slug>` confirms the database holds exactly the committed text.
+  - Once a `.md` is committed, the PDF is no longer needed by anyone (import, generation and Evidence read only the bundle), so a local-only PDF can be discarded.
+  - Replace a manifesto: put the new PDF on your machine, run `source extract … --force` over that Party's `.md` (or delete the file and extract again), review the diff, commit it. Every machine's next `data import` registers a replacement Source Document (the old one stays for older Evidence); in `live` that queues a run.
+  - Never edit a `.md` by hand: the import refuses a file that is not in canonical form or whose `text_sha256` does not match.
 
 ## Integrations
 

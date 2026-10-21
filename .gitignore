@@ -11,3 +11,5 @@ source_files/
 node_modules/
 apps/web/dist/
 *.tsbuildinfo
+# No PDF is ever committed under data/ (source-text-bundle).
+data/**/*.pdf
