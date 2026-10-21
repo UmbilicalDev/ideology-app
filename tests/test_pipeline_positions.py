@@ -236,36 +236,67 @@ def _positions(*choices: tuple[int, int, int]) -> dict[str, Any]:
     return {"positions": [{"statement": s, "value": v, "evidence": e} for s, v, e in choices]}
 
 
-@pytest.mark.parametrize(
-    ("overrides", "message"),
-    [
-        (
-            {"position_findings": _findings(_finding(statement=6))},
-            "position_findings referred to unknown statement 6",
-        ),
-        (
-            {"party_positions": _positions((6, 1, 1))},
-            "party_positions referred to unknown statement 6",
-        ),
-        (
-            {"party_positions": _positions((4, 1, 1), (2, 0, 1), (4, -1, 1))},
-            "party_positions repeated statement 4",
-        ),
-        (
-            {"party_positions": _positions((1, 1, 2))},
-            "party_positions referred to unknown evidence candidate 2 "
-            "(statement 1, 1 candidates)",
-        ),
-    ],
-    ids=["finding-statement", "position-statement", "repeated", "evidence-index"],
-)
-def test_invalid_references_raise_generation_error(
-    overrides: dict[str, Any], message: str
-) -> None:
-    fake = provider(**overrides)
+def test_repeated_statement_raises_generation_error() -> None:
+    # The schema allows a repeat; extraction rejects it.
+    fake = provider(party_positions=_positions((4, 1, 1), (2, 0, 1), (4, -1, 1)))
     with pytest.raises(GenerationError) as info:
         extract(fake, [doc(1, 1, "Uno.")])
-    assert str(info.value) == message
+    assert str(info.value) == "party_positions repeated statement 4"
+
+
+@pytest.mark.parametrize("statement", [101, 6, 0], ids=["101", "n-plus-1", "zero"])
+def test_finding_for_an_unknown_statement_is_an_output_error(statement: int) -> None:
+    fake = provider(position_findings=_findings(_finding(statement=statement)))
+    usage = Usage()
+    with pytest.raises(LLMOutputError) as info:
+        extract_positions(fake, STATEMENTS, [doc(1, 1, "Uno.")], [1], usage)
+    assert str(info.value).startswith(
+        "FakeProvider response for task 'position_findings' does not match FindingList: "
+    )
+    assert tasks(fake) == ["position_findings"]
+    assert usage.calls == 0
+
+
+@pytest.mark.parametrize(
+    "positions",
+    [
+        _positions((6, 1, 1)),
+        _positions((0, 1, 1)),
+        _positions((1, 1, 2)),
+        _positions((1, 1, 0)),
+        _positions(*[(n, 1, 1) for n in range(1, 6)], (1, 1, 1)),
+    ],
+    ids=["statement-n-plus-1", "statement-0", "evidence-k-plus-1", "evidence-0",
+         "n-plus-1-entries"],
+)
+def test_choice_out_of_range_is_an_output_error(positions: dict[str, Any]) -> None:
+    fake = provider(party_positions=positions)
+    usage = Usage()
+    with pytest.raises(LLMOutputError) as info:
+        extract_positions(fake, STATEMENTS, [doc(1, 1, "Uno.")], [1], usage)
+    assert str(info.value).startswith(
+        "FakeProvider response for task 'party_positions' does not match PositionList: "
+    )
+    assert usage.calls == 1  # the findings call succeeded
+
+
+def test_request_schemas_carry_the_statement_and_candidate_bounds() -> None:
+    fake = provider(
+        position_findings=_findings(
+            _finding(statement=1), _finding(statement=2), _finding(statement=5)
+        )
+    )
+    extract(fake, [doc(1, 1, "Uno.")])
+    findings, reduce = fake.calls
+    assert findings.schema.__name__ == "FindingList"
+    finding = findings.schema.model_json_schema()["$defs"]["Finding"]["properties"]
+    assert finding["statement"]["maximum"] == len(STATEMENTS)
+    assert reduce.schema.__name__ == "PositionList"
+    positions = reduce.schema.model_json_schema()
+    choice = positions["$defs"]["PositionChoice"]["properties"]
+    assert choice["statement"]["maximum"] == len(STATEMENTS)
+    assert choice["evidence"]["maximum"] == 3  # C1..C3
+    assert positions["properties"]["positions"]["maxItems"] == len(STATEMENTS)
 
 
 def test_any_candidate_may_support_any_statement() -> None:

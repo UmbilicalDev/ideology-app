@@ -43,7 +43,7 @@ PASSED_ROWS = [
         "topic_spread",
     )
 ]
-COUNT_20_ROW = "statement_count\tfailed\t\t\tquestionnaire has 20 statements; expected 25 to 35"
+UNIQUENESS_ROW = "statement_uniqueness\tfailed\t5\t\tstatement 5 duplicates statement 2"
 DEFAULT_SETTINGS = (
     "validation_settings: max_statements=35, max_topic_share_percent=30, "
     "min_party_coverage_percent=70, min_statements=25"
@@ -307,7 +307,9 @@ def test_usage_is_deterministic(run, report, seeded, use_fake, db_url) -> None:
 
 
 def test_report_of_a_run_that_failed_validation(run, report, seeded, use_fake) -> None:
-    use_fake(fake_provider(generate_statements=statements_payload(20)))
+    # A Validation failure the generate_statements schema still allows (since
+    # pipeline-output-bounds 20 Statements fail at generation).
+    use_fake(fake_provider(generate_statements=statements_payload(duplicate=(2, 5))))
     assert run("pipeline", "run", "--election", "1").exit_code == 1
 
     result = report(1)
@@ -315,14 +317,14 @@ def test_report_of_a_run_that_failed_validation(run, report, seeded, use_fake) -
     assert result.exit_code == 0, result.output
     got = fields(result)
     assert got["status"] == "failed"
-    assert got["failure_reason"] == "validation failed: statement_count"
+    assert got["failure_reason"] == "validation failed: statement_uniqueness"
     assert got["dataset_version"] == "1"
     assert got["dataset_version_status"] == "candidate"
-    assert got["statements"] == "20"
+    assert got["statements"] == "30"
     assert got["publication"] == "not published: the run failed; live for election 1: none"
     assert got["validation_settings"] == DEFAULT_SETTINGS.split(": ", 1)[1]
     assert got["validated_at"] != "not recorded"
-    assert COUNT_20_ROW in table(result)
+    assert UNIQUENESS_ROW in table(result)
     assert table(result) == run("pipeline", "checks", "--run", "1").output.splitlines()[1:]
 
 
@@ -564,7 +566,7 @@ def test_report_of_a_queued_run(report, seeded, db_url) -> None:
 def test_report_changes_nothing(run, report, seeded, use_fake, db_url) -> None:
     use_fake(fake_provider())
     assert run("pipeline", "run", "--election", "1").exit_code == 0
-    use_fake(fake_provider(generate_statements=statements_payload(20)))
+    use_fake(fake_provider(generate_statements=statements_payload(duplicate=(2, 5))))
     assert run("pipeline", "run", "--election", "1").exit_code == 1
     _validating_run(db_url, fake_provider())
     before = snapshot(db_url)

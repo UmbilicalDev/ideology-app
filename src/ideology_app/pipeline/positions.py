@@ -34,6 +34,8 @@ from ideology_app.pipeline.prompts import (
     FindingList,
     PositionList,
     PromptSpec,
+    finding_list_schema,
+    position_list_schema,
 )
 
 MAX_POSITION_CALLS_PER_RUN = 300
@@ -101,19 +103,27 @@ def statement_lines(statements: Sequence[str]) -> str:
     return "\n".join(f"[{n}] {text}" for n, text in enumerate(statements, start=1))
 
 
-def _request(spec: PromptSpec, **fields: object) -> LLMRequest[Any]:
+def _request(spec: PromptSpec, schema: type[Any], **fields: object) -> LLMRequest[Any]:
     return LLMRequest(
         task=spec.task,
         system=spec.system,
         prompt=spec.template.format(**fields),
-        schema=spec.schema,
+        schema=schema,
         max_tokens=spec.max_tokens,
     )
 
 
-def findings_request(statements: str, chunk: str) -> LLMRequest[Any]:
-    """The ``position_findings`` request for one chunk."""
-    return _request(POSITION_FINDINGS, statements=statements, chunk=chunk)
+def findings_request(statements: str, chunk: str, statement_count: int) -> LLMRequest[Any]:
+    """The ``position_findings`` request for one chunk.
+
+    Its schema bounds every ``statement`` to 1..``statement_count``.
+    """
+    return _request(
+        POSITION_FINDINGS,
+        finding_list_schema(statement_count),
+        statements=statements,
+        chunk=chunk,
+    )
 
 
 def _candidate_line(number: int, candidate: _Candidate) -> str:
@@ -125,15 +135,21 @@ def _candidate_line(number: int, candidate: _Candidate) -> str:
     )
 
 
-def positions_request(statements: str, candidates: Sequence[_Candidate]) -> LLMRequest[Any]:
-    """The ``party_positions`` request: candidates numbered C1, C2... in order."""
+def positions_request(
+    statements: str, candidates: Sequence[_Candidate], statement_count: int
+) -> LLMRequest[Any]:
+    """The ``party_positions`` request: candidates numbered C1, C2... in order.
+
+    Its schema bounds ``statement`` to 1..``statement_count``, ``evidence`` to
+    1..``len(candidates)`` and the list to ``statement_count`` entries.
+    """
     lines = "\n".join(_candidate_line(k, c) for k, c in enumerate(candidates, start=1))
-    return _request(PARTY_POSITIONS, statements=statements, candidates=lines)
-
-
-def _check_statement(task: str, number: int, count: int) -> None:
-    if not 1 <= number <= count:
-        raise GenerationError(f"{task} referred to unknown statement {number}")
+    return _request(
+        PARTY_POSITIONS,
+        position_list_schema(statement_count, len(candidates)),
+        statements=statements,
+        candidates=lines,
+    )
 
 
 def _reduce(
@@ -143,21 +159,15 @@ def _reduce(
     candidates: Sequence[_Candidate],
     usage: Usage,
 ) -> dict[int, PositionResult]:
-    result = provider.generate(positions_request(statements, candidates))
+    result = provider.generate(positions_request(statements, candidates, count))
     usage.record(result)
     output: PositionList = result.output
     chosen: dict[int, PositionResult] = {}
+    # The schema already bounds statement (1..count) and evidence (1..K).
     for choice in output.positions:
-        _check_statement(PARTY_POSITIONS.task, choice.statement, count)
         if choice.statement in chosen:
             raise GenerationError(
                 f"{PARTY_POSITIONS.task} repeated statement {choice.statement}"
-            )
-        if not 1 <= choice.evidence <= len(candidates):
-            raise GenerationError(
-                f"{PARTY_POSITIONS.task} referred to unknown evidence candidate "
-                f"{choice.evidence} (statement {choice.statement}, "
-                f"{len(candidates)} candidates)"
             )
         cited = candidates[choice.evidence - 1]
         chosen[choice.statement] = PositionResult(
@@ -182,8 +192,10 @@ def extract_positions(
 
     Each list holds exactly ``len(statements)`` results in Statement order;
     omitted Statements and Parties without documents are ``no stance``.
-    Raises ``GenerationError`` when the LLM output refers to an unknown
-    Statement or candidate, or repeats a Statement. ``LLMError`` propagates;
+    The request schemas bound every Statement number to 1..``len(statements)``
+    and every evidence number to the candidates listed, so out-of-range output
+    fails its call with ``LLMOutputError``. Raises ``GenerationError`` when a
+    ``party_positions`` answer repeats a Statement. ``LLMError`` propagates;
     ``usage`` keeps the counts of the calls that succeeded.
     """
     count = len(statements)
@@ -193,11 +205,10 @@ def extract_positions(
     for party_id in sorted(set(party_ids)):
         candidates: list[_Candidate] = []
         for document, chunk in chunks.get(party_id, []):
-            result = provider.generate(findings_request(listed, chunk.text))
+            result = provider.generate(findings_request(listed, chunk.text, count))
             usage.record(result)
             output: FindingList = result.output
             for finding in output.findings:
-                _check_statement(POSITION_FINDINGS.task, finding.statement, count)
                 candidates.append(
                     _Candidate(
                         finding.statement, finding.value, finding.quote, finding.page, document

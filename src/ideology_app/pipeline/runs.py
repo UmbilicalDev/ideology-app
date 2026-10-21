@@ -343,8 +343,9 @@ def execute_run(
     either ``validating`` with a complete ``candidate`` Dataset Version, or
     ``failed`` with a reason and no Dataset Version. A ``validating`` run is
     then validated by ``validate_run`` (``passed`` or ``failed``), whose outcome
-    is returned; ``validation_settings`` is passed to it (``None``: read with
-    ``config.validation_settings()`` first, so an invalid value raises
+    is returned; the same ``validation_settings`` object bounds the Statement
+    count of the ``generate_statements`` schema and is passed to it (``None``:
+    read with ``config.validation_settings()`` first, so an invalid value raises
     ``ConfigError`` before any write or LLM call). Ctrl-C records ``failed``
     (``interrupted``) and re-raises. Every successful LLM call is committed to
     ``pipeline_run_calls`` as it returns; a run queued with
@@ -360,7 +361,12 @@ def execute_run(
     usage = Usage()
     try:
         check_position_budget(run_input.documents)
-        statements = generate_statements(provider, build_chunks(run_input.documents), usage)
+        statements = generate_statements(
+            provider,
+            build_chunks(run_input.documents),
+            usage,
+            settings=validation_settings,
+        )
         positions = extract_positions(
             provider,
             [s.text for s in statements],

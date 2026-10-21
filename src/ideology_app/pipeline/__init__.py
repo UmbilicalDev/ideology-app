@@ -44,6 +44,9 @@ from ideology_app.pipeline.prompts import (
     PromptSpec,
     StatementDraft,
     StatementSet,
+    finding_list_schema,
+    position_list_schema,
+    statement_set_schema,
 )
 from ideology_app.pipeline.publishing import (
     PublishOutcome,
@@ -112,6 +115,7 @@ __all__ = [
     "execute_run",
     "extract_positions",
     "find_unfinished_run",
+    "finding_list_schema",
     "generate_statements",
     "get_dataset_version",
     "get_published_dataset_version",
@@ -121,10 +125,12 @@ __all__ = [
     "list_runs",
     "list_validation_results",
     "plan_position_calls",
+    "position_list_schema",
     "publish_dataset_version",
     "queue_run",
     "queue_run_for_source_change",
     "queues_on_source_change",
     "request_hash",
+    "statement_set_schema",
     "validate_run",
 ]

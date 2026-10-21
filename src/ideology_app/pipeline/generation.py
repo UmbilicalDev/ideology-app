@@ -9,6 +9,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from ideology_app.config import ValidationSettings
 from ideology_app.llm.base import LLMProvider, LLMRequest, LLMResult
 from ideology_app.models import SourceDocumentRole
 from ideology_app.pipeline.prompts import (
@@ -19,6 +20,7 @@ from ideology_app.pipeline.prompts import (
     PromptSpec,
     StatementDraft,
     StatementSet,
+    statement_set_schema,
 )
 
 CHUNK_MAX_CHARS = 40_000
@@ -121,12 +123,14 @@ def build_chunks(
     return [chunk.text for chunk in build_document_chunks(documents, max_chars)]
 
 
-def _request(spec: PromptSpec, **fields: object) -> LLMRequest[Any]:
+def _request(
+    spec: PromptSpec, schema: type[Any] | None = None, **fields: object
+) -> LLMRequest[Any]:
     return LLMRequest(
         task=spec.task,
         system=spec.system,
         prompt=spec.template.format(**fields),
-        schema=spec.schema,
+        schema=spec.schema if schema is None else schema,
         max_tokens=spec.max_tokens,
     )
 
@@ -136,21 +140,45 @@ def candidate_request(chunk: str) -> LLMRequest[Any]:
     return _request(STATEMENT_CANDIDATES, chunk=chunk)
 
 
-def reduce_request(candidates: Iterable[StatementDraft]) -> LLMRequest[Any]:
-    """The ``generate_statements`` request: candidates deduplicated and sorted."""
+def reduce_request(
+    candidates: Iterable[StatementDraft], settings: ValidationSettings | None = None
+) -> LLMRequest[Any]:
+    """The ``generate_statements`` request: candidates deduplicated and sorted.
+
+    The schema bounds the Statement count to ``settings.min_statements`` ..
+    ``settings.max_statements`` (``None``: the ``config.ValidationSettings``
+    defaults; env is never read here). The prompt asks for
+    ``TARGET_STATEMENT_COUNT`` clamped to that range.
+    """
+    if settings is None:
+        settings = ValidationSettings()
+    low, high = settings.min_statements, settings.max_statements
     unique = sorted({(c.topic, c.text) for c in candidates})
     lines = "\n".join(f"- [{topic}] {text}" for topic, text in unique)
-    return _request(GENERATE_STATEMENTS, candidates=lines, count=TARGET_STATEMENT_COUNT)
+    return _request(
+        GENERATE_STATEMENTS,
+        schema=statement_set_schema(low, high),
+        candidates=lines,
+        count=min(max(TARGET_STATEMENT_COUNT, low), high),
+        min_count=low,
+        max_count=high,
+    )
 
 
 def generate_statements(
-    provider: LLMProvider, chunks: Sequence[str], usage: Usage
+    provider: LLMProvider,
+    chunks: Sequence[str],
+    usage: Usage,
+    settings: ValidationSettings | None = None,
 ) -> list[StatementDraft]:
     """Map each chunk to candidates, then reduce them to the final Statements.
 
-    Raises ``GenerationError`` before any call when there are too many chunks,
-    or when no chunk yields a candidate. ``LLMError`` from the provider
-    propagates; ``usage`` keeps the counts of the calls that succeeded.
+    ``settings`` (a ``config.ValidationSettings``; ``None``: its defaults)
+    bounds the Statement count in the reduce schema, so an out-of-range list
+    fails that call with ``LLMOutputError``. Raises ``GenerationError`` before
+    any call when there are too many chunks, or when no chunk yields a
+    candidate. ``LLMError`` from the provider propagates; ``usage`` keeps the
+    counts of the calls that succeeded.
     """
     if len(chunks) + 1 > MAX_LLM_CALLS_PER_RUN:
         raise GenerationError(
@@ -164,7 +192,7 @@ def generate_statements(
         candidates.extend(output.candidates)
     if not candidates:
         raise GenerationError(NO_CANDIDATES_REASON)
-    result = provider.generate(reduce_request(candidates))
+    result = provider.generate(reduce_request(candidates, settings))
     usage.record(result)
     final: StatementSet = result.output
     return list(final.statements)
