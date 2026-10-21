@@ -18,6 +18,9 @@ from ideology_app.llm import (
     LLMProviderError,
     LLMRequest,
 )
+from ideology_app.pipeline.generation import reduce_request
+from ideology_app.pipeline.positions import findings_request
+from ideology_app.pipeline.prompts import StatementDraft
 
 LLM_ENV_VARS = ("ANTHROPIC_API_KEY", "LLM_PROVIDER", "LLM_MODEL", "GENERATION_MODE")
 SECRET = "sk-secret-test"
@@ -207,3 +210,57 @@ def test_env_key_creates_owned_client_that_close_releases(
         provider.generate(REQUEST)
     assert SECRET not in str(info.value)
     assert provider._client is None  # closed and released on exit
+
+
+# pipeline-output-bounds: bounded schemas through the Anthropic SDK. The SDK
+# does not send minimum, maximum, maxItems or a minItems above 1 as constraints:
+# it appends them to the field description as hints and validates on the client.
+
+
+def _sent_schema(request: httpx2.Request) -> dict[str, Any]:
+    return json.loads(request.content)["output_config"]["format"]["schema"]
+
+
+def test_bounded_findings_request_sends_the_bound_as_a_hint_and_validates(
+    mock_provider: Any,
+) -> None:
+    finding = {"statement": 101, "value": 1, "quote": "Uno.", "page": 1}
+    provider, captured = mock_provider(
+        lambda request: message_response(json.dumps({"findings": [finding]}))
+    )
+
+    with pytest.raises(LLMOutputError) as info:
+        provider.generate(findings_request("[1] A", "[página 1]\nUno.", 30))
+
+    assert str(info.value).startswith(
+        "Anthropic output for task 'position_findings' does not match FindingList: "
+    )
+    statement = _sent_schema(captured[0])["$defs"]["Finding"]["properties"]["statement"]
+    assert statement["type"] == "integer"
+    assert "maximum: 30" in statement["description"]
+    assert "maximum" not in statement
+
+
+def test_bounded_statement_count_is_validated_on_the_client(mock_provider: Any) -> None:
+    drafts = [{"text": f"Afirmación {n}.", "topic": "housing"} for n in range(38)]
+    provider, captured = mock_provider(
+        lambda request: message_response(json.dumps({"statements": drafts}))
+    )
+
+    with pytest.raises(LLMOutputError, match="does not match StatementSet"):
+        provider.generate(reduce_request([StatementDraft(text="Alfa.", topic="housing")]))
+
+    statements = _sent_schema(captured[0])["properties"]["statements"]
+    assert "maxItems: 35" in statements["description"]
+    assert "minItems: 25" in statements["description"]
+
+
+def test_in_range_bounded_output_passes(mock_provider: Any) -> None:
+    finding = {"statement": 30, "value": -2, "quote": "Uno.", "page": 1}
+    provider, _ = mock_provider(
+        lambda request: message_response(json.dumps({"findings": [finding]}))
+    )
+
+    result = provider.generate(findings_request("[1] A", "[página 1]\nUno.", 30))
+
+    assert [f.statement for f in result.output.findings] == [30]

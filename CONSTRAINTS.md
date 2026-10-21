@@ -38,6 +38,7 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - The `claude_code` child environment MUST strip every `ANTHROPIC_*` and `CLAUDE*` variable except `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CONFIG_DIR`, the provider MUST NOT read or pass an API key, and `--bare` MUST NOT be used. Reason: an inherited key or session token would bill the API or authenticate as another session (the one real call during planning failed with 401 for exactly this reason); `--bare` forces API-key auth.
 - `claude_code` MUST NOT be used in a deployment or to serve Voters; it is for local Operator runs with the Operator's own subscription. Use `anthropic` there. Reason: subscription terms and usage limits, and the in-process multi-hour waits.
 - An `AnthropicProvider` that creates its own client MUST be closed (`with provider:` or `close()`). Reason: an unclosed HTTP client can emit a `ResourceWarning`, which fails the gate.
+- The `generate_statements` request schema MUST take its Statement-count bounds from the same `ValidationSettings` object that the run's Validation uses (never a second copy). Every Statement or candidate number that an LLM output schema accepts MUST be bounded to the numbers listed in that request (`statement_set_schema`, `finding_list_schema`, `position_list_schema` in `pipeline/prompts.py`). Reason: such output then fails at the call that produced it, not hours later at Validation or silently as a stance on a Statement that does not exist (`pipeline-output-bounds`).
 
 ## Pipeline
 

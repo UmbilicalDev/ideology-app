@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from pipeline_fixtures import candidates_response, fake_provider, offline_guard, statements_payload
 
+from ideology_app.config import ValidationSettings
 from ideology_app.llm import FakeProvider, LLMOutputError, LLMProviderError, LLMRequest
 from ideology_app.pipeline import (
     CHUNK_MAX_CHARS,
@@ -19,7 +20,7 @@ from ideology_app.pipeline import (
     generate_statements,
 )
 from ideology_app.pipeline.generation import candidate_request, reduce_request
-from ideology_app.pipeline.prompts import StatementDraft
+from ideology_app.pipeline.prompts import StatementDraft, StatementSet
 
 
 @pytest.fixture(autouse=True)
@@ -137,6 +138,7 @@ def test_reduce_request_dedupes_and_sorts_candidates() -> None:
     )
     assert request.prompt.count("Zeta.") == 2
     assert "30 afirmaciones" in request.prompt
+    assert "(como mínimo 25 y como máximo 35)" in request.prompt
 
 
 def test_generation_returns_statements_as_given_and_counts_usage() -> None:
@@ -217,3 +219,65 @@ def test_schema_mismatch_is_an_output_error() -> None:
     with pytest.raises(LLMOutputError):
         generate_statements(provider, ["a"], usage)
     assert usage.calls == 1
+
+
+# pipeline-output-bounds: the reduce schema bounds the Statement count.
+
+
+@pytest.mark.parametrize("count", [20, 38, 44])
+def test_out_of_range_statement_count_is_an_output_error(count: int) -> None:
+    provider = fake_provider(generate_statements=statements_payload(count))
+    usage = Usage()
+    with pytest.raises(LLMOutputError) as excinfo:
+        generate_statements(provider, ["a"], usage)
+    assert str(excinfo.value).startswith(
+        "FakeProvider response for task 'generate_statements' does not match StatementSet: "
+    )
+    assert usage.calls == 1  # only the candidates call succeeded
+
+
+@pytest.mark.parametrize("count", [25, 35])
+def test_statement_count_at_the_default_limits_passes(count: int) -> None:
+    provider = fake_provider(generate_statements=statements_payload(count))
+    assert len(generate_statements(provider, ["a"], Usage())) == count
+
+
+def test_configured_range_drives_the_schema_and_prompt() -> None:
+    settings = ValidationSettings(min_statements=36, max_statements=40)
+    provider = fake_provider(generate_statements=statements_payload(38))
+    statements = generate_statements(provider, ["a"], Usage(), settings=settings)
+    assert len(statements) == 38
+    request = provider.calls[-1]
+    assert issubclass(request.schema, StatementSet)
+    bounds = request.schema.model_json_schema()["properties"]["statements"]
+    assert (bounds["minItems"], bounds["maxItems"]) == (36, 40)
+    assert "36 afirmaciones del cuestionario (como mínimo 36 y como máximo 40)" in (
+        request.prompt
+    )
+
+    narrow = fake_provider(generate_statements=statements_payload(30))
+    with pytest.raises(LLMOutputError, match="does not match StatementSet"):
+        generate_statements(narrow, ["a"], Usage(), settings=settings)
+
+
+def test_default_settings_bound_the_reduce_request() -> None:
+    drafts = [StatementDraft(text="Alfa.", topic="housing")]
+    request = reduce_request(drafts)
+    assert request.schema is reduce_request(drafts, ValidationSettings()).schema
+    bounds = request.schema.model_json_schema()["properties"]["statements"]
+    assert (bounds["minItems"], bounds["maxItems"]) == (25, 35)
+    assert request.schema is not StatementSet  # the 1..60 base type is never sent
+
+
+@pytest.mark.parametrize(
+    ("low", "high", "count"), [(10, 20, 20), (36, 40, 36), (25, 35, 30), (30, 30, 30)]
+)
+def test_requested_count_is_the_target_clamped_to_the_range(
+    low: int, high: int, count: int
+) -> None:
+    settings = ValidationSettings(min_statements=low, max_statements=high)
+    request = reduce_request([StatementDraft(text="Alfa.", topic="housing")], settings)
+    assert (
+        f"lista final de {count} afirmaciones del cuestionario "
+        f"(como mínimo {low} y como máximo {high})"
+    ) in request.prompt

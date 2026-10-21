@@ -518,8 +518,9 @@ def test_unknown_candidate_and_malformed_version_ids(
 ) -> None:
     seed_election(migrated_engine)
     v1 = run_pipeline(migrated_engine, fake_provider())
+    # A failed Validation the generate_statements schema still allows.
     v3 = run_pipeline(
-        migrated_engine, fake_provider(generate_statements=statements_payload(20))
+        migrated_engine, fake_provider(generate_statements=statements_payload(duplicate=(2, 5)))
     )
     with Session(migrated_engine) as session:
         candidate = session.get(DatasetVersion, v3)
@@ -554,7 +555,9 @@ def test_election_without_published_version(
 ) -> None:
     seed_election(migrated_engine)
     # Only a candidate version (failed Validation): still no Published version.
-    run_pipeline(migrated_engine, fake_provider(generate_statements=statements_payload(20)))
+    run_pipeline(
+        migrated_engine, fake_provider(generate_statements=statements_payload(duplicate=(2, 5)))
+    )
     client = client_for()
 
     none_yet = client.get("/api/v1/elections/1/published-dataset-version")

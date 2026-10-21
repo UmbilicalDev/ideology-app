@@ -79,8 +79,12 @@ def validating_run(engine: Engine, provider: FakeProvider | None = None) -> int:
 
 
 def failing_provider() -> FakeProvider:
-    """20 Statements: fails ``statement_count`` (minimum 25)."""
-    return fake_provider(generate_statements=statements_payload(20))
+    """Statement 5 repeats Statement 2: fails ``statement_uniqueness``.
+
+    (Since pipeline-output-bounds a count outside 25..35 fails at generation,
+    so a Validation failure needs one the schema still allows.)
+    """
+    return fake_provider(generate_statements=statements_payload(duplicate=(2, 5)))
 
 
 def run_status(engine: Engine, run_id: int) -> PipelineRunStatus:
@@ -278,7 +282,7 @@ def test_failing_run_keeps_the_published_version(seeded: Engine) -> None:
     assert outcome.status is PipelineRunStatus.FAILED
     assert outcome.failure_reason is not None
     assert outcome.failure_reason.startswith("validation failed: ")
-    assert "statement_count" in outcome.failed_checks
+    assert outcome.failed_checks == ("statement_uniqueness",)
     assert outcome.publish is None
     v2 = outcome.dataset_version_id
     assert v1 is not None and v2 is not None

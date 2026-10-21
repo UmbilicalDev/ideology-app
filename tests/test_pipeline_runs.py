@@ -60,8 +60,10 @@ from ideology_app.pipeline import (
     list_runs,
     list_validation_results,
     queue_run,
+    validate_run,
 )
 from ideology_app.pipeline import positions as positions_module
+from ideology_app.pipeline import runs as runs_module
 
 
 @pytest.fixture(autouse=True)
@@ -141,9 +143,9 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
     assert run.generation_mode is GenerationMode.PRECOMPUTED
     assert run.prompt_versions == {
         "statement_candidates": "v1",
-        "generate_statements": "v1",
-        "position_findings": "v1",
-        "party_positions": "v1",
+        "generate_statements": "v2",
+        "position_findings": "v2",
+        "party_positions": "v2",
     }
     assert run.llm_calls == 7
     in_tokens = sum(len(f"{c.system} {c.prompt}".split()) for c in provider.calls)
@@ -189,7 +191,13 @@ def test_statements_are_stored_as_returned_even_if_odd(seeded: Engine) -> None:
         ]
     }
     provider = fake_provider(generate_statements=odd)
-    outcome = execute_run(seeded, queue(seeded, provider), provider)
+    run_id = queue(seeded, provider)
+    # Since pipeline-output-bounds the schema bounds the count, so generate with
+    # a range that allows 3 and validate afterwards with the defaults (25..35).
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(runs_module, "validate_run", lambda engine, run_id, **kwargs: None)
+        execute_run(seeded, run_id, provider, ValidationSettings(min_statements=1))
+    outcome = validate_run(seeded, run_id, settings=ValidationSettings())
 
     # Generation stores them as returned; Validation (not generation) then
     # rejects the duplicate, the count and the topic share, dropping nothing.
@@ -522,9 +530,9 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
     run = read_run(seeded, run_id)
     assert run.prompt_versions == {
         "statement_candidates": "v1",
-        "generate_statements": "v1",
-        "position_findings": "v1",
-        "party_positions": "v1",
+        "generate_statements": "v2",
+        "position_findings": "v2",
+        "party_positions": "v2",
     }
     assert [c.task for c in provider.calls] == [
         "statement_candidates",
@@ -797,15 +805,25 @@ def _raise(exc: Exception) -> Any:
 @pytest.mark.parametrize(
     ("overrides", "reason", "calls"),
     [
+        # Since pipeline-output-bounds the schema rejects unknown numbers, so the
+        # call fails (and is not counted) instead of a GenerationError after it.
         (
             {"position_findings": _findings_with(statement=31)},
-            "position_findings referred to unknown statement 31",
-            4,
+            "FakeProvider response for task 'position_findings' does not match "
+            "FindingList: 1 validation error(s)",
+            3,
+        ),
+        (
+            {"position_findings": _findings_with(statement=101)},
+            "FakeProvider response for task 'position_findings' does not match "
+            "FindingList: 1 validation error(s)",
+            3,
         ),
         (
             {"party_positions": _positions((31, 1, 1))},
-            "party_positions referred to unknown statement 31",
-            5,
+            "FakeProvider response for task 'party_positions' does not match "
+            "PositionList: 1 validation error(s)",
+            4,
         ),
         (
             {"party_positions": _positions((4, 1, 1), (4, -1, 2))},
@@ -814,9 +832,9 @@ def _raise(exc: Exception) -> Any:
         ),
         (
             {"party_positions": _positions((1, 1, 3))},
-            "party_positions referred to unknown evidence candidate 3 "
-            "(statement 1, 2 candidates)",
-            5,
+            "FakeProvider response for task 'party_positions' does not match "
+            "PositionList: 1 validation error(s)",
+            4,
         ),
         (
             {"party_positions": _positions((1, 3, 1))},
@@ -861,6 +879,7 @@ def _raise(exc: Exception) -> Any:
     ],
     ids=[
         "finding-unknown-statement",
+        "finding-statement-101",
         "position-unknown-statement",
         "position-repeated-statement",
         "position-unknown-evidence",
@@ -1091,3 +1110,56 @@ def test_queue_run_finds_parsed_input_after_a_replacement(migrated_engine: Engin
     run_id = queue(migrated_engine)
 
     assert read_run(migrated_engine, run_id).status is PipelineRunStatus.QUEUED
+
+
+# pipeline-output-bounds: the Statement count is bounded at generation.
+
+
+@pytest.mark.parametrize("count", [44, 38, 20])
+def test_out_of_range_statement_count_fails_before_any_position_call(
+    seeded: Engine, count: int
+) -> None:
+    provider = fake_provider(generate_statements=statements_payload(count))
+    outcome = execute_run(seeded, queue(seeded, provider), provider)
+
+    _assert_failed(
+        seeded,
+        outcome,
+        "FakeProvider response for task 'generate_statements' does not match "
+        "StatementSet: 1 validation error(s)",
+        calls=2,
+    )
+    assert [c.task for c in provider.calls] == ["statement_candidates"] * 2 + [
+        "generate_statements"
+    ]
+
+
+def test_env_statement_range_drives_generation_and_validation(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "36")
+    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "40")
+    provider = fake_provider(generate_statements=statements_payload(38))
+    outcome = execute_run(seeded, queue(seeded, provider), provider, None)
+
+    assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
+    assert outcome.statement_count == 38
+    reduce = next(c for c in provider.calls if c.task == "generate_statements")
+    bounds = reduce.schema.model_json_schema()["properties"]["statements"]
+    assert (bounds["minItems"], bounds["maxItems"]) == (36, 40)
+    assert "(como mínimo 36 y como máximo 40)" in reduce.prompt
+    run = read_run(seeded, outcome.run_id)
+    assert run.validation_settings["min_statements"] == 36
+    assert run.validation_settings["max_statements"] == 40
+    with Session(seeded) as s:
+        checks = {r.check_name: r.passed for r in list_validation_results(s, outcome.run_id)}
+    assert checks["statement_count"] is True
+
+    narrow = fake_provider(generate_statements=statements_payload(30))
+    failed = execute_run(seeded, queue(seeded, narrow), narrow, None)
+    assert failed.status is PipelineRunStatus.FAILED
+    assert failed.failure_reason == (
+        "FakeProvider response for task 'generate_statements' does not match "
+        "StatementSet: 1 validation error(s)"
+    )
+    assert failed.dataset_version_id is None

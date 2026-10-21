@@ -5,7 +5,7 @@ import json
 
 import pytest
 from pipeline_fixtures import PARTIES, offline_guard
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from ideology_app.pipeline import (
     GENERATE_STATEMENTS,
@@ -24,16 +24,35 @@ from ideology_app.pipeline import (
     PromptSpec,
     StatementDraft,
     StatementSet,
+    finding_list_schema,
+    position_list_schema,
+    request_hash,
+    statement_set_schema,
 )
+from ideology_app.pipeline.generation import candidate_request
 
 # To change a prompt: bump its version, then replace its entry here with the new
 # (task, version) and the fingerprint printed by the failing test.
 FINGERPRINTS = {
     ("statement_candidates", "v1"): "a2073f8c4dcc630a08056db3bef2f59f3e412532693fd2b364af902bbfbe1177",
-    ("generate_statements", "v1"): "3c8431a896d5bfd1357d74b7bf3e474db4f00b8e5c14510e98406222010c2e39",
-    ("position_findings", "v1"): "63888355b8d8d698510ab87764593a3be8a80fbbf242b2e7bd9489ffbc616fbe",
-    ("party_positions", "v1"): "4d819d2a639b8bac9f3fff66a5a3201face47e53af45507cc9d036ec7b27b490",
+    ("generate_statements", "v2"): "a1c732fca7b482760df9f2a3e09b8331a20b993b1c32fc61640b432a601e1704",
+    ("position_findings", "v2"): "d64cc4a53bbf4ca79f7088b4a85dad6464521074b8bcdff8c5ce5c782fcbc8bb",
+    ("party_positions", "v2"): "cd473fcb60cd0ad4c7cbbd0e30c4d5c1d2bfeb37340bcd4aa7801277f1eee9e3",
 }
+
+# Requests use the bounded builders, so each prompt is pinned with a reference
+# schema: a builder change then fails the pin too.
+REFERENCE_SCHEMAS = {
+    "statement_candidates": lambda: CandidateList,
+    "generate_statements": lambda: statement_set_schema(25, 35),
+    "position_findings": lambda: finding_list_schema(30),
+    "party_positions": lambda: position_list_schema(30, 10),
+}
+
+# request_hash("fake", "fake-model", candidate_request("[página 1]\nTexto")) computed
+# on base commit b992e57, before pipeline-output-bounds: the statement_candidates
+# request must stay byte-identical so recorded calls stay reusable.
+CANDIDATE_REQUEST_HASH = "2936c24068bdc5d815241addb8324d71f4032fc878e880cd953fb36feccf9dab"
 
 
 @pytest.fixture(autouse=True)
@@ -41,12 +60,15 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     offline_guard(monkeypatch)
 
 
-def fingerprint(spec: PromptSpec) -> str:
+def fingerprint(spec: PromptSpec, schema: type[BaseModel] | None = None) -> str:
+    """Hash of the system text, template and schema (default: the task's reference)."""
+    if schema is None:
+        schema = REFERENCE_SCHEMAS[spec.task]()
     payload = json.dumps(
         {
             "system": spec.system,
             "template": spec.template,
-            "schema": spec.schema.model_json_schema(),
+            "schema": schema.model_json_schema(),
         },
         sort_keys=True,
         ensure_ascii=False,
@@ -75,23 +97,34 @@ def test_fingerprint_detects_a_change() -> None:
     )
     assert fingerprint(changed) != FINGERPRINTS[(changed.task, changed.version)]
 
-    other_schema = PromptSpec(
-        task=STATEMENT_CANDIDATES.task,
-        version=STATEMENT_CANDIDATES.version,
-        system=STATEMENT_CANDIDATES.system,
-        template=STATEMENT_CANDIDATES.template,
-        schema=StatementSet,
-        max_tokens=STATEMENT_CANDIDATES.max_tokens,
-    )
-    assert fingerprint(other_schema) != FINGERPRINTS[(changed.task, changed.version)]
+    key = (STATEMENT_CANDIDATES.task, STATEMENT_CANDIDATES.version)
+    assert fingerprint(STATEMENT_CANDIDATES, StatementSet) != FINGERPRINTS[key]
+    # A builder change fails the pin too.
+    findings = (POSITION_FINDINGS.task, POSITION_FINDINGS.version)
+    assert fingerprint(POSITION_FINDINGS, finding_list_schema(31)) != FINGERPRINTS[findings]
+    positions = (PARTY_POSITIONS.task, PARTY_POSITIONS.version)
+    assert fingerprint(PARTY_POSITIONS, position_list_schema(30, 11)) != FINGERPRINTS[positions]
+    generate = (GENERATE_STATEMENTS.task, GENERATE_STATEMENTS.version)
+    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(25, 36)) != FINGERPRINTS[generate]
+
+
+def test_statement_candidates_request_is_byte_identical() -> None:
+    # Its recorded calls must stay reusable by --resume-from (pipeline-output-bounds).
+    assert STATEMENT_CANDIDATES.version == "v1"
+    assert fingerprint(STATEMENT_CANDIDATES, STATEMENT_CANDIDATES.schema) == FINGERPRINTS[
+        ("statement_candidates", "v1")
+    ]
+    request = candidate_request("[página 1]\nTexto")
+    assert request.schema is CandidateList
+    assert request_hash("fake", "fake-model", request) == CANDIDATE_REQUEST_HASH
 
 
 def test_prompt_versions_and_constants() -> None:
     assert PROMPT_VERSIONS == {
         "statement_candidates": "v1",
-        "generate_statements": "v1",
-        "position_findings": "v1",
-        "party_positions": "v1",
+        "generate_statements": "v2",
+        "position_findings": "v2",
+        "party_positions": "v2",
     }
     assert POSITION_FINDINGS.schema is FindingList
     assert POSITION_FINDINGS.max_tokens == 4096
@@ -119,8 +152,11 @@ def test_system_prompt_states_the_rules(spec: PromptSpec) -> None:
 def test_reduce_prompt_adds_list_rules() -> None:
     assert "cuarta parte" in GENERATE_STATEMENTS.system
     assert "casi duplicadas" in GENERATE_STATEMENTS.system
-    assert str(TARGET_STATEMENT_COUNT) in GENERATE_STATEMENTS.system
-    assert "{count}" in GENERATE_STATEMENTS.template
+    # The count lives only in the template, so it cannot contradict the range.
+    assert str(TARGET_STATEMENT_COUNT) not in GENERATE_STATEMENTS.system
+    assert "afirmaciones en total" not in GENERATE_STATEMENTS.system
+    for field in ("{count}", "{min_count}", "{max_count}"):
+        assert field in GENERATE_STATEMENTS.template
     assert "{candidates}" in GENERATE_STATEMENTS.template
     assert "{chunk}" in STATEMENT_CANDIDATES.template
 
@@ -250,3 +286,105 @@ def test_position_list_limits() -> None:
     assert len(PositionList.model_validate({"positions": [_CHOICE] * 60}).positions) == 60
     with pytest.raises(ValidationError):
         PositionList.model_validate({"positions": [_CHOICE] * 61})
+
+
+# Bounded schema builders (pipeline-output-bounds).
+
+_DRAFT = {"text": "Subir el salario mínimo.", "topic": "employment"}
+
+
+def test_statement_set_schema_bounds_the_count() -> None:
+    schema = statement_set_schema(25, 35)
+    for n in (25, 30, 35):
+        assert len(schema.model_validate({"statements": [_DRAFT] * n}).statements) == n
+    for n in (24, 36, 38, 44):
+        with pytest.raises(ValidationError):
+            schema.model_validate({"statements": [_DRAFT] * n})
+    statements = schema.model_json_schema()["properties"]["statements"]
+    assert statements["minItems"] == 25 and statements["maxItems"] == 35
+
+
+def test_finding_list_schema_bounds_the_statement() -> None:
+    schema = finding_list_schema(30)
+    for n in (1, 30):
+        schema.model_validate({"findings": [_FINDING | {"statement": n}]})
+    for n in (0, 31, 101):
+        with pytest.raises(ValidationError):
+            schema.model_validate({"findings": [_FINDING | {"statement": n}]})
+    with pytest.raises(ValidationError):
+        schema.model_validate({"findings": [_FINDING] * 61})
+    json_schema = schema.model_json_schema()
+    assert json_schema["$defs"]["Finding"]["properties"]["statement"] == {
+        "maximum": 30, "minimum": 1, "title": "Statement", "type": "integer"
+    }
+    assert json_schema["properties"]["findings"]["maxItems"] == 60
+
+
+def test_position_list_schema_bounds_statement_evidence_and_length() -> None:
+    schema = position_list_schema(30, 10)
+    choices = [_CHOICE | {"statement": n, "evidence": 10} for n in range(1, 31)]
+    assert len(schema.model_validate({"positions": choices}).positions) == 30
+    for change in ({"statement": 0}, {"statement": 31}, {"evidence": 0}, {"evidence": 11}):
+        with pytest.raises(ValidationError):
+            schema.model_validate({"positions": [_CHOICE | change]})
+    with pytest.raises(ValidationError):
+        schema.model_validate({"positions": [_CHOICE] * 31})
+    # Repeats pass the schema; extraction rejects them.
+    assert len(schema.model_validate({"positions": [_CHOICE] * 2}).positions) == 2
+    json_schema = schema.model_json_schema()
+    choice = json_schema["$defs"]["PositionChoice"]["properties"]
+    assert choice["statement"]["maximum"] == 30
+    assert choice["evidence"] == {
+        "maximum": 10, "minimum": 1, "title": "Evidence", "type": "integer"
+    }
+    assert json_schema["properties"]["positions"]["maxItems"] == 30
+
+
+@pytest.mark.parametrize(
+    ("bounded", "base"),
+    [
+        (lambda: statement_set_schema(25, 35), StatementSet),
+        (lambda: finding_list_schema(30), FindingList),
+        (lambda: position_list_schema(30, 10), PositionList),
+    ],
+    ids=["statement_set", "finding_list", "position_list"],
+)
+def test_bounded_schema_keeps_the_base_name_and_is_cached(bounded, base) -> None:
+    schema = bounded()
+    assert issubclass(schema, base)
+    assert schema.__name__ == base.__name__
+    assert schema.__doc__ == base.__doc__
+    json_schema = schema.model_json_schema()
+    assert json_schema["title"] == base.model_json_schema()["title"]
+    assert json_schema["description"] == base.model_json_schema()["description"]
+    assert bounded() is schema
+
+
+def test_bounded_item_types_keep_their_base_names() -> None:
+    finding = finding_list_schema(30).model_json_schema()["$defs"]["Finding"]
+    assert finding["title"] == "Finding"
+    assert finding["description"] == Finding.__doc__
+    choice = position_list_schema(30, 10).model_json_schema()["$defs"]["PositionChoice"]
+    assert choice["title"] == "PositionChoice"
+    assert choice["description"] == PositionChoice.__doc__
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: statement_set_schema(0, 35),
+        lambda: statement_set_schema(25, 0),
+        lambda: statement_set_schema(36, 35),
+        lambda: statement_set_schema(True, 35),
+        lambda: statement_set_schema(25.0, 35),
+        lambda: finding_list_schema(0),
+        lambda: finding_list_schema(-1),
+        lambda: position_list_schema(0, 10),
+        lambda: position_list_schema(30, 0),
+    ],
+    ids=["set-min-0", "set-max-0", "set-min-above-max", "set-bool", "set-float",
+         "findings-0", "findings-negative", "positions-n-0", "positions-k-0"],
+)
+def test_builders_reject_invalid_bounds(build) -> None:
+    with pytest.raises(ValueError):
+        build()

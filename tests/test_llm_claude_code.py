@@ -29,14 +29,21 @@ from ideology_app.llm import (
     build_provider,
     claude_code_provider,
 )
+from ideology_app.config import ValidationSettings
 from ideology_app.llm.claude_code_provider import (
     TRANSIENT_BACKOFF,
     TRANSIENT_RETRIES,
     USAGE_LIMIT_FALLBACK_WAIT,
     USAGE_LIMIT_MARGIN,
+    build_argv,
     child_env,
     parse_reset_text,
 )
+from ideology_app.models import SourceDocumentRole
+from ideology_app.pipeline import DocumentPages
+from ideology_app.pipeline.generation import reduce_request
+from ideology_app.pipeline.positions import _Candidate, findings_request, positions_request
+from ideology_app.pipeline.prompts import StatementDraft
 
 GUARDED_ENV = (
     "ANTHROPIC_API_KEY",
@@ -908,3 +915,53 @@ def test_guard_blocks_the_real_cli_and_sockets() -> None:
     with pytest.raises(AssertionError, match="network access is blocked"):
         socket.create_connection(("example.com", 443))
     assert all(name not in os.environ for name in GUARDED_ENV)
+
+
+# pipeline-output-bounds: the bounded schemas reach --json-schema
+
+
+def _sent_schema(request: LLMRequest[Any]) -> dict[str, Any]:
+    argv = build_argv(BIN, MODEL, request)
+    return json.loads(argv[argv.index("--json-schema") + 1])
+
+
+def _candidates(count: int) -> list[_Candidate]:
+    document = DocumentPages(1, 1, [(1, "Uno.")], role=SourceDocumentRole.MAIN)
+    return [_Candidate(1, 1, "Uno.", 1, document) for _ in range(count)]
+
+
+def test_findings_request_bounds_reach_the_cli() -> None:
+    schema = _sent_schema(findings_request("[1] A", "[página 1]\nUno.", 30))
+    assert schema["$defs"]["Finding"]["properties"]["statement"] == {
+        "maximum": 30, "minimum": 1, "title": "Statement", "type": "integer"
+    }
+
+
+def test_positions_request_bounds_reach_the_cli() -> None:
+    schema = _sent_schema(positions_request("[1] A", _candidates(10), 30))
+    choice = schema["$defs"]["PositionChoice"]["properties"]
+    assert choice["statement"]["maximum"] == 30
+    assert choice["evidence"]["maximum"] == 10
+    assert schema["properties"]["positions"]["maxItems"] == 30
+
+
+def test_reduce_request_bounds_reach_the_cli() -> None:
+    drafts = [StatementDraft(text="Alfa.", topic="housing")]
+    default = _sent_schema(reduce_request(drafts))["properties"]["statements"]
+    assert (default["minItems"], default["maxItems"]) == (25, 35)
+    configured = _sent_schema(
+        reduce_request(drafts, ValidationSettings(min_statements=36, max_statements=40))
+    )["properties"]["statements"]
+    assert (configured["minItems"], configured["maxItems"]) == (36, 40)
+
+
+def test_out_of_range_structured_output_is_an_output_error() -> None:
+    finding = {"statement": 101, "value": 1, "quote": "Uno.", "page": 1}
+    provider, runner, _, _ = make_provider(success({"findings": [finding]}))
+
+    with pytest.raises(LLMOutputError) as info:
+        provider.generate(findings_request("[1] A", "[página 1]\nUno.", 30))
+
+    assert "'position_findings'" in str(info.value)
+    assert "FindingList" in str(info.value)
+    assert len(runner.calls) == 1
