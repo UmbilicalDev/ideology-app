@@ -14,6 +14,8 @@ DEFAULT_LLM_PROVIDER = "anthropic"
 # Default model per provider. Adding a provider adds one entry here.
 DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-5-5",
+    # The full id the Claude Code CLI's ``sonnet`` alias resolves to (2.1.110).
+    "claude_code": "claude-sonnet-4-6",
     "fake": "fake-model",
 }
 
@@ -38,6 +40,10 @@ DEFAULT_MAX_TOPIC_SHARE_PERCENT = 30
 
 DEFAULT_SOURCE_REFETCH_INTERVAL_HOURS = 6
 
+DEFAULT_CLAUDE_CODE_BIN = "claude"
+DEFAULT_CLAUDE_CODE_TIMEOUT_SECONDS = 900
+DEFAULT_CLAUDE_CODE_MAX_WAIT_HOURS = 48
+
 
 @dataclass(frozen=True)
 class LLMSettings:
@@ -45,6 +51,21 @@ class LLMSettings:
 
     provider: str
     model: str
+
+
+@dataclass(frozen=True)
+class ClaudeCodeSettings:
+    """How the ``claude_code`` provider runs the local Claude Code CLI.
+
+    ``bin``: the executable name or path (looked up on ``PATH``).
+    ``timeout_seconds``: the limit for one CLI call.
+    ``max_wait_hours``: the most a single ``generate`` may wait, in total, for
+    the subscription usage limit to reset before it fails.
+    """
+
+    bin: str = DEFAULT_CLAUDE_CODE_BIN
+    timeout_seconds: int = DEFAULT_CLAUDE_CODE_TIMEOUT_SECONDS
+    max_wait_hours: int = DEFAULT_CLAUDE_CODE_MAX_WAIT_HOURS
 
 
 @dataclass(frozen=True)
@@ -204,3 +225,22 @@ def source_refetch_interval() -> dt.timedelta:
         "SOURCE_REFETCH_INTERVAL_HOURS", DEFAULT_SOURCE_REFETCH_INTERVAL_HOURS
     )
     return dt.timedelta(hours=hours)
+
+
+def claude_code_settings() -> ClaudeCodeSettings:
+    """Return the ``claude_code`` provider settings from the environment.
+
+    ``LLM_CLAUDE_CODE_BIN`` (trimmed, default ``claude``),
+    ``LLM_CLAUDE_CODE_TIMEOUT_SECONDS`` (default 900) and
+    ``LLM_CLAUDE_CODE_MAX_WAIT_HOURS`` (default 48). The two numbers are ASCII
+    digits of at least 1; anything else raises ``ConfigError``.
+    """
+    return ClaudeCodeSettings(
+        bin=_env("LLM_CLAUDE_CODE_BIN") or DEFAULT_CLAUDE_CODE_BIN,
+        timeout_seconds=_positive_int_env(
+            "LLM_CLAUDE_CODE_TIMEOUT_SECONDS", DEFAULT_CLAUDE_CODE_TIMEOUT_SECONDS
+        ),
+        max_wait_hours=_positive_int_env(
+            "LLM_CLAUDE_CODE_MAX_WAIT_HOURS", DEFAULT_CLAUDE_CODE_MAX_WAIT_HOURS
+        ),
+    )

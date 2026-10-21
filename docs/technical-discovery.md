@@ -44,7 +44,7 @@ Rules:
 
 | Setting | Values | Notes |
 | --- | --- | --- |
-| `LLM_PROVIDER` / model | e.g. anthropic, openai, local | Provider abstraction with structured-output support; the provider and model are recorded per Pipeline Run. |
+| `LLM_PROVIDER` / model | `anthropic` (default), `claude_code` (local Operator only), `fake` | Provider abstraction with structured-output support; the provider and model are recorded per Pipeline Run. `claude_code` also reads `LLM_CLAUDE_CODE_BIN` (default `claude`), `LLM_CLAUDE_CODE_TIMEOUT_SECONDS` (default 900) and `LLM_CLAUDE_CODE_MAX_WAIT_HOURS` (default 48). |
 | `GENERATION_MODE` | `precomputed`, `live` | `precomputed` is the default (the Operator triggers runs). `live` regenerates automatically when a Source Document is added or changes. |
 | URL re-fetch interval | `SOURCE_REFETCH_INTERVAL_HOURS`, default 6 | Whole hours. Applied by `ideology source refetch` in both modes (a due URL source is downloaded and hashed; changed bytes register a replacement document); only `live` queues a Pipeline Run. Scheduling the command belongs to the first deployment feature. |
 | `SOURCE_INGESTION` | `upload`, `url` (both allowed) | Per Source Document: chosen by the CLI flag `ideology source add --file` or `--url`, not an environment variable. |
@@ -59,6 +59,11 @@ Rules:
 ## Integrations
 
 - LLM provider API(s).
+- Local Claude Code CLI (`LLM_PROVIDER=claude_code`, `llm-provider-claude-code`): the Operator's own Claude subscription, no API key, local runs only (never a deployment). Runbook:
+  1. Once: `claude auth login` with a Claude subscription (`claude auth status` must show `authMethod` `claude.ai`, or set `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`). An API-key login is rejected before the run starts.
+  2. Run: `caffeinate -is env LLM_PROVIDER=claude_code .venv/bin/ideology pipeline run --election N` (optionally `LLM_MODEL=…` and `LLM_CLAUDE_CODE_MAX_WAIT_HOURS=…`).
+  3. Keep the process and the machine awake (on AC power, lid open): when the subscription usage limit is hit, the provider prints `claude_code: usage limit reached (task …); waiting until <time> …` on stderr and waits in-process for the reset, then retries the same call. A real 2023 run is about 176 calls and can take several usage-limit windows.
+  4. There is no resume: if the process or the machine dies, the run is lost (it may stay `running`). Ctrl-C ends it `failed: interrupted`.
 - HTTP fetch for URL-based Source Documents: stdlib `urllib` (`ideology_app.http_fetch`), http/https only, no new dependency.
 
 ## Authentication and Authorization

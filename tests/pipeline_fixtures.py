@@ -21,9 +21,18 @@ from ideology_app.models import (
     SourceDocumentPage,
     SourceDocumentStatus,
 )
+from ideology_app.llm import claude_code_provider
 from ideology_app.pipeline import TOPICS
 
-LLM_ENV_VARS = ("ANTHROPIC_API_KEY", "LLM_PROVIDER", "LLM_MODEL", "GENERATION_MODE")
+LLM_ENV_VARS = (
+    "ANTHROPIC_API_KEY",
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "GENERATION_MODE",
+    "LLM_CLAUDE_CODE_BIN",
+    "LLM_CLAUDE_CODE_TIMEOUT_SECONDS",
+    "LLM_CLAUDE_CODE_MAX_WAIT_HOURS",
+)
 CONFIG_ENV_VARS = (
     *LLM_ENV_VARS,
     "VALIDATION_MIN_PARTY_COVERAGE_PERCENT",
@@ -55,6 +64,11 @@ def offline_guard(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(socket.socket, "connect", _blocked)
     monkeypatch.setattr(socket, "create_connection", _blocked)
+
+    def _no_cli(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the real Claude Code CLI must not run in tests")
+
+    monkeypatch.setattr(claude_code_provider, "run_cli", _no_cli)
 
 
 def seed_election(engine: Engine, *, with_failed_document: bool = True) -> None:

@@ -234,7 +234,7 @@ def test_live_with_invalid_provider_writes_nothing(
 
     assert result.exit_code == 1
     assert result.stderr == (
-        "Error: Invalid LLM_PROVIDER 'bogus'; supported values: anthropic, fake\n"
+        "Error: Invalid LLM_PROVIDER 'bogus'; supported values: anthropic, claude_code, fake\n"
     )
     assert _count(db_url, SourceDocument) == 3
     assert _count(db_url, PipelineRun) == 0
@@ -417,7 +417,7 @@ def test_run_queued_for_another_model_stays_queued(
 @pytest.mark.parametrize(
     ("name", "message"),
     [
-        ("LLM_PROVIDER", "Error: Invalid LLM_PROVIDER 'bogus'; supported values: anthropic, fake\n"),
+        ("LLM_PROVIDER", "Error: Invalid LLM_PROVIDER 'bogus'; supported values: anthropic, claude_code, fake\n"),
         (
             "VALIDATION_MIN_STATEMENTS",
             "Error: Invalid VALIDATION_MIN_STATEMENTS 'bogus'; expected a positive integer\n",
