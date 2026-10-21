@@ -6,7 +6,7 @@
 - `area`: sources
 - `depends_on`: source-document-upload, source-document-url (both `accepted`)
 - `status`: not_started (at planning time)
-- `source`: `feature_list.json`. Sibling planned in parallel: `shared-election-database` (depends on this feature; see "Shared contract"). It commits one SQLite DB per Election at `data/elections/<slug>/ideology.db`, built from scratch from this bundle (`db upgrade` + `data import`).
+- `source`: `feature_list.json`. Sibling planned in parallel: `shared-database` (depends on this feature; see "Shared contract"). It commits one SQLite DB for all Elections at `data/ideology.db`, outside every bundle directory, built from scratch from the bundles (`db upgrade` + `data import`).
 
 ## Goal
 
@@ -18,7 +18,7 @@ Once a Party's `.md` is committed, its PDF is no longer needed by anyone, with o
 
 ## Non-Goals
 
-- Committing a database, including the 2023 `data/elections/<slug>/ideology.db`, and sharing checkpoints through it (`shared-election-database`). This feature commits only the `.md` files and `election.toml`. It fixes the directory and slug contract and provides the DB-vs-bundle check (`data check`) that the sibling runs on the committed DB.
+- Committing a database, the shared `data/ideology.db`, and sharing checkpoints through it (`shared-database`). This feature commits only the `.md` files and `election.toml`. It fixes the directory and slug contract and provides the DB-vs-bundle check (`data check`) that the sibling runs on the committed DB.
 - Migrating the existing local DB in `ideology-app-data/e2e-2023/`. It is only the read-only reference for the text comparison (user decision 2026-10-21).
 - Text cleaning or normalisation, OCR, other input formats, several files per Party (coalition member manifestos), and deleting Parties or documents that are missing from a bundle.
 - Exporting existing DB rows to a bundle (`source extract` from the PDF is the only writer), serving stored PDFs, and changing Evidence rendering, the API or the web client.
@@ -80,7 +80,7 @@ file = "pp.md"
 
 - The `election` values follow `elections.create_election` rules. `date` is a TOML date.
 - `short_name`, `name` and `file` are unique within the manifest. `file` matches `^[a-z0-9][a-z0-9._-]*\.md$`, sits in the bundle directory, and its front-matter `party` equals `short_name`.
-- Every top-level `*.md` file must be listed. Dotfiles and other top-level files are ignored. A `*.pdf` anywhere under the bundle is an error. Subdirectories are ignored. `ideology.db` is a reserved name (the committed Election DB of `shared-election-database`) and is ignored, like any other non-`.md` top-level file.
+- Every top-level `*.md` file must be listed. Dotfiles and other top-level files are ignored. A `*.pdf` anywhere under the bundle is an error. Subdirectories are ignored.
 - **Slug**: the bundle directory name must equal `election_slug(country, type, date)` = `f"{country.lower()}-{type}-{date.isoformat()}"`, e.g. `es-general-2023-07-23`.
 
 ## Acceptance Scenarios
@@ -228,13 +228,13 @@ Then it exits 0 with `Database matches bundle es-general-2023-07-23: 2 documents
   - its page rows differ from the parsed pages (number, count or exact text);
   - a listed Party has a current `parsed` document without `bundle_file`.
 
-  An empty list means the DB matches. This feature tests it (match after import; each divergence is detected after a direct row update in a scratch DB). `shared-election-database` runs it in pytest against the committed `ideology.db`.
+  An empty list means the DB matches. This feature tests it (match after import; each divergence is detected after a direct row update in a scratch DB). `shared-database` runs it per Election (its `db check`) against the committed `data/ideology.db`.
 - **Determinism**: on a fresh DB the import creates Parties and documents in manifest order, so a rebuilt DB gets the same ids. This matters less now that everyone shares one committed DB, but keep it so a rebuild from scratch reproduces it.
-- **Shared contract with `shared-election-database`**:
+- **Shared contract with `shared-database`**:
   - `config.elections_data_dir()` returns `$ELECTIONS_DATA_DIR`, default `Path("data/elections")` relative to the current directory, like the DB default.
   - The bundle of an Election is `source_bundle.bundle_dir_for(config.elections_data_dir(), election)`.
   - `source_bundle.bundle_slug(election, root=None) -> str | None` returns the slug only when `<root>/<slug>/election.toml` exists (`root` `None` means `config.elections_data_dir()`). An Election with no committed bundle has no slug.
-  - The bundle directory also holds `ideology.db`, which the manifest reader ignores.
+  - The shared DB is `data/ideology.db`. It sits outside every bundle directory; a bundle directory holds only `election.toml` and the listed `.md` files.
   - The `.md` files are the reviewable input and the only writer of page text. The committed DB must never diverge from them (see **DB-vs-bundle check**).
 - **Git hygiene**: `.gitattributes` gets `data/elections/**/*.md -text linguist-generated`, so there is no EOL conversion and GitHub collapses the diffs. `.gitignore` gets `data/**/*.pdf`.
 - **2023 bundle**: `data/elections/es-general-2023-07-23/` with `election.toml` and 9 files, in DB id order: `pp.md`, `psoe.md`, `vox.md`, `sumar.md`, `erc.md`, `junts.md`, `eh-bildu.md`, `eaj-pnv.md`, `bng.md`.
