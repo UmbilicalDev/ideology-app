@@ -49,6 +49,7 @@ from ideology_app.pipeline.generation import (
     generate_statements,
 )
 from ideology_app.pipeline import publishing
+from ideology_app.pipeline.checkpoint import CheckpointProvider
 from ideology_app.pipeline.positions import (
     PositionResult,
     check_position_budget,
@@ -131,15 +132,23 @@ def queue_run(
     llm_provider: str,
     llm_model: str,
     generation_mode: GenerationMode,
+    resumed_from_run_id: int | None = None,
 ) -> PipelineRun:
     """Record a ``queued`` run. Raises NotFoundError or InvalidInputError.
 
+    With ``resumed_from_run_id`` the run will reuse that run's recorded LLM
+    calls (``pipeline-run-checkpoint``); it must be a run of the same Election,
+    queued for the same provider and model, that has no Dataset Version.
     The caller commits.
     """
     _get_election(session, election_id)
     has_parsed = session.scalar(select(exists(_parsed_documents_query(election_id))))
     if not has_parsed:
         raise InvalidInputError(f"election {election_id} has no parsed source documents")
+    if resumed_from_run_id is not None:
+        _check_resumable(
+            session, resumed_from_run_id, election_id, llm_provider, llm_model
+        )
     run = PipelineRun(
         election_id=election_id,
         status=PipelineRunStatus.QUEUED,
@@ -150,16 +159,41 @@ def queue_run(
         llm_calls=0,
         input_tokens=0,
         output_tokens=0,
+        resumed_from_run_id=resumed_from_run_id,
     )
     session.add(run)
     session.flush()
     return run
 
 
+def _check_resumable(
+    session: Session, run_id: int, election_id: int, llm_provider: str, llm_model: str
+) -> None:
+    source = session.get(PipelineRun, run_id)
+    if source is None:
+        raise NotFoundError(f"pipeline run {run_id} not found")
+    if source.election_id != election_id:
+        raise InvalidInputError(
+            f"pipeline run {run_id} belongs to election {source.election_id}, "
+            f"not {election_id}"
+        )
+    if (source.llm_provider, source.llm_model) != (llm_provider, llm_model):
+        raise InvalidInputError(
+            f"pipeline run {run_id} used {source.llm_provider}/{source.llm_model}, "
+            f"not {llm_provider}/{llm_model}"
+        )
+    if source.dataset_version is not None:
+        raise InvalidInputError(
+            f"pipeline run {run_id} already has dataset version "
+            f"{source.dataset_version.id}; there is nothing to resume"
+        )
+
+
 @dataclass(frozen=True)
 class _RunInput:
     documents: list[DocumentPages]
     party_ids: list[int]
+    resumed_from_run_id: int | None = None
 
 
 def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
@@ -222,7 +256,8 @@ def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
             )
         run.status = PipelineRunStatus.RUNNING
         run.started_at = _utcnow()
-    return _RunInput(loaded, party_ids)
+        resumed_from = run.resumed_from_run_id
+    return _RunInput(loaded, party_ids, resumed_from)
 
 
 def _finish(
@@ -310,13 +345,17 @@ def execute_run(
     is returned; ``validation_settings`` is passed to it (``None``: read with
     ``config.validation_settings()`` first, so an invalid value raises
     ``ConfigError`` before any write or LLM call). Ctrl-C records ``failed``
-    (``interrupted``) and re-raises.
+    (``interrupted``) and re-raises. Every successful LLM call is committed to
+    ``pipeline_run_calls`` as it returns; a run queued with
+    ``resumed_from_run_id`` reuses that run's identical calls
+    (``checkpoint.CheckpointProvider``).
     Raises NotFoundError / InvalidInputError, changing nothing, when the run is
     unknown, not ``queued``, or was queued for another provider or model.
     """
     if validation_settings is None:
         validation_settings = config.validation_settings()
     run_input = _start(engine, run_id, provider)
+    provider = CheckpointProvider(provider, engine, run_id, run_input.resumed_from_run_id)
     usage = Usage()
     try:
         check_position_budget(run_input.documents)

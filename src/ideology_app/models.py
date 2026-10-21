@@ -225,6 +225,9 @@ class PipelineRun(Base):
     # The ValidationSettings the run was validated with (field -> value), written
     # once by ``validate_run`` in the commit that stores its results; null before.
     validation_settings: Mapped[dict[str, int] | None] = mapped_column(sa.JSON)
+    # The run whose recorded LLM calls this run may reuse (``--resume-from``).
+    # No FOREIGN KEY: adding one on SQLite needs a table recreate (see 0010).
+    resumed_from_run_id: Mapped[int | None] = mapped_column(sa.Integer)
 
     election: Mapped[Election] = relationship(back_populates="pipeline_runs")
     dataset_version: Mapped["DatasetVersion | None"] = relationship(
@@ -239,6 +242,33 @@ class PipelineRun(Base):
         back_populates="pipeline_run",
         order_by="ValidationResult.id",
         passive_deletes=True,
+    )
+
+
+class PipelineRunCall(Base):
+    """One successful LLM call of a Pipeline Run, committed as soon as it returned.
+
+    ``output`` is the schema-validated answer as JSON. ``reused`` is true when
+    it came from the run's ``resumed_from_run_id`` instead of the provider (its
+    tokens are then zero). Rows are only ever inserted.
+    """
+
+    __tablename__ = "pipeline_run_calls"
+    __table_args__ = (sa.UniqueConstraint("pipeline_run_id", "sequence"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pipeline_run_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("pipeline_runs.id", ondelete="CASCADE"), index=True
+    )
+    sequence: Mapped[int] = mapped_column(sa.Integer)
+    task: Mapped[str] = mapped_column(sa.String(50))
+    request_hash: Mapped[str] = mapped_column(sa.String(64), index=True)
+    output: Mapped[dict[str, object]] = mapped_column(sa.JSON)
+    input_tokens: Mapped[int] = mapped_column(sa.Integer)
+    output_tokens: Mapped[int] = mapped_column(sa.Integer)
+    reused: Mapped[bool] = mapped_column(sa.Boolean)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
     )
 
 

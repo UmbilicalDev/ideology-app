@@ -4,6 +4,11 @@ Depends on ``models``, ``elections`` (errors), ``llm.base`` and ``validation``
 only; a provider is always injected, never built here.
 """
 
+from ideology_app.pipeline.checkpoint import (
+    CheckpointProvider,
+    count_recorded_calls,
+    request_hash,
+)
 from ideology_app.pipeline.generation import (
     CHUNK_MAX_CHARS,
     MAX_LLM_CALLS_PER_RUN,
@@ -66,6 +71,7 @@ from ideology_app.pipeline.triggers import (
 )
 
 __all__ = [
+    "CheckpointProvider",
     "CHUNK_MAX_CHARS",
     "GENERATE_STATEMENTS",
     "INTERRUPTED_REASON",
@@ -99,6 +105,7 @@ __all__ = [
     "Usage",
     "build_chunks",
     "build_document_chunks",
+    "count_recorded_calls",
     "execute_run",
     "extract_positions",
     "generate_statements",
@@ -114,5 +121,6 @@ __all__ = [
     "queue_run",
     "queue_run_for_source_change",
     "queues_on_source_change",
+    "request_hash",
     "validate_run",
 ]
