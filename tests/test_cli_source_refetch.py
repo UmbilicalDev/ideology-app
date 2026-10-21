@@ -205,8 +205,8 @@ def test_changed_content_replaces_and_queues_a_run(
         "--- page 1 ---\nAlfa: vivienda.\n"
     )
     listed = _ok(run("source", "list", "--party", "1")).output.splitlines()
-    assert listed[0].split("\t")[-1] == "replaced_by"
-    assert [line.split("\t")[-1] for line in listed[1:]] == ["3", ""]
+    assert listed[0].split("\t")[-2:] == ["replaced_by", "bundle_file"]
+    assert [line.split("\t")[-2] for line in listed[1:]] == ["3", ""]
 
 
 # Scenario 2: same content -> nothing but the check time

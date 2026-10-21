@@ -1,7 +1,10 @@
 """``ideology`` command-line interface for the Operator."""
 
 import datetime as dt
+import hashlib
+import os
 import re
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import update_wrapper
@@ -12,11 +15,15 @@ import click
 from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+from ideology_app import bundle_import
 from ideology_app import elections as service
 from ideology_app import config
 from ideology_app import pipeline as pipelines
+from ideology_app import source_bundle
 from ideology_app import source_documents as sources
+from ideology_app.pdf_text import EXTRACTOR, PdfTextError, extract_pages
 from ideology_app.db import is_initialised, make_engine, run_migrations, session_scope
 from ideology_app.llm import LLMProvider, build_provider
 from ideology_app.models import (
@@ -337,6 +344,7 @@ def source_list(app: AppContext, party_id: int) -> None:
                 d.source_url,
                 d.failure_reason,
                 d.replaced_by_id,
+                d.bundle_file,
             ]
             for d in sources.list_documents(session, party_id)
         ]
@@ -351,9 +359,77 @@ def source_list(app: AppContext, party_id: int) -> None:
             "url",
             "failure_reason",
             "replaced_by",
+            "bundle_file",
         ],
         rows,
     )
+
+
+@source.command("extract")
+@click.argument("pdf", type=click.Path(path_type=Path))
+@click.option("--party", "party", required=True, help="Party short name, e.g. PP.")
+@click.option(
+    "--out",
+    "out",
+    required=True,
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Source Text file to write, e.g. data/elections/<slug>/pp.md.",
+)
+@click.option("--url", default=None, help="Public URL of the PDF (Evidence links to it).")
+@click.option("--force", is_flag=True, help="Overwrite --out if it exists.")
+def source_extract(pdf: Path, party: str, out: Path, url: str | None, force: bool) -> None:
+    """Extract a manifesto PDF into a Source Text file (no database needed).
+
+    The file holds each page's text exactly as extracted, under
+    "<!-- page N -->" markers, with front matter that records the PDF's
+    SHA-256 and the extractor. Commit it to a Source Text Bundle and import it
+    with "ideology data import"; never edit it by hand.
+    """
+    try:
+        if not party.strip():
+            raise service.InvalidInputError("party must not be empty")
+        if party != party.strip():
+            raise service.InvalidInputError(
+                "party must not have leading or trailing whitespace"
+            )
+        source_url = sources.validate_url(url) if url is not None else None
+        if out.exists() and not force:
+            raise service.InvalidInputError(f"{out} exists; pass --force to overwrite")
+        if not out.parent.is_dir():
+            raise service.InvalidInputError(f"directory {str(out.parent)!r} not found")
+        data = sources.read_pdf_file(pdf)
+        try:
+            pages = extract_pages(data)
+        except PdfTextError as exc:
+            raise service.InvalidInputError(f"{pdf}: {exc.reason}") from None
+        content = source_bundle.serialise_source_text(
+            party=party,
+            source_url=source_url,
+            pdf_sha256=hashlib.sha256(data).hexdigest(),
+            extractor=EXTRACTOR,
+            pages=pages,
+        )
+        # Never write a file that would not import.
+        source_bundle.parse_source_text(content, name=str(out))
+    except service.ElectionsError as exc:
+        raise click.ClickException(str(exc)) from exc
+    _write_atomically(out, content)
+    click.echo(f"Wrote {out}: {len(pages)} pages, {len(content)} bytes")
+
+
+def _write_atomically(path: Path, content: bytes) -> None:
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".extract-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+        # mkstemp creates the file 0600; give it the usual mode (0666 minus umask).
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp_name, 0o666 & ~umask)
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 @source.command("text")
@@ -374,6 +450,96 @@ def source_text(app: AppContext, document_id: int, page: int | None) -> None:
     for number, text in pages:
         click.echo(f"--- page {number} ---")
         click.echo(text)
+
+
+@main.group()
+def data() -> None:
+    """Shared election data (Source Text Bundles under data/elections/<slug>/)."""
+
+
+@data.command("import")
+@click.argument("directory", type=click.Path(path_type=Path))
+@requires_db
+def data_import(app: AppContext, directory: Path) -> None:
+    """Import a Source Text Bundle: its Election, Parties and parsed Source Documents.
+
+    Idempotent: unchanged files are left alone; a changed file registers a
+    Source Document that replaces the Party's previous one (which stays for
+    the Evidence of older Dataset Versions). The whole bundle is checked
+    before the first write, and everything is written in one transaction. In
+    live Generation Mode an added or replacing document queues a Pipeline Run.
+    """
+    # Resolve the configuration before any write.
+    try:
+        mode = config.generation_mode()
+        llm = config.llm_settings() if pipelines.queues_on_source_change(mode) else None
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    bundle = source_bundle.read_bundle(directory)
+    trigger = None
+    with session_scope(app.engine) as session:
+        report = bundle_import.import_bundle(session, bundle)
+        # Same transaction: the documents and the run they queue commit together.
+        for document in report.new_documents:
+            outcome = pipelines.queue_run_for_source_change(
+                session, document, generation_mode=mode, llm=llm
+            )
+            if outcome.run_id is not None and trigger is None:
+                trigger = outcome
+    for item in report.outcomes:
+        party_part = (
+            f"Party {item.short_name}: {'created' if item.party_created else 'exists'} "
+            f"(id {item.party_id})"
+        )
+        if item.status is bundle_import.DocumentStatus.ADDED:
+            document_part = (
+                f"source document {item.document_id}: added ({item.page_count} pages)"
+            )
+        elif item.status is bundle_import.DocumentStatus.REPLACED:
+            document_part = (
+                f"source document {item.document_id}: replaces source document "
+                f"{item.replaced_document_id} ({item.page_count} pages)"
+            )
+        else:
+            document_part = f"source document {item.document_id}: unchanged"
+        click.echo(f"{party_part}; {document_part}")
+    for short_name, party_id in report.left_alone:
+        click.echo(f"Party {short_name} (id {party_id}) is not in the bundle; left unchanged")
+    click.echo(
+        f"Imported election {report.slug} (id {report.election_id}): "
+        f"{report.count(bundle_import.DocumentStatus.ADDED)} added, "
+        f"{report.count(bundle_import.DocumentStatus.REPLACED)} replaced, "
+        f"{report.count(bundle_import.DocumentStatus.UNCHANGED)} unchanged"
+    )
+    if trigger is not None:
+        _echo_trigger(trigger, mode)
+
+
+@data.command("check")
+@click.argument("directory", type=click.Path(path_type=Path))
+@requires_db
+def data_check(app: AppContext, directory: Path) -> None:
+    """Check that the database holds exactly a Source Text Bundle's text. Read-only.
+
+    Exits 1 and prints one line per divergence (a missing Election, Party or
+    document, a different content hash or page text, or a Party document that
+    was not imported from the bundle).
+    """
+    bundle = source_bundle.read_bundle(directory)
+    session = Session(app.engine)
+    try:
+        problems = bundle_import.check_against_bundle(session, bundle)
+        documents = len(bundle.parties)
+    finally:
+        session.rollback()
+        session.close()
+    if problems:
+        for problem in problems:
+            click.echo(f"Error: {problem}", err=True)
+        raise click.ClickException(
+            f"database does not match bundle {bundle.slug}: {len(problems)} problems"
+        )
+    click.echo(f"Database matches bundle {bundle.slug}: {documents} documents")
 
 
 def _provider() -> LLMProvider:

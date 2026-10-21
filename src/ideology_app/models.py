@@ -104,7 +104,7 @@ def _utcnow() -> dt.datetime:
 
 
 class SourceDocument(Base):
-    """A manifesto file of a Party. The stored file is ``<content_hash>.pdf``."""
+    """A manifesto of a Party: a stored PDF (``<content_hash>.pdf``) or a bundle file."""
 
     __tablename__ = "source_documents"
     __table_args__ = (
@@ -143,6 +143,11 @@ class SourceDocument(Base):
     replaced_by_id: Mapped[int | None] = mapped_column(sa.Integer)
     # When ``ideology source refetch`` last downloaded this URL (any outcome).
     last_checked_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    # The Source Text file (``<party>.md``) this row was imported from by
+    # ``ideology data import``; null for ``source add`` rows. A bundle row is
+    # created ``parsed``, has no stored PDF, its ``content_hash`` is the SHA-256
+    # of the ``.md`` file, and it is never re-fetched.
+    bundle_file: Mapped[str | None] = mapped_column(sa.String(255))
 
     party: Mapped[Party] = relationship(back_populates="source_documents")
     pages: Mapped[list["SourceDocumentPage"]] = relationship(
@@ -154,7 +159,10 @@ class SourceDocument(Base):
 
     @property
     def stored_filename(self) -> str | None:
-        return f"{self.content_hash}.pdf" if self.content_hash else None
+        """The stored PDF's name; ``None`` without a hash or for a bundle row (no PDF)."""
+        if self.bundle_file is not None or not self.content_hash:
+            return None
+        return f"{self.content_hash}.pdf"
 
 
 class SourceDocumentPage(Base):

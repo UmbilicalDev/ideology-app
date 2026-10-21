@@ -45,7 +45,8 @@ def _get_party(session: Session, party_id: int) -> Party:
     return party
 
 
-def _read_pdf_file(file_path: Path) -> bytes:
+def read_pdf_file(file_path: Path) -> bytes:
+    """The bytes of a PDF on disk. Raises InvalidInputError (missing, empty, too big, not a PDF)."""
     if not file_path.is_file():
         raise InvalidInputError(f"file {str(file_path)!r} not found")
     size = file_path.stat().st_size
@@ -91,7 +92,7 @@ def add_uploaded_document(
     written.
     """
     party = _get_party(session, party_id)
-    data = _read_pdf_file(Path(file_path))
+    data = read_pdf_file(Path(file_path))
     content_hash = hashlib.sha256(data).hexdigest()
 
     document = SourceDocument(
@@ -131,12 +132,12 @@ def _store_and_parse(
         document.failure_reason = exc.reason
         document.page_count = exc.page_count
     else:
-        _set_parsed_pages(document, pages)
+        set_parsed_pages(document, pages)
     session.flush()
     return document
 
 
-def _set_parsed_pages(document: SourceDocument, pages: Sequence[str]) -> None:
+def set_parsed_pages(document: SourceDocument, pages: Sequence[str]) -> None:
     """Attach the extracted ``pages`` (1-based) and mark ``document`` ``parsed``."""
     document.pages = [
         SourceDocumentPage(page_number=number, text=text)
@@ -146,7 +147,7 @@ def _set_parsed_pages(document: SourceDocument, pages: Sequence[str]) -> None:
     document.status = SourceDocumentStatus.PARSED
 
 
-def _validate_url(url: str) -> str:
+def validate_url(url: str) -> str:
     """Return the stripped URL, or raise InvalidInputError before any fetch."""
     url = url.strip()
 
@@ -202,7 +203,7 @@ def add_url_document(
     A failed download returns a ``failed`` row with no content hash or file.
     """
     party = _get_party(session, party_id)
-    url = _validate_url(url)
+    url = validate_url(url)
     fetch = fetch or _default_fetch
 
     try:
@@ -307,6 +308,7 @@ def _is_current_parsed_url(document: SourceDocument) -> bool:
         document.origin is SourceDocumentOrigin.URL
         and document.status is SourceDocumentStatus.PARSED
         and document.replaced_by_id is None
+        and document.bundle_file is None
     )
 
 
@@ -321,7 +323,7 @@ def due_url_document_ids(
 
     A document never checked counts from its ``created_at``. With
     ``election_id`` only that Election's Parties are considered (NotFoundError
-    if it does not exist). Upload, ``failed`` and replaced documents are never
+    if it does not exist). Upload, bundle, ``failed`` and replaced documents are never
     due.
     """
     query = select(
@@ -330,6 +332,8 @@ def due_url_document_ids(
         SourceDocument.origin == SourceDocumentOrigin.URL,
         SourceDocument.status == SourceDocumentStatus.PARSED,
         SourceDocument.replaced_by_id.is_(None),
+        # Bundle rows change only through a committed file and ``data import``.
+        SourceDocument.bundle_file.is_(None),
     )
     if election_id is not None:
         if session.get(Election, election_id) is None:
@@ -365,12 +369,19 @@ def refetch_url_document(
     Raises NotFoundError for an unknown id, InvalidInputError when the row is
     not a current parsed URL document (or, with ``interval``, is no longer
     due), and DuplicateError if the per-Party content hash is hit in a race.
+    A row imported from a Source Text Bundle is never re-fetched
+    (InvalidInputError).
     """
     document = session.scalars(
         select(SourceDocument).where(SourceDocument.id == document_id).with_for_update()
     ).one_or_none()
     if document is None:
         raise NotFoundError(f"source document {document_id} not found")
+    if document.bundle_file is not None:
+        raise InvalidInputError(
+            f"source document {document_id} was imported from a source text bundle; "
+            "it is never re-fetched"
+        )
     if not _is_current_parsed_url(document):
         raise InvalidInputError(
             f"source document {document_id} is not a current parsed URL document"
@@ -388,7 +399,7 @@ def refetch_url_document(
 
     assert document.source_url is not None  # the CHECK for origin = url
     try:
-        url = _validate_url(document.source_url)
+        url = validate_url(document.source_url)
     except InvalidInputError as exc:
         return failed(str(exc))
     fetch = fetch or _default_fetch
@@ -440,7 +451,7 @@ def refetch_url_document(
             f"with content hash {content_hash}"
         ) from exc
     _store_file(Path(files_dir), f"{content_hash}.pdf", data)
-    _set_parsed_pages(replacement, pages)
+    set_parsed_pages(replacement, pages)
     document.replaced_by_id = replacement.id
     session.flush()
     return RefetchOutcome(document_id, RefetchResult.REPLACED, replacement=replacement)

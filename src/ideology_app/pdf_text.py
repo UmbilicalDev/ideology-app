@@ -6,6 +6,7 @@ There is no OCR: a PDF without a text layer is reported as a failure.
 import io
 import logging
 
+import pypdf
 from pypdf import PdfReader
 from pypdf.errors import DependencyError, FileNotDecryptedError
 
@@ -17,6 +18,8 @@ ENCRYPTED = "PDF is encrypted"
 NO_PAGES = "PDF has no pages"
 NO_TEXT_LAYER = "no text layer found (scanned PDF?); OCR is not supported"
 _REASON_MAX = 500
+# Recorded in every Source Text file this pypdf wrote (``extractor`` front matter).
+EXTRACTOR = f"pypdf {pypdf.__version__}"
 
 
 class PdfTextError(Exception):
