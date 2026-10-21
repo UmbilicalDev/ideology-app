@@ -537,3 +537,13 @@
 - Evidence captured: `feature_list.json` -> `llm-provider-claude-code.evidence`.
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (success envelope never observed live; usage limits and multi-hour runs; CLI format changes; subscription terms).
 - Next best step: `e2e-real-2023-election`, starting with one small manual smoke run: `LLM_PROVIDER=claude_code .venv/bin/ideology --database-url sqlite:///scratch.db pipeline run --election N`.
+
+### Session 050 (Miguel's machine)
+
+- Date: 2026-10-21
+- Goal: implement `pipeline-run-checkpoint` (user decision: a real `e2e-real-2023-election` run must survive a stop halfway; manifestos are always read in full; Sonnet for generation; other token-reduction ideas out of scope) on branch `feature/pipeline-run-checkpoint`.
+- Completed: `models.PipelineRunCall` + `PipelineRun.resumed_from_run_id`, migration `0010_pipeline_run_calls.py`; new `pipeline/checkpoint.py` (`CheckpointProvider`, `request_hash`, `count_recorded_calls`); `runs.queue_run(..., resumed_from_run_id=)` with `_check_resumable`, `execute_run` wraps the provider; `reports.RunReport.resumed_from_run_id|reused_calls`; CLI `pipeline run --resume-from R` and two report lines. Tests: new `tests/test_pipeline_checkpoint.py` (18), `tests/test_migrations.py` (head `0010`, 3 new), `tests/test_cli_pipeline_report.py` (report keys). Docs: `ARCHITECTURE.md`, `CONSTRAINTS.md`, `docs/domain-model.md`, `docs/technical-discovery.md`, `docs/risks-and-open-questions.md`, spec `docs/specs/pipeline-run-checkpoint.md`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 1084 before the Low repairs, 1088 after; Vitest 347; build ok); independent validator accept (12 mutations, 8 caught; the 4 survivors are now covered by new tests). No real LLM call in tests. Browser validation not applicable.
+- Evidence captured: `feature_list.json` -> `pipeline-run-checkpoint.evidence` (status `accepted`).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Usage limits and multi-hour runs", "Runs stuck in `running`"). Session numbering may clash with Enrique's Session 050/051 on `feature/e2e-real-2023-election`; renumber when merging.
+- Next best step: `e2e-real-2023-election` on this machine (data in `/Users/miguel.garcia/Documents/Development/AiExpert/ideology-app-data/e2e-2023/`, 10 Parties, 10 parsed documents, 80 chunks) with `LLM_PROVIDER=claude_code` and Sonnet, resuming with `--resume-from` if it stops.

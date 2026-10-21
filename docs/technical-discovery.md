@@ -63,7 +63,7 @@ Rules:
   1. Once: `claude auth login` with a Claude subscription (`claude auth status` must show `authMethod` `claude.ai`, or set `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`). An API-key login is rejected before the run starts.
   2. Run: `caffeinate -is env LLM_PROVIDER=claude_code .venv/bin/ideology pipeline run --election N` (optionally `LLM_MODEL=…` and `LLM_CLAUDE_CODE_MAX_WAIT_HOURS=…`).
   3. Keep the process and the machine awake (on AC power, lid open): when the subscription usage limit is hit, the provider prints `claude_code: usage limit reached (task …); waiting until <time> …` on stderr and waits in-process for the reset, then retries the same call. A real 2023 run is about 176 calls and can take several usage-limit windows.
-  4. There is no resume: if the process or the machine dies, the run is lost (it may stay `running`). Ctrl-C ends it `failed: interrupted`.
+  4. If the process or the machine dies, or the run ends `failed` halfway (Ctrl-C ends it `failed: interrupted`; a killed run may stay `running`), every LLM call it completed is already recorded (`pipeline-run-checkpoint`). Resume with `ideology pipeline run --election N --resume-from R`: only the missing calls go to the CLI.
 - HTTP fetch for URL-based Source Documents: stdlib `urllib` (`ideology_app.http_fetch`), http/https only, no new dependency.
 
 ## Authentication and Authorization

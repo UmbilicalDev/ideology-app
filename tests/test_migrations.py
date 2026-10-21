@@ -41,7 +41,8 @@ TABLES_AT_0004 = TABLES_AT_0003 | PIPELINE_TABLES
 POSITION_TABLES = {"party_positions", "pipeline_run_source_documents"}
 TABLES_AT_0005 = TABLES_AT_0004 | POSITION_TABLES
 VALIDATION_TABLES = {"validation_results", "validation_report_entries"}
-ALL_TABLES = TABLES_AT_0005 | VALIDATION_TABLES
+TABLES_AT_0009 = TABLES_AT_0005 | VALIDATION_TABLES
+ALL_TABLES = TABLES_AT_0009 | {"pipeline_run_calls"}
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -50,7 +51,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0009"
+    assert _version(db_url) == "0010"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -58,7 +59,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0009"
+    assert _version(db_url) == "0010"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -682,7 +683,7 @@ def test_downgrade_to_0006_drops_only_the_published_index(db_url: str) -> None:
     downgrade(db_url, "0006")
 
     assert _dataset_version_indexes(db_url) == {"ix_dataset_versions_election_id"}
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0009
     assert _version(db_url) == "0006"
 
     run_migrations(db_url)
@@ -799,7 +800,7 @@ def test_upgrade_0008_adds_a_nullable_validation_settings_column(db_url: str) ->
     before = _pipeline_run_columns(db_url)
     assert "validation_settings" not in before
 
-    run_migrations(db_url)
+    run_migrations(db_url, "0008")
 
     after = _pipeline_run_columns(db_url)
     assert set(after) - set(before) == {"validation_settings"}
@@ -808,7 +809,7 @@ def test_upgrade_0008_adds_a_nullable_validation_settings_column(db_url: str) ->
 
 
 def test_downgrade_to_0007_drops_only_the_column_and_keeps_rows(db_url: str) -> None:
-    run_migrations(db_url)
+    run_migrations(db_url, "0009")
     engine = make_engine(db_url)
     try:
         _seed_versions(engine, [(1, "published"), (1, "candidate")])
@@ -825,7 +826,7 @@ def test_downgrade_to_0007_drops_only_the_column_and_keeps_rows(db_url: str) -> 
 
     assert _version(db_url) == "0007"
     assert set(_pipeline_run_columns(db_url)) == columns_before - {"validation_settings"}
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0009
     assert PUBLISHED_INDEX in _dataset_version_indexes(db_url)
     # The table is not recreated: its CHECKs stay, and the ON DELETE CASCADE
     # from dataset_versions never fires.
@@ -842,7 +843,7 @@ def test_downgrade_to_0007_drops_only_the_column_and_keeps_rows(db_url: str) -> 
 
     run_migrations(db_url)
     assert "validation_settings" in _pipeline_run_columns(db_url)
-    assert _version(db_url) == "0009"
+    assert _version(db_url) == "0010"
 
 
 def test_offline_postgresql_render_of_0008() -> None:
@@ -910,7 +911,7 @@ def test_upgrade_0009_adds_two_nullable_columns_and_keeps_rows(db_url: str) -> N
     before = _source_document_columns(db_url)
     assert "replaced_by_id" not in before and "last_checked_at" not in before
 
-    run_migrations(db_url)
+    run_migrations(db_url, "0009")
 
     assert _version(db_url) == "0009"
     after = _source_document_columns(db_url)
@@ -938,7 +939,7 @@ def test_upgrade_0009_adds_two_nullable_columns_and_keeps_rows(db_url: str) -> N
 
 
 def test_downgrade_to_0008_drops_only_the_columns_and_keeps_pages(db_url: str) -> None:
-    run_migrations(db_url)
+    run_migrations(db_url, "0009")
     engine = make_engine(db_url)
     try:
         _seed_party_and_document(engine)
@@ -959,7 +960,7 @@ def test_downgrade_to_0008_drops_only_the_columns_and_keeps_pages(db_url: str) -
         "replaced_by_id",
         "last_checked_at",
     }
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0009
     # Not recreated: the CHECKs stay and the cascade to pages never fires.
     sql_after = _source_document_sql(db_url)
     for name in (
@@ -975,7 +976,7 @@ def test_downgrade_to_0008_drops_only_the_columns_and_keeps_pages(db_url: str) -
 
     run_migrations(db_url)
     assert {"replaced_by_id", "last_checked_at"} <= set(_source_document_columns(db_url))
-    assert _version(db_url) == "0009"
+    assert _version(db_url) == "0010"
 
 
 def test_offline_postgresql_render_of_0009() -> None:
@@ -1002,3 +1003,100 @@ def test_offline_postgresql_render_of_0009() -> None:
     down_sql = down.getvalue()
     assert "ALTER TABLE source_documents DROP COLUMN last_checked_at;" in down_sql
     assert "ALTER TABLE source_documents DROP COLUMN replaced_by_id;" in down_sql
+
+
+# Migration 0010: recorded LLM calls and resumed_from_run_id (pipeline-run-checkpoint).
+
+
+def test_upgrade_0010_adds_the_calls_table_and_column_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url, "0009")
+    engine = make_engine(db_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO elections (id, country, type, date, name, status)"
+                    " VALUES (1, 'ES', 'general', '2023-07-23', 'G', 'draft')"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO pipeline_runs (id, election_id, status, llm_provider,"
+                    " llm_model, generation_mode, prompt_versions, llm_calls, input_tokens,"
+                    " output_tokens, created_at) VALUES (1, 1, 'failed', 'fake', 'm',"
+                    " 'precomputed', '{}', 0, 0, 0, '2026-01-01')"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    run_migrations(db_url)
+
+    assert _version(db_url) == "0010"
+    assert _tables(db_url) == ALL_TABLES
+    columns = _pipeline_run_columns(db_url)
+    assert columns["resumed_from_run_id"]["nullable"] is True
+    assert _counts(db_url, ("pipeline_runs",)) == {"pipeline_runs": 1}
+
+
+def test_downgrade_to_0009_drops_the_calls_and_keeps_runs_and_versions(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO elections (id, country, type, date, name, status)"
+                    " VALUES (1, 'ES', 'general', '2023-07-23', 'G', 'draft')"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO pipeline_runs (id, election_id, status, llm_provider,"
+                    " llm_model, generation_mode, prompt_versions, llm_calls, input_tokens,"
+                    " output_tokens, created_at, resumed_from_run_id) VALUES (1, 1,"
+                    " 'validating', 'fake', 'm', 'precomputed', '{}', 0, 0, 0,"
+                    " '2026-01-01', NULL)"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO dataset_versions (id, election_id, pipeline_run_id, status,"
+                    " created_at) VALUES (1, 1, 1, 'candidate', '2026-01-01')"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO pipeline_run_calls (pipeline_run_id, sequence, task,"
+                    " request_hash, output, input_tokens, output_tokens, reused, created_at)"
+                    " VALUES (1, 1, 't', :h, '{}', 1, 1, 0, '2026-01-01')"
+                ),
+                {"h": "a" * 64},
+            )
+    finally:
+        engine.dispose()
+
+    downgrade(db_url, "0009")
+
+    assert _version(db_url) == "0009"
+    assert _tables(db_url) == TABLES_AT_0009
+    assert "resumed_from_run_id" not in _pipeline_run_columns(db_url)
+    assert _counts(db_url, ("pipeline_runs", "dataset_versions")) == {
+        "pipeline_runs": 1,
+        "dataset_versions": 1,
+    }
+    run_migrations(db_url)
+    assert _version(db_url) == "0010"
+
+
+def test_offline_postgresql_render_of_0010() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0009:0010",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "CREATE TABLE pipeline_run_calls" in up_sql
+    assert "ON DELETE CASCADE" in up_sql
+    assert "ALTER TABLE pipeline_runs ADD COLUMN resumed_from_run_id INTEGER;" in up_sql

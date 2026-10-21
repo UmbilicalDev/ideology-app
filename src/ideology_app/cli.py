@@ -388,9 +388,21 @@ def pipeline() -> None:
 
 @pipeline.command("run")
 @click.option("--election", "election_id", required=True, type=int, help="Election id.")
+@click.option(
+    "--resume-from",
+    "resume_from",
+    type=int,
+    default=None,
+    help="Reuse the recorded LLM calls of this earlier run (same election, provider "
+    "and model) and only call the LLM for the rest.",
+)
 @requires_db
-def pipeline_run(app: AppContext, election_id: int) -> None:
-    """Generate Statements and Party Positions, validate them and publish on pass."""
+def pipeline_run(app: AppContext, election_id: int, resume_from: int | None) -> None:
+    """Generate Statements and Party Positions, validate them and publish on pass.
+
+    Every successful LLM call is recorded as it returns, so a run that stops
+    halfway can be resumed with ``--resume-from``.
+    """
     try:
         mode = config.generation_mode()
         settings = config.validation_settings()
@@ -405,8 +417,14 @@ def pipeline_run(app: AppContext, election_id: int) -> None:
                 llm_provider=provider.name,
                 llm_model=provider.model,
                 generation_mode=mode,
+                resumed_from_run_id=resume_from,
             )
             run_id = run.id
+        if resume_from is not None:
+            click.echo(
+                f"Pipeline run {run_id}: resuming from run {resume_from} "
+                f"({pipelines.count_recorded_calls(app.engine, resume_from)} recorded calls)"
+            )
         outcome = pipelines.execute_run(app.engine, run_id, provider, settings)
     finally:
         close = getattr(provider, "close", None)
@@ -731,6 +749,11 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
         ("llm_calls", usage(report.llm_calls)),
         ("input_tokens", usage(report.input_tokens)),
         ("output_tokens", usage(report.output_tokens)),
+        (
+            "resumed_from",
+            "none" if report.resumed_from_run_id is None else report.resumed_from_run_id,
+        ),
+        ("reused_calls", report.reused_calls),
         ("cost", "not estimated (no price table)"),
         ("validation_settings", _sorted_pairs(report.validation_settings)),
         ("dataset_version", "none" if version is None else version),
