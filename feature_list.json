@@ -610,13 +610,15 @@
     "title": "End-to-end run on the real 2023 general election",
     "user_visible_behavior": "The 2023 manifestos of the parties with seats go through a real-provider run, which is published only if it passes Validation, and a Voter completes the flow and shares a link.",
     "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code"],
-    "status": "not_started",
+    "status": "in_progress",
     "verification": [
       "A recorded Pipeline Run report with status passed",
       "A manual walkthrough on mobile and desktop, recorded in PROGRESS.md",
       "A sample of 10 positions read against their Evidence (an observation, not editing)"
     ],
-    "evidence": [],
-    "notes": "MVP success criterion. Needs an LLM API key from the user. Uses the 2023 ballot tickets (e.g. Sumar as one Party)."
+    "evidence": [
+      "2026-10-21 Phase A (implementer): preparation complete; the real run is paused by user decision (no spend), status in_progress. Official result BOE-A-2023-18907 (JEC resolution of 30 Aug 2023; correction BOE-A-2023-19537 changes one Senate vote figure only): 11 seat-winning tickets, 350 seats (PSOE 121 = PSOE 102 + PSC-PSOE 19; Sumar 31 as one candidatura). User decision: CCa (1 seat) excluded because its only 2023 document is a joint manifesto of about 11 Canarian forces; the e2e DB was rebuilt with the CLI (old DB kept as /Users/kike/PycharmProjects/ideology-app-data/e2e-2023/ideology.db.pre-cca-removal). Current DB: Election 1 (ES, general, 2023-07-23), 10 Parties (PP, PSOE, VOX, SUMAR, ERC, JUNTS, EH Bildu, EAJ-PNV, BNG, UPN), docs 1-10 all parsed, one per Party, SHA-256 identical to the first registration; 8 by URL on official domains, PSOE and VOX uploaded from the user's browser downloads (psoe.es and voxespana.es block the fetcher). User decisions: full programmes for PP and BNG, the 16-page Compromiso for EH Bildu. Table in PROGRESS.md Session 051. Read-only estimate: 2,854,875 characters, 80 chunks, Statement calls 81/200, position calls 90/300, 171 calls; about 2.05M input tokens, about 0.23M output typical (0.75M upper bound). No pipeline run exists."
+    ],
+    "notes": "MVP success criterion. Needs an LLM API key from the user. Uses the 2023 ballot tickets (e.g. Sumar as one Party). User decision 2026-10-21: Coalición Canaria (1 seat) is excluded (its only 2023 document is a joint manifesto), so the Election has 10 Parties."
   }
 ]
