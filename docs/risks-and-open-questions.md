@@ -30,6 +30,7 @@ None.
 - Subscription terms for automated local use (`llm-provider-claude-code`, `e2e-real-2023-election`): the Operator must confirm that running the pipeline through `claude -p` with a personal Claude subscription fits Anthropic's consumer terms. The provider is for local, personal Operator runs only; deployments use `anthropic`.
 - Order in which Statements are shown (random or by topic) to reduce order bias. `questionnaire-answer-flow` shows them in API `position` order and hides the topic; randomisation stays open.
 - Answers, Important flags and the results are memory-only (`questionnaire-answer-flow`, `questionnaire-important-flag`, `results-ranking`): the results page has no URL of its own, so a reload, browser Back or leaving the page loses them. `results-ranking` mitigates it with a loss note on the end screen and a methodology link that opens in a new tab, but adds no leave warning (`BrowserRouter` has no `useBlocker`; `beforeunload` misses in-app Back). Since `share-link-open` a copied Share Link (`share-link-create`) reopens the same result at `/resultados`; that page keeps the fragment in the address bar, so reload, bookmarks and Back work there. The end screen itself is still memory-only: its loss note now tells the Voter to copy the link from `Comparte tu resultado` first (only when there are scores, since otherwise there is no share section). Still no leave warning.
+- Settled (`pipeline-checkpoint-shared`): checkpoint files are committed by hand and merged into `main` as the record of how published data was made.
 
 ## Later / Not MVP
 

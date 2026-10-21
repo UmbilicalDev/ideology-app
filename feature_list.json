@@ -622,11 +622,40 @@
     "notes": "User decision 2026-10-21: needed so e2e-real-2023-election can finish under subscription usage limits. Reuse is explicit (`--resume-from`), never automatic, so a deliberate re-run still regenerates."
   },
   {
+    "id": "source-text-bundle",
+    "area": "sources",
+    "title": "Manifesto text files in the repository: extract a PDF to Markdown and import an Election from a committed bundle",
+    "user_visible_behavior": "`ideology source extract <pdf>` writes one light Markdown file per Party manifesto: YAML front matter (party, optional official `source_url`, PDF SHA-256, page count, extractor) and the page text exactly as pypdf extracts it, each page under a `<!-- page N -->` marker (no images, styles or rewriting). The files live in `data/elections/<election>/` with a manifest for the Election and its Parties, so they are committed to git instead of the PDFs. `ideology data import <dir>` creates the Election, Parties and Source Documents with their pages in an empty or existing database, idempotently, so every developer on every machine gets the same source text. `source_url` is optional: a manifesto that only exists as a local document still imports and generates; its Evidence simply has no link.",
+    "depends_on": ["source-document-upload", "source-document-url"],
+    "status": "not_started",
+    "verification": [
+      "pytest: extract round-trips page numbers and text byte-for-byte with what source-document-upload stores; import into an empty DB creates Election, Parties and parsed Source Documents; a second import changes nothing; a changed file registers a replacement document; a file without source_url imports and its Evidence has no URL; malformed front matter or page markers fail with a clear error and no partial import",
+      "The 2023 general election bundle is committed under data/elections/ and imports into a fresh DB with the same page text as the existing local DB",
+      "No PDF is committed; repository size of the bundle recorded in evidence"
+    ],
+    "evidence": [],
+    "notes": "Added 2026-10-21 so several developers on several machines share the generation sources through git. Text is never edited or cleaned (Evidence quotes are checked against it). PSOE and VOX were uploaded without an official URL. UPN and CCa are excluded from the 2023 bundle (user decision)."
+  },
+  {
+    "id": "pipeline-checkpoint-shared",
+    "area": "pipeline",
+    "title": "Share the Pipeline Run checkpoint through the repository and resume it on another machine",
+    "user_visible_behavior": "Besides the database rows of pipeline-run-checkpoint, every successful LLM call of a run is appended to a JSONL checkpoint file inside the Election's data directory (request hash, task, validated output, tokens), one file per run. `ideology pipeline run --election N --resume-from-file <jsonl>` reuses the recorded calls by request hash, so a developer on another machine who pulled the file and imported the same source-text bundle continues where a stopped run ended. When a run stops, the Operator commits and pushes the checkpoint file by hand; checkpoint files are merged into main as the record of how published data was made.",
+    "depends_on": ["pipeline-run-checkpoint", "source-text-bundle"],
+    "status": "not_started",
+    "verification": [
+      "pytest with FakeProvider: the JSONL gets one line per successful call, flushed per call; a run resumed from the file on a fresh DB built from the same bundle calls the provider only for the missing calls and yields the same Statements; a line whose output no longer validates is a miss; resume refused for another Election or provider/model recorded in the file",
+      "Tests never call a real LLM"
+    ],
+    "evidence": [],
+    "notes": "Added 2026-10-21 because checkpoints in a local SQLite DB cannot be resumed by another developer. User decisions: no auto-commit (git hooks must not be bypassed; commit and push by hand); checkpoint files are merged into main."
+  },
+  {
     "id": "e2e-real-2023-election",
     "area": "validation",
     "title": "End-to-end run on the real 2023 general election",
     "user_visible_behavior": "The 2023 manifestos of the parties with seats go through a real-provider run, which is published only if it passes Validation, and a Voter completes the flow and shares a link.",
-    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code", "pipeline-run-checkpoint"],
+    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code", "pipeline-run-checkpoint", "source-text-bundle", "pipeline-checkpoint-shared"],
     "status": "not_started",
     "verification": [
       "A recorded Pipeline Run report with status passed",
