@@ -16,7 +16,7 @@ change made by ``publishing``; there is no delete path.
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import Engine, Select, exists, select
+from sqlalchemy import Engine, Select, exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ideology_app import config
@@ -31,6 +31,7 @@ from ideology_app.models import (
     Party,
     PartyPosition,
     PipelineRun,
+    PipelineRunCall,
     PipelineRunSourceDocument,
     PipelineRunStatus,
     SourceDocument,
@@ -525,6 +526,56 @@ def list_queued_run_ids(session: Session, election_id: int | None = None) -> lis
         _get_election(session, election_id)
         query = query.where(PipelineRun.election_id == election_id)
     return list(session.scalars(query.order_by(PipelineRun.id)))
+
+
+@dataclass(frozen=True)
+class UnfinishedRun:
+    """A stopped run that should be resumed rather than paid for again (plain data)."""
+
+    run_id: int
+    status: PipelineRunStatus
+    recorded_calls: int
+
+
+_UNFINISHED_STATUSES = (PipelineRunStatus.RUNNING, PipelineRunStatus.FAILED)
+
+
+def find_unfinished_run(
+    session: Session,
+    election_id: int,
+    provider: str | None = None,
+    model: str | None = None,
+) -> UnfinishedRun | None:
+    """The Election's latest run with recorded calls, when it is unfinished. Read-only.
+
+    It takes the highest-id run of ``election_id`` that has at least one
+    recorded LLM call. It is unfinished when it has no Dataset Version, its
+    status is ``running`` or ``failed``, and (when given) its provider and model
+    equal ``provider`` / ``model`` (another model's run cannot be resumed).
+    Otherwise, or when the Election has no such run, ``None``.
+    """
+    calls = (
+        select(PipelineRunCall.pipeline_run_id, func.count().label("calls"))
+        .group_by(PipelineRunCall.pipeline_run_id)
+        .subquery()
+    )
+    row = session.execute(
+        select(PipelineRun, calls.c.calls)
+        .join(calls, calls.c.pipeline_run_id == PipelineRun.id)
+        .where(PipelineRun.election_id == election_id)
+        .order_by(PipelineRun.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    run, recorded = row
+    if run.dataset_version is not None or run.status not in _UNFINISHED_STATUSES:
+        return None
+    if provider is not None and run.llm_provider != provider:
+        return None
+    if model is not None and run.llm_model != model:
+        return None
+    return UnfinishedRun(run_id=run.id, status=run.status, recorded_calls=int(recorded))
 
 
 def get_dataset_version(session: Session, dataset_version_id: int) -> DatasetVersion:

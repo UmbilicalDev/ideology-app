@@ -69,11 +69,16 @@ def downgrade(url: str | None, revision: str) -> None:
     command.downgrade(alembic_config(url), revision)
 
 
-def is_initialised(engine: Engine) -> bool:
-    """True when the database is at the newest migration (the script head)."""
+def head_revision() -> str | None:
+    """The newest migration of the package scripts."""
     script_config = Config()
     script_config.set_main_option("script_location", SCRIPT_LOCATION)
-    head = ScriptDirectory.from_config(script_config).get_current_head()
+    return ScriptDirectory.from_config(script_config).get_current_head()
+
+
+def is_initialised(engine: Engine) -> bool:
+    """True when the database is at the newest migration (the script head)."""
+    head = head_revision()
     with engine.connect() as conn:
         current = MigrationContext.configure(conn).get_current_revision()
     return current is not None and current == head

@@ -13,6 +13,7 @@ def _no_default_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     """Never let a test fall back to ./ideology.db or a developer's web build."""
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("WEB_DIST_DIR", raising=False)
+    monkeypatch.delenv("ELECTIONS_DATA_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
 
 

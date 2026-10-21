@@ -49,12 +49,14 @@ Rules:
 | URL re-fetch interval | `SOURCE_REFETCH_INTERVAL_HOURS`, default 6 | Whole hours. Applied by `ideology source refetch` in both modes (a due URL source is downloaded and hashed; changed bytes register a replacement document); only `live` queues a Pipeline Run. Scheduling the command belongs to the first deployment feature. |
 | `SOURCE_INGESTION` | `upload`, `url` (both allowed) | Per Source Document: chosen by the CLI flag `ideology source add --file` or `--url`, not an environment variable. |
 | Validation thresholds | coverage %, statement range, topic share | Per Election overrides allowed. |
+| `DATABASE_URL` / `--database-url` | SQLAlchemy URL, default `sqlite:///ideology.db` | `sqlite:///data/ideology.db` (from the repo root) selects the shared database committed to git (`shared-database`); there is no other selector. On it, `pipeline run` / `run-queued` ask for confirmation (`--yes` skips it) and a missing file is refused instead of created. The default stays a local file so a stray command never writes the shared one. |
 
 ## Data and Storage
 
 - No Voter data is stored on the server.
 - Share Link: Dataset Version id plus compactly encoded Answers placed in the URL **fragment** (`#…`), so it isn't sent to the server or recorded in access logs.
 - Dataset Versions are immutable and kept indefinitely.
+- One SQLite database for all Elections is committed at `data/ideology.db` (`shared-database`), beside the bundles in `data/elections/<slug>/`. It is the single source of truth for every developer: Elections, Parties, Source Documents, Pipeline Runs with their recorded LLM calls, Statements, Party Positions and Dataset Versions, so run ids, Dataset Version ids and `request_hash` values agree on every machine. It is built from scratch with `ideology db upgrade` + `ideology data import <bundle>` per Election, stays in `delete` journal mode, is tracked as `binary` and is never downgraded. `ideology db check` (read-only) is the safe-to-commit gate. The app never invokes git: the Operator commits and pushes it by hand (see "Shared database" under Integrations).
 - Source Text Bundles (`source-text-bundle`): the manifesto text of each Election is committed under `data/elections/<slug>/` (`election.toml` plus one `.md` per Party); PDFs are never committed. Runbook:
   - Add a Party's manifesto: put the PDF anywhere outside `data/`, run `ideology source extract <pdf> --party <SHORT> --out data/elections/<slug>/<file>.md [--url <public PDF URL>]`, list it in `election.toml`, commit both. Without `--url` its Evidence shows the page with no link.
   - Import into any database (fresh or existing): `ideology db upgrade`, then `ideology data import data/elections/<slug>`. It is idempotent; `ideology data check data/elections/<slug>` confirms the database holds exactly the committed text.
@@ -70,6 +72,17 @@ Rules:
   2. Run: `caffeinate -is env LLM_PROVIDER=claude_code .venv/bin/ideology pipeline run --election N` (optionally `LLM_MODEL=…` and `LLM_CLAUDE_CODE_MAX_WAIT_HOURS=…`).
   3. Keep the process and the machine awake (on AC power, lid open): when the subscription usage limit is hit, the provider prints `claude_code: usage limit reached (task …); waiting until <time> …` on stderr and waits in-process for the reset, then retries the same call. A real 2023 run is about 176 calls and can take several usage-limit windows.
   4. If the process or the machine dies, or the run ends `failed` halfway (Ctrl-C ends it `failed: interrupted`; a killed run may stay `running`), every LLM call it completed is already recorded (`pipeline-run-checkpoint`). Resume with `ideology pipeline run --election N --resume-from R`: only the missing calls go to the CLI.
+- Shared database (`shared-database`): commands run from the repo root with `export DATABASE_URL=sqlite:///data/ideology.db`. Runbook:
+  1. Pull code and DB together (`git pull`) with no `ideology` process or web server open on the DB. Pulling or switching branch replaces the file: an open process would keep writing to the old copy, and those writes are lost.
+  2. Tell the team you are generating. One active run at a time on the shared DB, for any Election.
+  3. `caffeinate -is env LLM_PROVIDER=claude_code .venv/bin/ideology pipeline run --election N`. Confirm the prompt, or pass `--yes`. Use `--resume-from R` when the CLI or `db check` names an unfinished run (the CLI refuses a new run while the Election has one; `--fresh` starts from zero anyway).
+  4. To stop (usage limit, end of day), press Ctrl-C once and wait for the process to exit. The run ends `failed: interrupted`.
+  5. Run `.venv/bin/ideology db check`. It must print `Safe to commit: yes`.
+  6. Commit only the DB (`git add data/ideology.db`), with a message naming the run and `--resume-from R`, then push. Tell the team. During generation the DB commits go on the branch doing the work, merged to `main` by PR.
+  7. The next developer starts at step 1 and resumes with `--resume-from R`, using the same `LLM_PROVIDER`/`LLM_MODEL` and code revision.
+  8. Other writes (`data import` of a new or changed bundle, `db upgrade` after a migration) follow the same pull → write → `db check` → commit → push cycle, never while someone is generating. A PR that adds a migration also upgrades and commits `data/ideology.db` (`tests/test_committed_database.py` fails until it does).
+  9. A merge conflict on the DB means the rule was broken. Keep the side with the run that matters (`git checkout --ours|--theirs`), re-run `db upgrade` or `data import` if that side lacks them, and resume. Never try to merge two DB files.
+  10. To serve locally: `DATABASE_URL=sqlite:///data/ideology.db .venv/bin/uvicorn ideology_app.main:app` (every Election).
 - HTTP fetch for URL-based Source Documents: stdlib `urllib` (`ideology_app.http_fetch`), http/https only, no new dependency.
 
 ## Authentication and Authorization

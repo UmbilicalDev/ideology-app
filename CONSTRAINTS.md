@@ -99,3 +99,11 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 ## Public Copy
 
 - `apps/web/src/features/methodology/MethodologyPage.tsx` and its test MUST be updated in the same change whenever a Validation check, a `ValidationSettings` default, the matching rule (`match-score.ts` constants or formula), the prompt rules it describes, or the privacy model changes. Reason: the page is static copy and the public description of the method; stale copy is a legal and trust risk.
+
+## Shared Database
+
+- The committed `data/ideology.db` MUST stay in `delete` journal mode (no WAL) and MUST be committed only after `ideology db check` prints `Safe to commit: yes`. Reason: a WAL file or a leftover journal means the committed file alone is incomplete.
+- The committed `data/ideology.db` MUST NOT be downgraded. Reason: `0003`'s downgrade deletes every page row (see "SQLite downgrades that recreate a table" in `docs/risks-and-open-questions.md`).
+- A PR that adds a migration MUST also run `ideology db upgrade` on `data/ideology.db` (with `DATABASE_URL=sqlite:///data/ideology.db`), check it with `ideology db check` and commit it, only when nobody is generating. Reason: one shared file is the source of truth; `tests/test_committed_database.py` fails until it is at head.
+- Tests MUST NOT write to `data/ideology.db`: they open it only read-only (`shared_db.read_only_url`, `mode=ro`), and a test that needs a shared database builds `<tmp_path>/data/ideology.db`. Reason: the file is shared through git; a test write would be committed.
+- Application code MUST NOT invoke git (no hooks, auto-commit or `git` subprocesses) and the default `DATABASE_URL` MUST NOT point at the shared file. Reason: the Operator commits the DB by hand, and a stray command must never write the shared file silently.

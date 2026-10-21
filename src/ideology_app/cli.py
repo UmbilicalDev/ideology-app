@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import os
 import re
+import sys
 import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import click
+from alembic.migration import MigrationContext
 from sqlalchemy import Engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import SQLAlchemyError
@@ -21,10 +23,17 @@ from ideology_app import bundle_import
 from ideology_app import elections as service
 from ideology_app import config
 from ideology_app import pipeline as pipelines
+from ideology_app import shared_db
 from ideology_app import source_bundle
 from ideology_app import source_documents as sources
 from ideology_app.pdf_text import EXTRACTOR, PdfTextError, extract_pages
-from ideology_app.db import is_initialised, make_engine, run_migrations, session_scope
+from ideology_app.db import (
+    head_revision,
+    is_initialised,
+    make_engine,
+    run_migrations,
+    session_scope,
+)
 from ideology_app.llm import LLMProvider, build_provider
 from ideology_app.models import (
     DatasetVersionStatus,
@@ -40,6 +49,8 @@ NOT_INITIALISED = 'Database is not initialised; run "ideology db upgrade".'
 class AppContext:
     url: str
     engine: Engine
+    # The URL is the committed data/ideology.db (shared-database).
+    shared: bool = False
 
 
 def _safe_url(url: str) -> str:
@@ -67,7 +78,7 @@ def main(ctx: click.Context, database_url: str | None) -> None:
     except ImportError as exc:
         raise click.ClickException(f"database driver not installed: {exc}") from exc
     ctx.call_on_close(engine.dispose)
-    ctx.obj = AppContext(url=url, engine=engine)
+    ctx.obj = AppContext(url=url, engine=engine, shared=shared_db.is_shared(url))
 
 
 def requires_db(f: Callable[..., Any]) -> Callable[..., Any]:
@@ -75,6 +86,11 @@ def requires_db(f: Callable[..., Any]) -> Callable[..., Any]:
 
     @click.pass_obj
     def wrapper(app: AppContext, *args: Any, **kwargs: Any) -> Any:
+        # Never let a command create an empty, committable shared file.
+        if app.shared and not config.SHARED_DATABASE_PATH.exists():
+            raise click.ClickException(
+                shared_db.MISSING_SHARED.format(path=config.SHARED_DATABASE_PATH)
+            )
         try:
             ready = is_initialised(app.engine)
         except SQLAlchemyError as exc:
@@ -114,6 +130,95 @@ def db_upgrade(app: AppContext) -> None:
     except SQLAlchemyError as exc:
         raise click.ClickException(f"migration failed: {exc}") from exc
     click.echo(f"Database at {_safe_url(app.url)} is at head")
+
+
+@db.command("check")
+@click.pass_obj
+def db_check(app: AppContext) -> None:
+    """Check that a SQLite database file is safe to commit. Read-only.
+
+    In order: no -journal/-wal/-shm file next to it, journal mode delete,
+    integrity_check ok, schema at head, and every Election with a committed
+    bundle (ELECTIONS_DATA_DIR) matching it. Unfinished runs are listed as
+    information. Ends with "Safe to commit: yes" (exit 0) or one line per
+    failed check and "Safe to commit: no" (exit 1).
+    """
+    path = shared_db.sqlite_path(app.url)
+    if path is None:
+        raise click.ClickException("db check supports SQLite databases only")
+    if not path.is_file():
+        raise click.ClickException(f"no database at {path}")
+    problems = shared_db.file_checks(path)
+    if problems:
+        problems.append("the database was not opened; the remaining checks did not run")
+    else:
+        problems = _open_checks(path)
+    if problems:
+        for problem in problems:
+            click.echo(f"Error: {problem}", err=True)
+        click.echo("Safe to commit: no")
+        raise click.exceptions.Exit(1)
+    click.echo("Safe to commit: yes")
+
+
+def _open_checks(path: Path) -> list[str]:
+    """The checks that open ``path`` read-only (``mode=ro``); info lines are printed."""
+    problems: list[str] = []
+    engine = make_engine(shared_db.read_only_url(path))
+    try:
+        with engine.connect() as conn:
+            integrity = [row[0] for row in conn.exec_driver_sql("PRAGMA integrity_check")]
+            current = MigrationContext.configure(conn).get_current_revision()
+        if integrity != ["ok"]:
+            problems.append(f"integrity_check failed: {'; '.join(map(str, integrity))[:500]}")
+        head = head_revision()
+        if current != head:
+            problems.append(
+                f"schema is at migration {current or 'none'}, not head {head}; "
+                'run "ideology db upgrade"'
+            )
+            return problems
+        session = Session(engine)
+        try:
+            problems.extend(_bundle_and_run_checks(session))
+        finally:
+            session.rollback()
+            session.close()
+    except SQLAlchemyError as exc:
+        problems.append(f"cannot read the database: {exc}")
+    finally:
+        engine.dispose()
+    return problems
+
+
+def _bundle_and_run_checks(session: Session) -> list[str]:
+    problems: list[str] = []
+    root = config.elections_data_dir()
+    for election in service.list_elections(session):
+        slug = source_bundle.bundle_slug(election, root)
+        if slug is None:
+            click.echo(f"election {election.id}: no committed bundle; text not checked")
+        else:
+            try:
+                bundle = source_bundle.read_bundle(root / slug)
+            except service.ElectionsError as exc:
+                problems.append(f"election {election.id} ({slug}): bad bundle: {exc}")
+            else:
+                problems.extend(
+                    f"election {election.id} ({slug}): {problem}"
+                    for problem in bundle_import.check_against_bundle(session, bundle)
+                )
+        unfinished = pipelines.find_unfinished_run(session, election.id)
+        if unfinished is not None:
+            line = (
+                f"election {election.id}, run {unfinished.run_id}: "
+                f"{unfinished.status.value}, {unfinished.recorded_calls} recorded calls; "
+                f"resume with --resume-from {unfinished.run_id}"
+            )
+            if unfinished.status is PipelineRunStatus.RUNNING:
+                line += "; commit only if no ideology process is still running it"
+            click.echo(line)
+    return problems
 
 
 @main.group()
@@ -547,6 +652,68 @@ def _provider() -> LLMProvider:
     return build_provider(config.llm_settings())
 
 
+def _close(provider: LLMProvider) -> None:
+    close = getattr(provider, "close", None)
+    if callable(close):
+        close()
+
+
+def _stdin_is_interactive() -> bool:
+    """True when stdin is a terminal. Tests patch this seam to answer the prompt."""
+    return sys.stdin.isatty()
+
+
+SHARED_PROMPT = (
+    "Database {path} is shared through git.\n"
+    "One active run at a time: generate only if you pulled the latest commit of this\n"
+    "database and nobody else is generating on it (any Election)."
+)
+
+
+def _confirm_shared(app: AppContext, yes: bool) -> None:
+    """On the shared database, ask before generating; ``--yes`` skips it. No write.
+
+    Without ``--yes`` a non-interactive stdin refuses instead of blocking, and
+    answering no aborts (exit 1).
+    """
+    if not app.shared or yes:
+        return
+    if not _stdin_is_interactive():
+        raise click.ClickException(
+            "refusing to generate on the shared database without confirmation; pass --yes"
+        )
+    click.echo(SHARED_PROMPT.format(path=config.SHARED_DATABASE_PATH.as_posix()))
+    click.confirm("Continue?", default=False, abort=True)
+
+
+def _guard_unfinished(
+    app: AppContext, election_id: int, provider: LLMProvider, fresh: bool
+) -> None:
+    """Refuse (shared database) or warn (any other) when the Election has an unfinished run."""
+    if fresh:
+        return
+    session = Session(app.engine)
+    try:
+        unfinished = pipelines.find_unfinished_run(
+            session, election_id, provider.name, provider.model
+        )
+    finally:
+        session.rollback()
+        session.close()
+    if unfinished is None:
+        return
+    message = (
+        f"election {election_id} has an unfinished run {unfinished.run_id} "
+        f"({unfinished.status.value}, {unfinished.recorded_calls} recorded calls); "
+        f"resume it with --resume-from {unfinished.run_id}, or pass --fresh to start from zero"
+    )
+    if unfinished.status is PipelineRunStatus.RUNNING:
+        message += "; if another developer is generating, stop; a killed run also stays running"
+    if app.shared:
+        raise click.ClickException(message)
+    click.echo(f"Warning: {message}", err=True)
+
+
 @main.group()
 def pipeline() -> None:
     """Run the AI pipeline and inspect its Pipeline Runs."""
@@ -562,13 +729,26 @@ def pipeline() -> None:
     help="Reuse the recorded LLM calls of this earlier run (same election, provider "
     "and model) and only call the LLM for the rest.",
 )
+@click.option(
+    "--fresh",
+    is_flag=True,
+    help="Start from zero even though the election has an unfinished run.",
+)
+@click.option("--yes", is_flag=True, help="Do not ask for confirmation on the shared database.")
 @requires_db
-def pipeline_run(app: AppContext, election_id: int, resume_from: int | None) -> None:
+def pipeline_run(
+    app: AppContext, election_id: int, resume_from: int | None, fresh: bool, yes: bool
+) -> None:
     """Generate Statements and Party Positions, validate them and publish on pass.
 
     Every successful LLM call is recorded as it returns, so a run that stops
-    halfway can be resumed with ``--resume-from``.
+    halfway can be resumed with ``--resume-from``. Without it, an unfinished
+    run of the election (running or failed, no dataset version, same provider
+    and model) is refused on the shared database and warned about elsewhere;
+    ``--fresh`` starts from zero anyway.
     """
+    if fresh and resume_from is not None:
+        raise click.UsageError("pass at most one of --fresh or --resume-from")
     try:
         mode = config.generation_mode()
         settings = config.validation_settings()
@@ -576,6 +756,9 @@ def pipeline_run(app: AppContext, election_id: int, resume_from: int | None) -> 
     except config.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
     try:
+        if resume_from is None:
+            _guard_unfinished(app, election_id, provider, fresh)
+        _confirm_shared(app, yes)
         with session_scope(app.engine) as session:
             run = pipelines.queue_run(
                 session,
@@ -593,9 +776,7 @@ def pipeline_run(app: AppContext, election_id: int, resume_from: int | None) -> 
             )
         outcome = pipelines.execute_run(app.engine, run_id, provider, settings)
     finally:
-        close = getattr(provider, "close", None)
-        if callable(close):
-            close()
+        _close(provider)
     # The failed run is committed above; report it as an error afterwards.
     _raise_if_failed(outcome)
     _echo_passed(outcome)
@@ -605,8 +786,9 @@ def pipeline_run(app: AppContext, election_id: int, resume_from: int | None) -> 
 @click.option(
     "--election", "election_id", type=int, default=None, help="Only this Election's runs."
 )
+@click.option("--yes", is_flag=True, help="Do not ask for confirmation on the shared database.")
 @requires_db
-def pipeline_run_queued(app: AppContext, election_id: int | None) -> None:
+def pipeline_run_queued(app: AppContext, election_id: int | None, yes: bool) -> None:
     """Execute every queued Pipeline Run in id order, one at a time, in the foreground.
 
     Runs are queued by "ideology source add" in live Generation Mode. A run
@@ -625,6 +807,7 @@ def pipeline_run_queued(app: AppContext, election_id: int | None) -> None:
         if not run_ids:
             click.echo("No queued pipeline runs")
             return
+        _confirm_shared(app, yes)
         for run_id in run_ids:
             try:
                 outcome = pipelines.execute_run(app.engine, run_id, provider, settings)
@@ -638,9 +821,7 @@ def pipeline_run_queued(app: AppContext, election_id: int | None) -> None:
                 continue
             _echo_passed(outcome)
     finally:
-        close = getattr(provider, "close", None)
-        if callable(close):
-            close()
+        _close(provider)
     if failures:
         raise click.ClickException(
             f"{failures} of {len(run_ids)} queued pipeline runs failed"
