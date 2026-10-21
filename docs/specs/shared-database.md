@@ -17,6 +17,8 @@ User decisions (2026-10-21, binding):
 - No auto-commit. The app never invokes git.
 - One active run at a time on the shared database (team rule), confirmed by a CLI prompt.
 - History growth is accepted. Past Elections' rows will be deleted later, keeping two.
+- DB commits during generation go on the branch doing the work, merged to `main` by PR.
+- On the shared DB an unfinished run makes `pipeline run` refuse (not just warn); `--fresh` is the explicit override.
 
 ## Non-Goals
 
