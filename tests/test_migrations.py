@@ -1003,3 +1003,100 @@ def test_offline_postgresql_render_of_0009() -> None:
     down_sql = down.getvalue()
     assert "ALTER TABLE source_documents DROP COLUMN last_checked_at;" in down_sql
     assert "ALTER TABLE source_documents DROP COLUMN replaced_by_id;" in down_sql
+
+
+# Migration 0010: recorded LLM calls and resumed_from_run_id (pipeline-run-checkpoint).
+
+
+def test_upgrade_0010_adds_the_calls_table_and_column_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url, "0009")
+    engine = make_engine(db_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO elections (id, country, type, date, name, status)"
+                    " VALUES (1, 'ES', 'general', '2023-07-23', 'G', 'draft')"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO pipeline_runs (id, election_id, status, llm_provider,"
+                    " llm_model, generation_mode, prompt_versions, llm_calls, input_tokens,"
+                    " output_tokens, created_at) VALUES (1, 1, 'failed', 'fake', 'm',"
+                    " 'precomputed', '{}', 0, 0, 0, '2026-01-01')"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    run_migrations(db_url)
+
+    assert _version(db_url) == "0010"
+    assert _tables(db_url) == ALL_TABLES
+    columns = _pipeline_run_columns(db_url)
+    assert columns["resumed_from_run_id"]["nullable"] is True
+    assert _counts(db_url, ("pipeline_runs",)) == {"pipeline_runs": 1}
+
+
+def test_downgrade_to_0009_drops_the_calls_and_keeps_runs_and_versions(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "INSERT INTO elections (id, country, type, date, name, status)"
+                    " VALUES (1, 'ES', 'general', '2023-07-23', 'G', 'draft')"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO pipeline_runs (id, election_id, status, llm_provider,"
+                    " llm_model, generation_mode, prompt_versions, llm_calls, input_tokens,"
+                    " output_tokens, created_at, resumed_from_run_id) VALUES (1, 1,"
+                    " 'validating', 'fake', 'm', 'precomputed', '{}', 0, 0, 0,"
+                    " '2026-01-01', NULL)"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO dataset_versions (id, election_id, pipeline_run_id, status,"
+                    " created_at) VALUES (1, 1, 1, 'candidate', '2026-01-01')"
+                )
+            )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO pipeline_run_calls (pipeline_run_id, sequence, task,"
+                    " request_hash, output, input_tokens, output_tokens, reused, created_at)"
+                    " VALUES (1, 1, 't', :h, '{}', 1, 1, 0, '2026-01-01')"
+                ),
+                {"h": "a" * 64},
+            )
+    finally:
+        engine.dispose()
+
+    downgrade(db_url, "0009")
+
+    assert _version(db_url) == "0009"
+    assert _tables(db_url) == TABLES_AT_0009
+    assert "resumed_from_run_id" not in _pipeline_run_columns(db_url)
+    assert _counts(db_url, ("pipeline_runs", "dataset_versions")) == {
+        "pipeline_runs": 1,
+        "dataset_versions": 1,
+    }
+    run_migrations(db_url)
+    assert _version(db_url) == "0010"
+
+
+def test_offline_postgresql_render_of_0010() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0009:0010",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "CREATE TABLE pipeline_run_calls" in up_sql
+    assert "ON DELETE CASCADE" in up_sql
+    assert "ALTER TABLE pipeline_runs ADD COLUMN resumed_from_run_id INTEGER;" in up_sql

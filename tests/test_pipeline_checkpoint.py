@@ -225,29 +225,6 @@ def test_a_stored_output_that_no_longer_validates_is_a_miss(seeded: Engine) -> N
     assert [r.reused for r in calls(seeded, resumed_id)][:3] == [False, True, True]
 
 
-def test_identical_requests_each_reuse_one_recorded_call(seeded: Engine) -> None:
-    stopped_id = stop_run(seeded, stop_at=2)
-    request = LLMRequest(
-        task="statement_candidates", system="s", prompt="p", schema=CandidateList
-    )
-    hash_ = request_hash("fake", "fake-model", request)
-    with session_scope(seeded) as session:
-        session.execute(
-            update(PipelineRunCall)
-            .where(PipelineRunCall.pipeline_run_id == stopped_id)
-            .values(request_hash=hash_)
-        )
-    inner = fake_provider()
-    provider = CheckpointProvider(inner, seeded, stopped_id + 1, resumed_from_run_id=stopped_id)
-    # The run row must exist for the FK; queue it first.
-    assert queue(seeded, inner, resume_from=stopped_id) == stopped_id + 1
-
-    provider.generate(request)
-    provider.generate(request)
-
-    assert len(inner.calls) == 1
-
-
 # Scenario 5
 def test_resume_is_refused_for_an_unknown_run(seeded: Engine) -> None:
     with pytest.raises(NotFoundError, match="pipeline run 99 not found"):
@@ -349,3 +326,67 @@ def test_cli_refused_resume_creates_no_run(cli_db, monkeypatch: pytest.MonkeyPat
     assert "pipeline run 7 not found" in result.output
     with Session(engine) as s:
         assert s.scalars(select(PipelineRun)).all() == []
+
+
+# Behaviour 2: the hash covers everything that determines an answer.
+def _hash_request(**changes: Any) -> LLMRequest[Any]:
+    fields: dict[str, Any] = {
+        "task": "statement_candidates",
+        "system": "s",
+        "prompt": "p",
+        "schema": CandidateList,
+        "max_tokens": 4096,
+    }
+    fields.update(changes)
+    return LLMRequest(**fields)
+
+
+def test_request_hash_is_stable_and_covers_every_input() -> None:
+    from ideology_app.pipeline.prompts import FindingList
+
+    base = request_hash("fake", "m", _hash_request())
+    assert base == request_hash("fake", "m", _hash_request())
+    variants = [
+        request_hash("other", "m", _hash_request()),
+        request_hash("fake", "m2", _hash_request()),
+        request_hash("fake", "m", _hash_request(task="generate_statements")),
+        request_hash("fake", "m", _hash_request(system="s2")),
+        request_hash("fake", "m", _hash_request(prompt="p2")),
+        request_hash("fake", "m", _hash_request(schema=FindingList)),
+        request_hash("fake", "m", _hash_request(max_tokens=8192)),
+    ]
+    assert base not in variants
+    assert len(set(variants)) == len(variants)
+
+
+def test_recorded_calls_with_the_same_hash_are_reused_in_sequence_order(
+    seeded: Engine,
+) -> None:
+    stopped_id = stop_run(seeded, stop_at=3)  # two statement_candidates calls recorded
+    request = _hash_request()
+    hash_ = request_hash("fake", "fake-model", request)
+    with session_scope(seeded) as session:
+        for sequence, text in ((1, "Primera propuesta."), (2, "Segunda propuesta.")):
+            session.execute(
+                update(PipelineRunCall)
+                .where(
+                    PipelineRunCall.pipeline_run_id == stopped_id,
+                    PipelineRunCall.sequence == sequence,
+                )
+                .values(
+                    request_hash=hash_,
+                    output={"candidates": [{"text": text, "topic": "housing"}]},
+                )
+            )
+    inner = fake_provider()
+    new_id = queue(seeded, inner, resume_from=stopped_id)
+    provider = CheckpointProvider(inner, seeded, new_id, resumed_from_run_id=stopped_id)
+
+    first = provider.generate(request).output
+    second = provider.generate(request).output
+
+    assert [first.candidates[0].text, second.candidates[0].text] == [
+        "Primera propuesta.",
+        "Segunda propuesta.",
+    ]
+    assert inner.calls == []
