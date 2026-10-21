@@ -17,6 +17,7 @@ from ideology_app.elections import NotFoundError
 from ideology_app.models import (
     DatasetVersionStatus,
     PipelineRun,
+    PipelineRunCall,
     PipelineRunStatus,
     Statement,
     ValidationResult,
@@ -52,6 +53,8 @@ class RunReport:
     llm_calls: int
     input_tokens: int
     output_tokens: int
+    resumed_from_run_id: int | None
+    reused_calls: int
     validation_settings: dict[str, int] | None
     dataset_version_id: int | None
     dataset_version_status: DatasetVersionStatus | None
@@ -81,6 +84,11 @@ def get_run_report(session: Session, run_id: int) -> RunReport:
             .where(Statement.dataset_version_id == version.id)
         )
     )
+    reused_calls = session.scalar(
+        select(func.count())
+        .select_from(PipelineRunCall)
+        .where(PipelineRunCall.pipeline_run_id == run.id, PipelineRunCall.reused)
+    )
     live = get_published_dataset_version(session, run.election_id)
     return RunReport(
         run_id=run.id,
@@ -98,6 +106,8 @@ def get_run_report(session: Session, run_id: int) -> RunReport:
         llm_calls=run.llm_calls,
         input_tokens=run.input_tokens,
         output_tokens=run.output_tokens,
+        resumed_from_run_id=run.resumed_from_run_id,
+        reused_calls=reused_calls or 0,
         validation_settings=(
             None if run.validation_settings is None else dict(run.validation_settings)
         ),
