@@ -637,25 +637,26 @@
     "notes": "Added 2026-10-21 so several developers on several machines share the generation sources through git. Text is never edited or cleaned (Evidence quotes are checked against it). PSOE and VOX were uploaded without an official URL. UPN and CCa are excluded from the 2023 bundle (user decision)."
   },
   {
-    "id": "pipeline-checkpoint-shared",
-    "area": "pipeline",
-    "title": "Share the Pipeline Run checkpoint through the repository and resume it on another machine",
-    "user_visible_behavior": "Besides the database rows of pipeline-run-checkpoint, every successful LLM call of a run is appended to a JSONL checkpoint file inside the Election's data directory (request hash, task, validated output, tokens), one file per run. `ideology pipeline run --election N --resume-from-file <jsonl>` reuses the recorded calls by request hash, so a developer on another machine who pulled the file and imported the same source-text bundle continues where a stopped run ended. When a run stops, the Operator commits and pushes the checkpoint file by hand; checkpoint files are merged into main as the record of how published data was made.",
+    "id": "shared-election-database",
+    "area": "platform",
+    "title": "One committed SQLite database per Election as the single source of truth for every developer",
+    "user_visible_behavior": "Each Election's database lives in the repository at `data/elections/<slug>/ideology.db`, next to its Source Text Bundle, and is shared by every developer through git: Elections, Parties, Source Documents, Pipeline Runs with their recorded LLM calls, Statements, Party Positions and Dataset Versions. It is built from scratch with `db upgrade` + `data import`. When a generation session stops (for example out of tokens), the Operator commits and pushes the database; another developer pulls it and continues with the existing `pipeline run --resume-from R`, since run ids are now the same on every machine. Before a new run starts on a shared database, the CLI asks for confirmation that the database was pulled and no one else is generating that Election, and warns when the Election has an unfinished run that should be resumed instead.",
     "depends_on": ["pipeline-run-checkpoint", "source-text-bundle"],
     "status": "not_started",
     "verification": [
-      "pytest with FakeProvider: the JSONL gets one line per successful call, flushed per call; a run resumed from the file on a fresh DB built from the same bundle calls the provider only for the missing calls and yields the same Statements; a line whose output no longer validates is a miss; resume refused for another Election or provider/model recorded in the file",
+      "pytest: the CLI resolves an Election's committed database path; a run on a shared database asks for confirmation (skippable with an explicit flag) and warns about an unfinished run; a database copied to another directory resumes a stopped run with --resume-from and reuses its recorded calls",
+      "The committed 2023 database is built from scratch from the bundle, its page text equals the .md files, and git tracks it as binary while journal/WAL files stay ignored",
       "Tests never call a real LLM"
     ],
     "evidence": [],
-    "notes": "Added 2026-10-21 because checkpoints in a local SQLite DB cannot be resumed by another developer. User decisions: no auto-commit (git hooks must not be bypassed; commit and push by hand); checkpoint files are merged into main."
+    "notes": "Added 2026-10-21; replaces the planned pipeline-checkpoint-shared (JSONL checkpoints). User decisions: one database per Election in git is the single source of truth; one active run per Election at a time (team rule, confirmed by a CLI prompt); history growth is handled by later deleting past Elections' data and keeping only two."
   },
   {
     "id": "e2e-real-2023-election",
     "area": "validation",
     "title": "End-to-end run on the real 2023 general election",
     "user_visible_behavior": "The 2023 manifestos of the parties with seats go through a real-provider run, which is published only if it passes Validation, and a Voter completes the flow and shares a link.",
-    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code", "pipeline-run-checkpoint", "source-text-bundle", "pipeline-checkpoint-shared"],
+    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code", "pipeline-run-checkpoint", "source-text-bundle", "shared-election-database"],
     "status": "not_started",
     "verification": [
       "A recorded Pipeline Run report with status passed",

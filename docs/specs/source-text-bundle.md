@@ -6,7 +6,7 @@
 - `area`: sources
 - `depends_on`: source-document-upload, source-document-url (both `accepted`)
 - `status`: not_started (at planning time)
-- `source`: `feature_list.json`. Sibling planned in parallel: `pipeline-checkpoint-shared` (depends on this feature; see "Shared contract").
+- `source`: `feature_list.json`. Sibling planned in parallel: `shared-election-database` (depends on this feature; see "Shared contract"). It commits one SQLite DB per Election at `data/elections/<slug>/ideology.db`, built from scratch from this bundle (`db upgrade` + `data import`).
 
 ## Goal
 
@@ -18,7 +18,8 @@ Once a Party's `.md` is committed, its PDF is no longer needed by anyone, with o
 
 ## Non-Goals
 
-- Shared checkpoints and JSONL files (`pipeline-checkpoint-shared`; that spec no longer has auto-commit). This feature only fixes the directory and slug contract they use.
+- Committing a database, including the 2023 `data/elections/<slug>/ideology.db`, and sharing checkpoints through it (`shared-election-database`). This feature commits only the `.md` files and `election.toml`. It fixes the directory and slug contract and provides the DB-vs-bundle check (`data check`) that the sibling runs on the committed DB.
+- Migrating the existing local DB in `ideology-app-data/e2e-2023/`. It is only the read-only reference for the text comparison (user decision 2026-10-21).
 - Text cleaning or normalisation, OCR, other input formats, several files per Party (coalition member manifestos), and deleting Parties or documents that are missing from a bundle.
 - Exporting existing DB rows to a bundle (`source extract` from the PDF is the only writer), serving stored PDFs, and changing Evidence rendering, the API or the web client.
 - Changing the `source_document_origin` enum or the `source_url_matches_origin` CHECK (see Technical Approach: on SQLite it needs a forbidden table recreate).
@@ -79,7 +80,7 @@ file = "pp.md"
 
 - The `election` values follow `elections.create_election` rules. `date` is a TOML date.
 - `short_name`, `name` and `file` are unique within the manifest. `file` matches `^[a-z0-9][a-z0-9._-]*\.md$`, sits in the bundle directory, and its front-matter `party` equals `short_name`.
-- Every top-level `*.md` file must be listed. Dotfiles and other top-level files are ignored. A `*.pdf` anywhere under the bundle is an error. Subdirectories (reserved: `checkpoints/`) are ignored.
+- Every top-level `*.md` file must be listed. Dotfiles and other top-level files are ignored. A `*.pdf` anywhere under the bundle is an error. Subdirectories are ignored. `ideology.db` is a reserved name (the committed Election DB of `shared-election-database`) and is ignored, like any other non-`.md` top-level file.
 - **Slug**: the bundle directory name must equal `election_slug(country, type, date)` = `f"{country.lower()}-{type}-{date.isoformat()}"`, e.g. `es-general-2023-07-23`.
 
 ## Acceptance Scenarios
@@ -168,6 +169,12 @@ Given a fresh migrated DB
 When `ideology data import data/elections/es-general-2023-07-23` runs
 Then 9 Parties and 9 parsed documents exist. For every file, `pdf_sha256` equals the `content_hash` of the same Party's document in `/Users/miguel.garcia/Documents/Development/AiExpert/ideology-app-data/e2e-2023/ideology.db`, and the imported page texts equal that document's page rows exactly. `git ls-files 'data/**'` lists no PDF. A pytest checks that every committed bundle under `data/elections/` parses and passes the canonical check.
 
+### Scenario 12: The database is checked against the bundle
+
+Given the Scenario 4 database
+When `ideology data check <bundle dir>` runs
+Then it exits 0 with `Database matches bundle es-general-2023-07-23: 2 documents`, and nothing is written. If a page row's text is changed directly in a scratch DB, a `.md` file is replaced without re-import, or a Party gets a `source add` document, the command exits 1 and names the Party, document and page.
+
 ## Repository Research
 
 ### Files Inspected
@@ -214,12 +221,21 @@ Then 9 Parties and 9 parsed documents exist. For every file, `pdf_sha256` equals
   - `source extract PDF --party SHORT --out FILE [--url URL] [--force]`: no `requires_db`. It reuses `_read_pdf_file` checks and `extract_pages`, and writes atomically.
   - New group `data`, "Shared election data". `data import DIR` (`requires_db`) resolves `generation_mode()` / `llm_settings()` before any write, as `source add` does. It calls `read_bundle`, then in one `session_scope` it runs `import_bundle` and calls `queue_run_for_source_change` for every added or replacing row. It prints the Scenario 4/6/9 lines, with the trigger line deduplicated.
   - `source list` appends a `bundle_file` column.
-- **Determinism**: on a fresh DB the import creates Parties and documents in manifest order. Ids, and therefore chunk order and prompt inputs, are the same on every machine. `pipeline-checkpoint-shared` relies on this.
-- **Shared contract with `pipeline-checkpoint-shared`**:
+  - `data check DIR` (`requires_db`, read-only, never commits) runs `bundle_import.check_against_bundle` and prints `Database matches bundle <slug>: N documents`. On a divergence it prints one line per problem and exits 1.
+- **DB-vs-bundle check (owned here)**: `bundle_import.check_against_bundle(session, bundle) -> list[str]` is read-only and lists every divergence:
+  - the Election, a Party or a current bundle row is missing;
+  - a row's `content_hash` differs from the file's SHA-256;
+  - its page rows differ from the parsed pages (number, count or exact text);
+  - a listed Party has a current `parsed` document without `bundle_file`.
+
+  An empty list means the DB matches. This feature tests it (match after import; each divergence is detected after a direct row update in a scratch DB). `shared-election-database` runs it in pytest against the committed `ideology.db`.
+- **Determinism**: on a fresh DB the import creates Parties and documents in manifest order, so a rebuilt DB gets the same ids. This matters less now that everyone shares one committed DB, but keep it so a rebuild from scratch reproduces it.
+- **Shared contract with `shared-election-database`**:
   - `config.elections_data_dir()` returns `$ELECTIONS_DATA_DIR`, default `Path("data/elections")` relative to the current directory, like the DB default.
   - The bundle of an Election is `source_bundle.bundle_dir_for(config.elections_data_dir(), election)`.
-  - `source_bundle.bundle_slug(election, root=None) -> str | None` returns the slug only when `<root>/<slug>/election.toml` exists (`root` `None` means `config.elections_data_dir()`). An Election with no committed bundle has no slug. This is the name the sibling spec uses.
-  - `checkpoints/` inside it is ignored by the import.
+  - `source_bundle.bundle_slug(election, root=None) -> str | None` returns the slug only when `<root>/<slug>/election.toml` exists (`root` `None` means `config.elections_data_dir()`). An Election with no committed bundle has no slug.
+  - The bundle directory also holds `ideology.db`, which the manifest reader ignores.
+  - The `.md` files are the reviewable input and the only writer of page text. The committed DB must never diverge from them (see **DB-vs-bundle check**).
 - **Git hygiene**: `.gitattributes` gets `data/elections/**/*.md -text linguist-generated`, so there is no EOL conversion and GitHub collapses the diffs. `.gitignore` gets `data/**/*.pdf`.
 - **2023 bundle**: `data/elections/es-general-2023-07-23/` with `election.toml` and 9 files, in DB id order: `pp.md`, `psoe.md`, `vox.md`, `sumar.md`, `erc.md`, `junts.md`, `eh-bildu.md`, `eaj-pnv.md`, `bng.md`.
   - Names and short names as in the e2e DB.
@@ -242,7 +258,7 @@ Then 9 Parties and 9 parsed documents exist. For every file, `pdf_sha256` equals
 - `pyproject.toml`: modify; set the pypdf bound or the fallback pin (see "pypdf version").
 - `src/ideology_app/source_bundle.py`, `bundle_import.py`, `migrations/versions/0011_source_document_bundle_file.py`: create.
 - `data/elections/es-general-2023-07-23/{election.toml,*.md}`, `.gitattributes`: create. `.gitignore`: modify.
-- `tests/test_source_bundle.py` (format, manifest, Scenarios 1–3, 8, and the committed-bundle check), `tests/test_bundle_import.py` (Scenarios 4–7, 9, 10, including a FakeProvider run), `tests/test_cli_data.py`: create. `tests/test_migrations.py` (head `0011`; downgrade with page rows keeps them), `tests/test_cli_source.py` (`list` header), `tests/test_source_refetch.py`: modify.
+- `tests/test_source_bundle.py` (format, manifest, Scenarios 1–3, 8, and the committed-bundle check), `tests/test_bundle_import.py` (Scenarios 4–7, 9, 10, 12, including a FakeProvider run), `tests/test_cli_data.py`: create. `tests/test_migrations.py` (head `0011`; downgrade with page rows keeps them), `tests/test_cli_source.py` (`list` header), `tests/test_source_refetch.py`: modify.
 
 ## Visual Design Impact
 
@@ -262,7 +278,7 @@ Then 9 Parties and 9 parsed documents exist. For every file, `pdf_sha256` equals
   - No PDF under `data/`.
   - Bundle rows are never re-fetched, and are replaced only by import (same rule as the refetch replacement).
   - Tests build bundles in `tmp_path`, apart from the read-only check of the committed bundle.
-- `docs/risks-and-open-questions.md`: add one short Risks entry, **Re-extracting a PDF with another pypdf version (`source-text-bundle`)**. The committed `.md` is the source of truth, so version drift only matters when someone runs `source extract` again. Different text in a committed file then replaces Source Documents on import and invalidates shared checkpoints. Mitigation: the `extractor` field, and comparing the diff before committing a re-extraction. If the fallback pin was needed, name the version and the reason. Otherwise this entry is not needed.
+- `docs/risks-and-open-questions.md`: add one short Risks entry, **Re-extracting a PDF with another pypdf version (`source-text-bundle`)**. The committed `.md` is the source of truth, so version drift only matters when someone runs `source extract` again. Different text in a committed file then replaces Source Documents on import and the next run on the shared DB reads the new text. Mitigation: the `extractor` field, and comparing the diff before committing a re-extraction. If the fallback pin was needed, name the version and the reason. Otherwise this entry is not needed.
 - `PROGRESS.md` (Operator CLI line), `feature_list.json` (this entry only): update. `AGENTS.md`: not needed.
 
 ## Implementation Plan
@@ -280,6 +296,7 @@ Then 9 Parties and 9 parsed documents exist. For every file, `pdf_sha256` equals
 - [ ] Migration `0011` and model field. `stored_filename` returns `None` for bundle rows.
 - [ ] `import_bundle` with created, unchanged, replaced and conflict paths. Refetch excludes bundle rows.
 - [ ] CLI commands and output. Live trigger in the same transaction.
+- [ ] `check_against_bundle` and `data check` (Scenario 12).
 - [ ] 2023 bundle (9 files plus manifest), with a comparison script in the scratchpad (never in the repo).
 - [ ] Docs, risk entry, evidence.
 
@@ -288,7 +305,7 @@ Then 9 Parties and 9 parsed documents exist. For every file, `pdf_sha256` equals
 - `CI=true ./init.sh; echo "exit=$?"` → passes. `.venv/bin/python -X dev -W error -m pytest -p no:cacheprovider` → clean. `alembic check` on a scratch DB at head → no drift.
 - Manual smoke in a scratch directory outside the repo:
   1. `db upgrade`, then `data import <repo>/data/elections/es-general-2023-07-23`.
-  2. Re-run it (expect `0 added … 9 unchanged`).
+  2. Re-run it (expect `0 added … 9 unchanged`), then `data check` (expect exit 0).
   3. `source list` for one Party.
   4. Compare with the e2e DB, read-only: for each Party, pages equal and `pdf_sha256` equals `content_hash`.
   5. Run `GENERATION_MODE=live` on a second fresh DB: one queued run.
@@ -303,7 +320,7 @@ Then 9 Parties and 9 parsed documents exist. For every file, `pdf_sha256` equals
 
 ## Validator Checklist
 
-- [ ] Scenarios 1–11 pass on re-run. The round-trip is byte-exact. Malformed bundles change nothing.
+- [ ] Scenarios 1–12 pass on re-run. The round-trip is byte-exact. Malformed bundles change nothing.
 - [ ] The page text in the bundle equals the e2e DB rows. 9 Parties (no UPN, no CCa). No PDF in git.
 - [ ] pypdf is the latest release with a `>=` bound, or a recorded fallback `==` pin. Every file's `extractor` names that exact version.
 - [ ] No enum or CHECK change on `source_documents`. The migration uses `recreate='never'` and its downgrade keeps page rows. pypdf is imported only in `pdf_text.py`.
