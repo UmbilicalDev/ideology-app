@@ -18,16 +18,25 @@ from ideology_app.llm.base import (
     LLMRequest,
     LLMResult,
 )
+from ideology_app.llm.claude_code_provider import ClaudeCodeProvider
 from ideology_app.llm.fake import FakeProvider
 
 PROVIDERS: dict[str, Callable[[str], LLMProvider]] = {
     "anthropic": lambda model: AnthropicProvider(model),
+    # Local Operator use only: the Operator's Claude Code CLI and subscription.
+    "claude_code": lambda model: ClaudeCodeProvider(model),
     "fake": lambda model: FakeProvider(model=model),
 }
 
 
 def build_provider(settings: LLMSettings) -> LLMProvider:
-    """Return the provider named by ``settings`` (no client or key is touched yet)."""
+    """Return the provider named by ``settings``.
+
+    No API client is created and no key is read yet. ``claude_code`` runs a
+    preflight here (the CLI is on ``PATH`` and logged in to a Claude
+    subscription), so a misconfiguration raises ``LLMConfigError`` before any
+    database write.
+    """
     try:
         factory = PROVIDERS[settings.provider]
     except KeyError:
@@ -41,6 +50,7 @@ def build_provider(settings: LLMSettings) -> LLMProvider:
 __all__ = [
     "PROVIDERS",
     "AnthropicProvider",
+    "ClaudeCodeProvider",
     "FakeProvider",
     "LLMConfigError",
     "LLMError",

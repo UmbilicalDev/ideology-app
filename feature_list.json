@@ -584,11 +584,32 @@
     "notes": "Mitigation for the bias and legal risks. Legal wording is to be reviewed before a public launch."
   },
   {
+    "id": "llm-provider-claude-code",
+    "area": "llm",
+    "title": "LLM provider that uses the local Claude Code CLI",
+    "user_visible_behavior": "With LLM_PROVIDER=claude_code each pipeline LLM call goes through the local Claude Code CLI (`claude -p`, structured JSON output, no tools) using the Operator's own Claude subscription, so a real run needs no API key; when the CLI reports the subscription usage limit, the provider waits until it resets and retries the same call, so the run continues where it was.",
+    "depends_on": [],
+    "status": "accepted",
+    "verification": [
+      "pytest with the CLI subprocess faked (never a real `claude` call): argv/stdin and JSON schema built from the request; result parsed and validated against the schema; usage-limit error -> wait with a controlled clock, then retry the same call; other CLI errors -> LLMError; CLI missing -> configuration error"
+    ],
+    "evidence": [
+      "2026-10-21 implementer self-verification (not acceptance): `CI=true ./init.sh` exit 0 on `feature/llm-provider-claude-code` (pytest 1067 passed, was 966; Vitest 17 files / 347 passed; web typecheck and build ok).",
+      "Restricted PATH: `env -u ANTHROPIC_API_KEY PATH=/usr/bin:/bin .venv/bin/python -m pytest tests/test_llm*.py tests/test_config.py tests/test_cli_pipeline.py tests/test_cli_live_mode.py` -> 257 passed with `claude` not on PATH (no test needs the real CLI); `python -X dev -W error -m pytest tests/test_llm_claude_code.py` clean.",
+      "Greps: `subprocess` in `src/ideology_app/llm` only in `claude_code_provider.py`; `claude_code` outside `llm/` only in `config.py` (`DEFAULT_MODELS`, `ClaudeCodeSettings` docs, `claude_code_settings`). `pipeline/`, `runs.py`, `cli.py` and migrations unchanged (empty `git diff`).",
+      "tests/test_llm_claude_code.py (83 tests): S1 `test_registry_builds_claude_code_provider`, `test_registry_lists_three_providers`; S2 `test_generate_runs_cli_once_with_exact_argv_stdin_cwd_env_timeout`, `test_child_env_strips_credentials_and_session_vars`, `test_generate_passes_sanitised_os_environ`, `test_generate_accepts_non_verbose_result_object`; S3 `test_schema_mismatch_raises_output_error` (5 variants); S4 `test_usage_limit_from_rate_limit_event_waits_then_retries`, `test_rate_limit_event_alone_is_a_usage_limit`, `test_usage_limit_reset_parsed_from_text` (time-only, date-and-time, out-of-extra-usage tomorrow), `test_usage_limit_without_reset_waits_fallback_and_probes`, `test_usage_limit_wait_is_measured_on_the_clock_not_by_sleeps`, `test_parse_reset_text`; S5 `test_reset_beyond_max_wait_fails_without_sleeping`, `test_cumulative_waits_beyond_max_wait_fail`; S6 `test_transient_errors_retry_with_backoff_then_fail` / `test_transient_error_then_success_returns` (429 not-your-usage-limit, 500/502/503/504/529, server_error, TimeoutExpired); S7 `test_auth_failure_is_config_error_without_retry`, `test_other_errors_are_provider_errors_without_retry` (11 variants), `test_error_message_has_details_but_no_prompt_env_or_long_text`; Ctrl-C `test_keyboard_interrupt_during_usage_wait_propagates` / `_during_cli_call_propagates`; S8 `test_cli_not_found_is_config_error`, `test_preflight_*`; S9 `test_guard_blocks_the_real_cli_and_sockets`.",
+      "CLI S8 (tests/test_cli_pipeline.py): `test_claude_code_cli_missing_creates_no_run` (`LLM_CLAUDE_CODE_BIN=/nonexistent/claude` -> exit 1, exact message, 0 PipelineRun rows), `test_claude_code_not_logged_in_creates_no_run` (not logged in / api_key), `test_claude_code_bad_setting_creates_no_run`; tests/test_config.py `claude_code_settings` defaults/env/invalid and default model `claude-sonnet-4-6`; `supported values: anthropic, claude_code, fake` strings updated.",
+      "Usage-limit wait/retry tested only with a fake runner (scripted 2.1.110-shaped envelopes), a fake clock that `sleep` advances and a recorded log; no real `claude` call was made. Browser validation: not applicable (no browser-visible change; AGENTS.md exemption for CLI/pipeline features).",
+      "2026-10-21 independent validator (separate subagent): verdict accept, no Critical/High/Medium findings. Re-ran `CI=true ./init.sh` exit 0 (pytest 1067, Vitest 347); focused LLM/config/CLI pytest with `claude` off PATH and `ANTHROPIC_API_KEY` unset exit 0; diff of `pipeline/` (incl. `runs.py`), `cli.py` and migrations empty; `subprocess`/`--bare`/key-read greps clean; a real-subprocess run against a stand-in fake `claude` script confirmed empty temp cwd, prompt on stdin and stripped child env (only `CLAUDE_CODE_OAUTH_TOKEN` plus isolation switches reach the child). Implementer deviations judged acceptable. No real `claude` call. Browser validation not applicable (no browser-visible change)."
+    ],
+    "notes": "Operator-only, local use with the Operator's own subscription; not for a production deployment (use the API there). Needed so e2e-real-2023-election can run without paid API usage. Waiting happens inside the process (keep it alive, e.g. caffeinate); no pipeline checkpoint/resume."
+  },
+  {
     "id": "e2e-real-2023-election",
     "area": "validation",
     "title": "End-to-end run on the real 2023 general election",
     "user_visible_behavior": "The 2023 manifestos of the parties with seats go through a real-provider run, which is published only if it passes Validation, and a Voter completes the flow and shares a link.",
-    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report"],
+    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code"],
     "status": "not_started",
     "verification": [
       "A recorded Pipeline Run report with status passed",

@@ -75,7 +75,7 @@ def test_build_provider_anthropic_from_config_without_key_or_client(
 def test_registry_matches_default_models() -> None:
     from ideology_app.config import DEFAULT_MODELS
 
-    assert set(PROVIDERS) == set(DEFAULT_MODELS) == {"anthropic", "fake"}
+    assert set(PROVIDERS) == set(DEFAULT_MODELS) == {"anthropic", "claude_code", "fake"}
 
 
 # Scenario 2: defaults, trimming, case-insensitivity
@@ -111,7 +111,7 @@ def test_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_unknown_provider_raises_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "openai")
-    with pytest.raises(ConfigError, match="anthropic, fake"):
+    with pytest.raises(ConfigError, match="anthropic, claude_code, fake"):
         llm_settings()
 
 
@@ -126,7 +126,7 @@ def test_config_error_is_value_error() -> None:
 
 
 def test_build_provider_unregistered_name_raises_llm_config_error() -> None:
-    with pytest.raises(LLMConfigError, match="anthropic, fake") as info:
+    with pytest.raises(LLMConfigError, match="anthropic, claude_code, fake") as info:
         build_provider(LLMSettings(provider="openai", model="gpt"))
     assert isinstance(info.value, LLMError)
     assert isinstance(info.value, ConfigError)

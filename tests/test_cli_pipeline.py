@@ -6,6 +6,7 @@ validation-questionnaire-shape Scenario 5 and auto-publish-dataset-version
 Scenario 8.
 """
 
+import subprocess
 from typing import Any
 
 import pytest
@@ -28,7 +29,7 @@ from ideology_app import cli
 from ideology_app.cli import NOT_INITIALISED, main
 from ideology_app.config import GenerationMode
 from ideology_app.db import make_engine, run_migrations, session_scope
-from ideology_app.llm import FakeProvider, LLMProviderError, LLMRequest
+from ideology_app.llm import FakeProvider, LLMProviderError, LLMRequest, claude_code_provider
 from ideology_app.models import (
     PartyPosition,
     PipelineRun,
@@ -184,10 +185,69 @@ def test_anthropic_without_key_fails_the_run_offline(run, seeded, monkeypatch) -
     assert row[1:5] == ["failed", "anthropic", "claude-sonnet-5-5", "precomputed"]
 
 
+def test_claude_code_cli_missing_creates_no_run(run, seeded, db_url, monkeypatch) -> None:
+    """llm-provider-claude-code Scenario 8: the preflight fails before any write."""
+    monkeypatch.setenv("LLM_PROVIDER", "claude_code")
+    monkeypatch.setenv("LLM_CLAUDE_CODE_BIN", "/nonexistent/claude")
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stderr == (
+        "Error: Claude Code CLI '/nonexistent/claude' not found on PATH; "
+        "install it or set LLM_CLAUDE_CODE_BIN\n"
+    )
+    assert run_count(db_url) == 0
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout"),
+    [
+        (1, '{"loggedIn": false, "authMethod": "none"}'),
+        (0, '{"loggedIn": true, "authMethod": "api_key"}'),
+    ],
+    ids=["not-logged-in", "api-key"],
+)
+def test_claude_code_not_logged_in_creates_no_run(
+    run, seeded, db_url, monkeypatch, returncode, stdout
+) -> None:
+    """llm-provider-claude-code Scenario 8: a failed ``claude auth status`` writes nothing."""
+    calls: list[list[str]] = []
+
+    def fake_cli(argv, **kwargs):
+        calls.append(list(argv))
+        return subprocess.CompletedProcess(argv, returncode, stdout=stdout, stderr="")
+
+    monkeypatch.setenv("LLM_PROVIDER", "claude_code")
+    monkeypatch.setattr(claude_code_provider, "find_cli", lambda name: "/fake/bin/claude")
+    monkeypatch.setattr(claude_code_provider, "run_cli", fake_cli)
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stderr.startswith("Error: Claude Code is ")
+    assert calls == [["/fake/bin/claude", "auth", "status", "--json"]]
+    assert run_count(db_url) == 0
+
+
+@pytest.mark.parametrize(
+    "name", ["LLM_CLAUDE_CODE_TIMEOUT_SECONDS", "LLM_CLAUDE_CODE_MAX_WAIT_HOURS"]
+)
+def test_claude_code_bad_setting_creates_no_run(run, seeded, db_url, monkeypatch, name) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "claude_code")
+    monkeypatch.setenv(name, "0")
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    assert result.stderr == f"Error: Invalid {name} '0'; expected a positive integer\n"
+    assert run_count(db_url) == 0
+
+
 @pytest.mark.parametrize(
     ("name", "message"),
     [
-        ("LLM_PROVIDER", "Error: Invalid LLM_PROVIDER 'bogus'; supported values: anthropic, fake\n"),
+        ("LLM_PROVIDER", "Error: Invalid LLM_PROVIDER 'bogus'; supported values: anthropic, claude_code, fake\n"),
         (
             "GENERATION_MODE",
             "Error: Invalid GENERATION_MODE 'bogus'; supported values: precomputed, live\n",
