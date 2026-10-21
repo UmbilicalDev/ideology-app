@@ -10,12 +10,14 @@
 
 ## Goal
 
-The MVP success criterion, run once for real. The 2023 Congress tickets that won seats and their 2023 general-election manifestos are registered in a database outside the repo. The user runs one real-provider Pipeline Run (`anthropic` / `claude-sonnet-5-5`, `precomputed`) in their own terminal, and a second only if the first fails. A run that passes Validation publishes on its own. Then a Voter completes Landing → Questionnaire → results → Share Link → identical result in a real browser. This is an operational run, not a code feature. Its output is recorded evidence plus settled (or explicitly deferred) risk entries.
+The MVP success criterion, run once for real. The 2023 Congress tickets that won seats and their 2023 general-election manifestos are registered in a database outside the repo. The user runs one real-provider Pipeline Run (`claude_code` / `claude-sonnet-5-5`, `precomputed`) in their own terminal, and a second fresh run only if the first fails Validation. A run that passes Validation publishes on its own. Then a Voter completes Landing → Questionnaire → results → Share Link → identical result in a real browser. This is an operational run, not a code feature. Its output is recorded evidence plus settled (or explicitly deferred) risk entries.
 
 ## Fixed User Decisions (not open to the implementer)
 
-- Provider `anthropic`, model `claude-sonnet-5-5`, `GENERATION_MODE=precomputed`, default Validation thresholds (coverage 70, Statements 25–35, topic share 30). **At most 2 real Pipeline Runs in total.** If both fail, stop and report. There is no third run.
-- **Agents never have, look for, print or handle `ANTHROPIC_API_KEY`.** No `env`/`printenv`/`set`, no reading shell rc files, `.env`, keychains or the user's history. Only the user runs a real-provider `pipeline run`, in their own terminal. Agents never run `pipeline run` or `run-queued` against the e2e database with any provider, including `fake`, because a fake run could publish fake data.
+- Provider `claude_code` (`llm-provider-claude-code`: the user's local Claude Code CLI with their Claude subscription, no API spend), `LLM_MODEL=claude-sonnet-5-5` (not the provider's `claude-sonnet-4-6` default), `GENERATION_MODE=precomputed`, default Validation thresholds (coverage 70, Statements 25–35, topic share 30). User decision 2026-10-21, replacing the original `anthropic` API choice because the user does not want to pay for API usage.
+- **At most 2 fresh real attempts.** Only a fresh run (no `--resume-from`) that ends with failed Validation counts, or another non-resumable failure the user decides to restart from scratch. **Resuming a stopped run with `--resume-from R` (`pipeline-run-checkpoint`) is not a new attempt** (user decision 2026-10-21): if a run stops halfway (usage limit beyond `LLM_CLAUDE_CODE_MAX_WAIT_HOURS`, crash, Ctrl-C, killed process), the next command is a resume of that run, not a fresh one. If both attempts fail Validation, stop and report. There is no third attempt.
+- Before the real run, the user runs one small smoke run on a scratch DB (`/Users/kike/PycharmProjects/ideology-app-data/e2e-2023/smoke/`, one Party, UPN's 6-page programme), never on the e2e DB. Before starting the real run the user checks the login with `claude -p "responde solo: ok"` (re-login with `claude auth login` on a 401), because `claude auth status` does not prove the token is fresh. It proves the provider/model work end to end; its Validation result is irrelevant (one Party cannot separate Statements), and it is not an attempt.
+- **Agents never have, look for, print or handle credentials** (`ANTHROPIC_API_KEY`, Claude login tokens). No `env`/`printenv`/`set`, no reading shell rc files, `.env`, keychains or the user's history. Agents make no real `claude`/LLM call. Only the user runs a real-provider `pipeline run`, in their own terminal. Agents never run `pipeline run` or `run-queued` against the e2e database with any provider, including `fake`, because a fake run could publish fake data.
 - AI output is never edited by hand. Nobody touches DB rows, stored quotes, Statements or files. Validation thresholds, call caps (`MAX_LLM_CALLS_PER_RUN=200`, `MAX_POSITION_CALLS_PER_RUN=300`), `CHUNK_MAX_CHARS` and prompts are never changed. Any such change is a user decision: **stop and ask**.
 - Data lives outside the repo:
   - `DATABASE_URL=sqlite:////Users/kike/PycharmProjects/ideology-app-data/e2e-2023/ideology.db`
@@ -23,6 +25,7 @@ The MVP success criterion, run once for real. The 2023 Congress tickets that won
 
   Never commit a DB, PDF or secret. Never touch the main checkout (`/Users/kike/PycharmProjects/ideology-app`), its `ideology.db`, or port 8000 (the user's own server).
 - **Coalición Canaria (CCa, 1 seat) is excluded from the whole analysis** (user decision, 2026-10-21, taken in Phase A). Its only 2023 general-election document is a joint manifesto of about 11 Canarian forces ("Un objetivo común, la defensa de Canarias"), not a CC programme. The Election has 10 Parties; Scenario 1's "one Party per seat-winning ticket" reads "every seat-winning ticket except CCa". The e2e DB was rebuilt with the CLI to drop it (the earlier DB is kept as `ideology.db.pre-cca-removal` in the data folder).
+- **Unión del Pueblo Navarro (UPN, 1 seat) is also excluded from the whole analysis** (user decision, 2026-10-21, after the smoke run): in the `claude_code` smoke run UPN's 6-page programme alone took positions on only 11 of 30 Statements (36%, minimum 70%), so it would very likely fail `party_coverage` and with it the whole multi-hour run. This is a user decision about the Party set, not a threshold change: Validation thresholds stay at their defaults. The Election has 9 Parties (348 of 350 seats); Scenario 1 reads "every seat-winning ticket except CCa and UPN". The e2e DB was rebuilt with the CLI again (the 10-Party DB is kept as `ideology.db.pre-upn-removal`). EH Bildu's 16-page document stays.
 - Document choices confirmed by the user in Phase A: the full programmes for PP and BNG (not their summaries), and EH Bildu's 16-page "Compromiso de Euskal Herria Bildu".
 - Code changes happen only if a real bug blocks the run. The implementer reports it first (symptom, evidence, proposed narrow fix) and the user decides.
 
@@ -41,7 +44,7 @@ so I can see whether a fully AI-generated, evidence-backed Questionnaire passes 
 
 ## Users And Permissions
 
-- **User (human):** owns the API key and runs the real-provider command. Decides whether a second run happens and every stop-point question.
+- **User (human):** owns the Claude subscription login and runs the real-provider command. Decides whether a second run happens and every stop-point question.
 - **Implementer (agent):** does the Phase A preparation and the Phase C evidence work through the documented CLI only. Stops at every STOP below.
 - **Validator (agent):** checks everything with read-only commands (`pipeline report|checks|statements|positions|list`, `source list|text`, `party list`) and its own browser walk. It never runs a pipeline.
 
@@ -59,7 +62,7 @@ DATABASE_URL=sqlite:////Users/kike/PycharmProjects/ideology-app-data/e2e-2023/id
 2. `P election create --country ES --type general --date 2023-07-23 --name "Elecciones generales 2023"`. Exactly one Election.
 3. Parties: one per 2023 Congress ballot ticket that won seats, taken from the official result (BOE proclamation by the Junta Electoral Central, or the Ministerio del Interior results). Record the source used. Planner's expectation, to be confirmed:
    - PP 137, PSOE 121, VOX 33, SUMAR 31, ERC 7, JUNTS 7, EH Bildu 6, EAJ-PNV 5, BNG 1, CCa 1, UPN 1 = 11 Parties, 350 seats.
-   - Confirmed by BOE-A-2023-18907 (Phase A). **User decision (2026-10-21): CCa is excluded**, so the Election has 10 Parties (349 seats). See Fixed User Decisions.
+   - Confirmed by BOE-A-2023-18907 (Phase A). **User decision (2026-10-21): CCa is excluded**, so the Election had 10 Parties (349 seats); **user decision (2026-10-21, after the smoke run): UPN is excluded too**, so it has 9 Parties (348 seats). See Fixed User Decisions.
 
    Use `P party add --election E --name "<official ticket name>" --short-name <short>`. Mapping rule: a nationwide party's regional lists count as that Party (PSC-PSOE in Catalonia under PSOE). Sumar is one Party, including lists carrying partner names (e.g. En Comú Podem in Catalonia, Compromís in the Valencian Community). Record every such mapping. If the official result disagrees with the expectation, follow the official result and note the difference. **STOP** only if a ticket's identity is unclear (e.g. a coalition that could be one or two Parties).
 4. Source Documents: for each Party, find its 2023 general-election (23J) manifesto on an official source (the party's or coalition's own domain). It must not be a 2019 or 28M-2023 regional/municipal programme: check the title page with `P source text --document D --page 1`. Register it with `P source add --party N --url <url>`.
@@ -78,7 +81,7 @@ DATABASE_URL=sqlite:////Users/kike/PycharmProjects/ideology-app-data/e2e-2023/id
 7. Cost and time estimate:
    - Input tokens ≈ (2 × total chunk characters + chunks × Statement-list characters (~35 lines) + the reduce inputs) / an explicit chars-per-token assumption (~3.5 for Spanish).
    - Output tokens: the upper bound is `max_tokens` per call (4096 per map call, 8192 per reduce), plus a typical guess.
-   - Money: tokens × Anthropic's published price for `claude-sonnet-5-5`, citing the price page and date. If the price can't be verified, give tokens only and say so.
+   - Money: none with `claude_code` (subscription; usage-limit bound). For reference, Phase A estimated the API equivalent at Anthropic's published `claude-sonnet-5-5` price ($2 / $10 per MTok input/output).
    - Wall time: calls run one after another; give a range.
 8. `P pipeline list --election E` shows no runs. `git status` is clean.
 
@@ -90,22 +93,21 @@ The hand-back message has three parts.
 
 (b) The estimate from steps 6–7.
 
-(c) This exact command, with `E` filled in:
+(c) The exact commands (all run by the user in their own terminal, after `claude auth status` shows `authMethod` `claude.ai`). `G` below is the guard prefix that clears overrides left in the shell:
 
 ```
-cd /Users/kike/PycharmProjects/ideology-app-worktrees/e2e-real-2023-election && env -u VALIDATION_MIN_PARTY_COVERAGE_PERCENT -u VALIDATION_MIN_STATEMENTS -u VALIDATION_MAX_STATEMENTS -u VALIDATION_MAX_TOPIC_SHARE_PERCENT -u LLM_PROVIDER -u LLM_MODEL DATABASE_URL=sqlite:////Users/kike/PycharmProjects/ideology-app-data/e2e-2023/ideology.db SOURCE_FILES_DIR=/Users/kike/PycharmProjects/ideology-app-data/e2e-2023/source_files GENERATION_MODE=precomputed LLM_PROVIDER=anthropic LLM_MODEL=claude-sonnet-5-5 .venv/bin/ideology pipeline run --election E 2>&1 | tee -a /Users/kike/PycharmProjects/ideology-app-data/e2e-2023/run-1.log
+env -u VALIDATION_MIN_PARTY_COVERAGE_PERCENT -u VALIDATION_MIN_STATEMENTS -u VALIDATION_MAX_STATEMENTS -u VALIDATION_MAX_TOPIC_SHARE_PERCENT -u LLM_PROVIDER -u LLM_MODEL -u LLM_CLAUDE_CODE_BIN -u LLM_CLAUDE_CODE_TIMEOUT_SECONDS -u LLM_CLAUDE_CODE_MAX_WAIT_HOURS GENERATION_MODE=precomputed LLM_PROVIDER=claude_code LLM_MODEL=claude-sonnet-5-5
 ```
 
-Also tell the user:
+1. Smoke run on the scratch DB (`DATABASE_URL=sqlite:////Users/kike/PycharmProjects/ideology-app-data/e2e-2023/smoke/ideology.db`, `SOURCE_FILES_DIR=…/smoke/source_files`), `pipeline run --election 1`, log to `smoke/smoke.log`. It worked when `pipeline report` shows `provider: claude_code`, `model: claude-sonnet-5-5`, `llm_calls` 4, non-zero tokens, and the run either passed or failed only on Validation checks (not a `claude_code:`/provider/output error).
+2. Real run 1 on the e2e DB inside `caffeinate -is`, `pipeline run --election 1`, log appended to `run-1.log` (`tee -ai`, so Ctrl-C does not kill the log).
+3. Resume template if run R stops halfway: the same command plus `--resume-from R`, same log.
 
-- export `ANTHROPIC_API_KEY` in that terminal first, and never paste it into the chat;
-- the run is synchronous and long;
-- Ctrl-C ends it `failed: interrupted`, which still counts as a run;
-- after it ends they reply "done".
+Also tell the user: keep the machine awake (AC power, lid open); usage-limit waits are printed and handled in-process; after it ends they reply "done".
 
 ### Phase B: Read the result (implementer, after the user says the run ended)
 
-1. Use `P pipeline list --election E` to find the run, then `P pipeline report --run R` and `P pipeline checks --run R`. Confirm `provider: anthropic`, `model: claude-sonnet-5-5`, `generation_mode: precomputed` and `validation_settings: max_statements=35, max_topic_share_percent=30, min_party_coverage_percent=70, min_statements=25`. Record them.
+1. Use `P pipeline list --election E` to find the run, then `P pipeline report --run R` and `P pipeline checks --run R`. Confirm `provider: claude_code`, `model: claude-sonnet-5-5`, `generation_mode: precomputed` and `validation_settings: max_statements=35, max_topic_share_percent=30, min_party_coverage_percent=70, min_statements=25`. Record them.
 2. **Passed** (`status: passed`, `publication: published: live for election E`): go to Phase C.
 3. **Failed** (Validation or generation): summarise the failure reason and every failed check entry, grouped by check, with counts:
    - quotes not found / page slips, and their causes when visible (`P source text`);
@@ -113,7 +115,7 @@ Also tell the user:
    - non-separating Statements;
    - count / duplicates / topic share.
 
-   Inspect the candidate Dataset Version with `P pipeline statements` / `positions` (read-only). **HUMAN STOP 2:** hand back the summary plus the same command with `run-2.log`. Run 2 uses identical inputs and settings. Any change in between (another document, a threshold, a prompt) is a user decision. A run that failed before any LLM call (`ANTHROPIC_API_KEY is not set`, a cap) is reported. Whether it counts toward the 2 is the user's call.
+   Inspect the candidate Dataset Version with `P pipeline statements` / `positions` (read-only). **HUMAN STOP 2:** hand back the summary plus the same fresh command with `run-2.log`. Run 2 uses identical inputs and settings. Any change in between (another document, a threshold, a prompt) is a user decision. A run that **stopped halfway** (`failed: interrupted`, a provider error, a usage-limit wait beyond the maximum, or stuck `running` after a kill) is not judged: hand back the resume command (`--resume-from R`), which does not count as an attempt. A run that failed before any LLM call (preflight: CLI missing or not logged in, a cap) is reported; whether it counts is the user's call.
 4. **Both runs failed:** no third run and no browser walk. Record both reports' summaries in `feature_list.json` evidence and `PROGRESS.md`, set the feature to `blocked` with the reasons, and do Phase C step 4 (risk entries) with the observations available. Then hand back.
 
 ### Phase C: Evidence, sample, browser walk, risks (passed run only)
@@ -134,7 +136,7 @@ Also tell the user:
    - At 375px and at desktop width:
      - Landing lists "Elecciones generales 2023";
      - the Questionnaire shows every Statement; answer them with a mix including `skip` and ≥1 Important;
-     - results show the ranking of all 10 Parties (CCa excluded by user decision) and the breakdown with Evidence;
+     - results show the ranking of all 9 Parties (CCa and UPN excluded by user decision) and the breakdown with Evidence;
      - open one Evidence link (new tab, `url#page=N`);
      - `Comparte tu resultado`: copy the link (clipboard, or the fallback field if the clipboard is unavailable);
      - open it in a new tab; `/resultados` shows the same order, the same percentages and the same `Baja cobertura` badges as the end screen (compare 3 breakdown rows too).
@@ -161,7 +163,7 @@ Then there is one Election (ES, general, 2023-07-23), one Party per seat-winning
 
 Given the run id recorded in evidence
 When the validator runs `P pipeline report --run R`
-Then it shows `status: passed`, `provider: anthropic`, `model: claude-sonnet-5-5`, `generation_mode: precomputed`, the default `validation_settings`, `publication: published: live for election E`, and every check `passed`. `P pipeline list --election E` shows at most 2 runs that called the real provider.
+Then it shows `status: passed`, `provider: claude_code`, `model: claude-sonnet-5-5`, `generation_mode: precomputed`, the default `validation_settings`, `publication: published: live for election E`, and every check `passed`. `P pipeline list --election E` shows at most 2 fresh attempts (runs with `resumed_from: none` that ended in Validation); resumed runs (`resumed_from: R`) continue an attempt.
 
 ### Scenario 3: No hand editing and no threshold change
 
@@ -248,8 +250,8 @@ No code. Use the existing Operator CLI with env-var configuration, a throwaway s
 ## Validator Checklist
 
 - [ ] Scenarios 1–5 pass (or Scenario 6 applies, and the feature is `blocked`, not `passing`).
-- [ ] At most 2 real runs. Default thresholds recorded. No code, prompt, cap or threshold change. No DB/PDF/secret in git.
-- [ ] Nobody but the user ran the real-provider command, and no agent output contains or references the key's value.
+- [ ] At most 2 fresh attempts (resumes excluded). Default thresholds recorded. No code, prompt, cap or threshold change. No DB/PDF/secret in git.
+- [ ] Nobody but the user ran the real-provider command, and no agent output contains or references a credential's value.
 - [ ] Sample table re-checked (≥ 3 entries). Browser walk re-done at 375px and desktop on port 8051. Temporary launch entry removed.
 - [ ] Risks doc entries naming this feature are settled with numbers or deferred to a named feature.
 - [ ] `feature_list.json` and `PROGRESS.md` updated. `git status` is clean apart from the intended docs.
