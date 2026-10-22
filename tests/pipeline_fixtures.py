@@ -22,7 +22,8 @@ from ideology_app.models import (
     SourceDocumentStatus,
 )
 from ideology_app.llm import claude_code_provider
-from ideology_app.pipeline import TOPICS
+from ideology_app.pipeline import TOPICS, PositionResult
+from ideology_app.pipeline import runs as runs_module
 
 LLM_ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -288,3 +289,34 @@ def fake_provider(**overrides: Any) -> FakeProvider:
     responses = default_responses()
     responses.update(overrides)
     return FakeProvider(responses)
+
+
+def invent_quote_after_extraction(
+    monkeypatch: pytest.MonkeyPatch,
+    quote: str,
+    *,
+    party_id: int = 2,
+    statement: int = 1,
+    value: int = -1,
+    page: int = 1,
+) -> None:
+    """Give Party ``party_id`` an invented quote on pool Statement ``statement``.
+
+    Since pipeline-verified-findings extraction discards a finding whose quote
+    is not on its page, so an invented quote can only reach Validation (the
+    ``evidence_quotes`` failure path) by bypassing that check: this wraps
+    ``runs.extract_positions`` and replaces that one result after it returns,
+    citing ``page`` of the document of one of the Party's stances.
+    """
+    real = runs_module.extract_positions
+
+    def _wrapped(*args: Any, **kwargs: Any) -> dict[int, list[PositionResult]]:
+        positions = real(*args, **kwargs)
+        results = positions[party_id]
+        source = next(r for r in results if r.document_id is not None)
+        results[statement - 1] = PositionResult(
+            statement, value, source.document_id, quote, page, source.url
+        )
+        return positions
+
+    monkeypatch.setattr(runs_module, "extract_positions", _wrapped)

@@ -365,7 +365,7 @@ def test_report_is_json_and_complete() -> None:
     assert report["pool"][9]["duplicate_of"] == 1
 
 
-# pipeline-balanced-statements: the default coverage target is 60 %.
+# pipeline-verified-findings: the default coverage target is 50 % (60 before).
 
 
 def _party2_on_first(count: int, covered: int) -> Values:
@@ -376,19 +376,18 @@ def _party2_on_first(count: int, covered: int) -> Values:
     }
 
 
-def test_default_coverage_target_is_60_percent() -> None:
-    assert DEFAULTS.min_party_coverage_percent == 60
-    values = _party2_on_first(50, 21)
+def test_default_coverage_target_is_50_percent() -> None:
+    assert DEFAULTS.min_party_coverage_percent == 50
+    values = _party2_on_first(50, 17)
     selection = select_statements(pool(50), positions(values), [1, 2, 3], DEFAULTS)
     report = selection.report
-    # 21 of 35 is exactly 60 %: the largest Questionnaire meets the target.
-    assert (report["selected_count"], report["count_rule"]) == (35, "coverage_met")
+    # 17 of 34 is exactly 50 %: the largest Questionnaire that meets the target.
+    assert (report["selected_count"], report["count_rule"]) == (34, "coverage_met")
     party2 = next(p for p in report["parties"] if p["party_id"] == 2)
-    assert party2["selected_stances"] == 21
+    assert party2["selected_stances"] == 17
     assert check_party_coverage(as_input(selection, DEFAULTS, [1, 2, 3])) == []
 
-    # The same pool at an explicit 70 % stops at 30 (21 of 30).
-    strict = dataclasses.replace(DEFAULTS, min_party_coverage_percent=70)
-    assert select_statements(pool(50), positions(values), [1, 2, 3], strict).report[
-        "selected_count"
-    ] == 30
+    # The same pool at an explicit 60 % stops at 28 (17 of 28, 60.7 %).
+    strict = dataclasses.replace(DEFAULTS, min_party_coverage_percent=60)
+    report = select_statements(pool(50), positions(values), [1, 2, 3], strict).report
+    assert (report["selected_count"], report["count_rule"]) == (28, "coverage_met")

@@ -51,11 +51,16 @@ class DocumentPages:
 
 @dataclass(frozen=True)
 class Chunk:
-    """One prompt-sized piece of a single Source Document."""
+    """One prompt-sized piece of a single Source Document.
+
+    ``pages`` holds the page numbers whose text (whole or a slice) is in
+    ``text``, in order and without duplicates.
+    """
 
     party_id: int
     document_id: int
     text: str
+    pages: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -95,8 +100,13 @@ def _page_pieces(page_number: int, text: str, max_chars: int) -> list[str]:
     return [marker + text[start : start + room] for start in range(0, len(text), room)]
 
 
-def _chunk(document: DocumentPages, pieces: Sequence[str]) -> Chunk:
-    return Chunk(document.party_id, document.document_id, _PAGE_SEPARATOR.join(pieces))
+def _chunk(document: DocumentPages, pieces: Sequence[tuple[int, str]]) -> Chunk:
+    return Chunk(
+        document.party_id,
+        document.document_id,
+        _PAGE_SEPARATOR.join(piece for _, piece in pieces),
+        tuple(dict.fromkeys(number for number, _ in pieces)),
+    )
 
 
 def build_document_chunks(
@@ -108,10 +118,11 @@ def build_document_chunks(
     A chunk holds whole consecutive pages of one document, each under a
     ``[página N]`` marker. A page longer than the limit is cut into consecutive
     slices (each under its page marker). Whitespace-only pages are left out.
+    ``Chunk.pages`` lists the pages each chunk holds.
     """
     chunks: list[Chunk] = []
     for document in sorted(documents, key=lambda d: (d.party_id, d.document_id)):
-        current: list[str] = []
+        current: list[tuple[int, str]] = []
         size = 0
         for page_number, text in sorted(document.pages, key=lambda p: p[0]):
             if not text.strip():
@@ -122,7 +133,7 @@ def build_document_chunks(
                     chunks.append(_chunk(document, current))
                     current, size = [], 0
                     added = len(piece)
-                current.append(piece)
+                current.append((page_number, piece))
                 size += added
         if current:
             chunks.append(_chunk(document, current))

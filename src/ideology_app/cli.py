@@ -1093,13 +1093,67 @@ def _agenda_line(agenda: dict[str, Any] | None) -> str:
     return f"{summary}; {parties}" if parties else summary
 
 
+FINDINGS_HEADER = [
+    "party", "document", "page", "statement", "position", "value", "reason", "cleared", "quote"
+]
+
+
+def _findings(selection: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The extraction check stored with the run (``pipeline-verified-findings``), if any."""
+    return None if selection is None else selection.get("findings")
+
+
+def _findings_line(selection: dict[str, Any] | None) -> str:
+    """The ``findings_check`` summary: discarded/checked findings per Party."""
+    findings = _findings(selection)
+    if findings is None:
+        return NOT_RECORDED
+    summary = (
+        f"{findings['version']}, checked {findings['checked']}, "
+        f"discarded {findings['discarded']}, cleared {findings['cleared']}"
+    )
+    parties = "; ".join(
+        f"party {p['party_id']} {p['discarded']}/{p['findings']}"
+        + (f" cleared {p['cleared']}" if p["cleared"] else "")
+        for p in findings["parties"]
+    )
+    return f"{summary}; {parties}" if parties else summary
+
+
+def _findings_rows(selection: dict[str, Any]) -> list[list[object]]:
+    """One row per discarded finding; ``position`` is its pool Statement's, if selected."""
+    findings = _findings(selection)
+    assert findings is not None
+    positions = {entry["pool"]: entry["position"] for entry in selection["pool"]}
+    rows: list[list[object]] = []
+    for item in findings["items"]:
+        reason = item["reason"]
+        if item["found_on"] is not None:
+            reason = f"{reason} (page {item['found_on']})"
+        rows.append(
+            [
+                item["party_id"],
+                item["document_id"],
+                item["page"],
+                item["statement"],
+                positions.get(item["statement"]),
+                item["value"],
+                reason,
+                ",".join(str(n) for n in item["cleared"]),
+                _one_line(item["quote"]),
+            ]
+        )
+    return rows
+
+
 def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object]]:
-    """The ``statement_agenda`` and ``statement_selection`` lines of ``pipeline report``."""
+    """The agenda, selection and ``findings_check`` lines of ``pipeline report``."""
     if selection is None:
         return [
             ("statement_agenda", NOT_RECORDED),
             ("statement_selection", NOT_RECORDED),
             ("selection_coverage", NOT_RECORDED),
+            ("findings_check", NOT_RECORDED),
         ]
     failures = selection["projected_failures"]
     summary = (
@@ -1118,6 +1172,7 @@ def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object
         ("statement_agenda", _agenda_line(selection.get("agenda"))),
         ("statement_selection", summary),
         ("selection_coverage", coverage or "none"),
+        ("findings_check", _findings_line(selection)),
     ]
 
 
@@ -1208,3 +1263,8 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
         click.echo("")
         click.echo("statement pool:")
         _print_rows(SELECTION_POOL_HEADER, _selection_rows(report.statement_selection))
+        findings = _findings(report.statement_selection)
+        if findings is not None and findings["discarded"] > 0:
+            click.echo("")
+            click.echo("discarded findings:")
+            _print_rows(FINDINGS_HEADER, _findings_rows(report.statement_selection))
