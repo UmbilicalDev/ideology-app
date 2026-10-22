@@ -31,6 +31,8 @@ from ideology_app.pipeline.generation import (
 )
 from ideology_app.pipeline.positions import (
     MAX_POSITION_CALLS_PER_RUN,
+    DiscardedFinding,
+    FindingCheck,
     PositionResult,
     extract_positions,
     plan_position_calls,
@@ -115,8 +117,10 @@ __all__ = [
     "TOPICS",
     "CandidateList",
     "Chunk",
+    "DiscardedFinding",
     "DocumentPages",
     "Finding",
+    "FindingCheck",
     "FindingList",
     "GenerationError",
     "PositionChoice",

@@ -1,5 +1,6 @@
 """Chunking and the map/reduce generation, without a database (Scenarios 3-5)."""
 
+import re
 from typing import Any
 
 import pytest
@@ -97,6 +98,26 @@ def test_long_document_is_split_into_whole_pages_under_the_limit() -> None:
     assert rebuilt == huge
     assert len(slices) == 3
     assert chunks[-1].endswith("[página 6]\nfin")
+
+
+def test_chunk_pages_list_the_pages_each_chunk_holds() -> None:
+    # pipeline-verified-findings: a finding may only cite a page of its chunk.
+    small = "a" * 15_000
+    huge = "".join(chr(ord("a") + i % 26) for i in range(95_000))
+    document = doc(1, 1, small, small, small, "   ", huge, "fin")
+
+    chunks = build_document_chunks([document])
+
+    # Whitespace page 4 is in no chunk; huge page 5 is in every chunk with a slice.
+    assert [c.pages for c in chunks] == [(1, 2), (3,), (5,), (5,), (5, 6)]
+    assert [c.text for c in chunks] == build_chunks([document])
+    for chunk in chunks:
+        markers = [int(n) for n in re.findall(r"\[página (\d+)\]", chunk.text)]
+        assert chunk.pages == tuple(dict.fromkeys(markers))
+
+
+def test_chunk_pages_default_to_empty() -> None:
+    assert Chunk(1, 1, "texto").pages == ()
 
 
 def test_page_exactly_at_the_limit_is_not_cut() -> None:

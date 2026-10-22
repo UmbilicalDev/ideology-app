@@ -6,7 +6,8 @@ and may run onto the next one. Stored quotes and page texts are never changed.
 """
 
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 
 from ideology_app.validation.base import Check, PositionRow, ReportEntry, ValidationInput
 
@@ -32,6 +33,47 @@ def quote_starts_on(norm_quote: str, norm_pages: Mapping[int, str], page: int) -
     return index != -1 and index < len(own)
 
 
+def normalize_pages(pages: Iterable[tuple[int, str]]) -> dict[int, str]:
+    """``{page_number: normalize_for_match(text)}`` for ``(page_number, text)`` pairs."""
+    return {number: normalize_for_match(text) for number, text in pages}
+
+
+NO_LETTERS = "no_letters"
+OTHER_PAGE = "other_page"
+NOT_FOUND = "not_found"
+
+
+@dataclass(frozen=True)
+class QuoteMiss:
+    """Why a quote is not on its cited page.
+
+    ``reason`` is ``no_letters`` (nothing left after normalising), ``other_page``
+    (it starts on page ``found_on`` instead) or ``not_found`` (on no page).
+    """
+
+    reason: str
+    found_on: int | None = None
+
+
+def find_quote_miss(quote: str, norm_pages: Mapping[int, str], page: int) -> QuoteMiss | None:
+    """``None`` when ``quote`` starts on ``page`` of ``norm_pages``; else why not.
+
+    ``norm_pages`` comes from ``normalize_pages``; ``page`` must be one of its
+    keys. The quote may run onto ``page + 1``. For ``other_page``,
+    ``found_on`` is the first other page, in page order, the quote starts on.
+    This is the one matcher: Validation and Party Position extraction both use it.
+    """
+    norm_quote = normalize_for_match(quote)
+    if not norm_quote:
+        return QuoteMiss(NO_LETTERS)
+    if quote_starts_on(norm_quote, norm_pages, page):
+        return None
+    for other in sorted(norm_pages):
+        if other != page and quote_starts_on(norm_quote, norm_pages, other):
+            return QuoteMiss(OTHER_PAGE, other)
+    return QuoteMiss(NOT_FOUND)
+
+
 def _first_failure(
     position: PositionRow,
     data: ValidationInput,
@@ -53,20 +95,18 @@ def _first_failure(
             f"page {page} does not exist in source document {document_id} "
             f"({len(document.pages)} pages)"
         )
-    quote = normalize_for_match(position.quote)
-    if not quote:
-        return "quote has no letters or digits"
     if document_id not in normalised:
-        normalised[document_id] = {n: normalize_for_match(t) for n, t in document.pages.items()}
-    pages = normalised[document_id]
-    if quote_starts_on(quote, pages, page):
+        normalised[document_id] = normalize_pages(document.pages.items())
+    miss = find_quote_miss(position.quote, normalised[document_id], page)
+    if miss is None:
         return None
-    for other in sorted(pages):
-        if other != page and quote_starts_on(quote, pages, other):
-            return (
-                f"quote not found on page {page} of source document {document_id} "
-                f"(found on page {other})"
-            )
+    if miss.reason == NO_LETTERS:
+        return "quote has no letters or digits"
+    if miss.reason == OTHER_PAGE:
+        return (
+            f"quote not found on page {page} of source document {document_id} "
+            f"(found on page {miss.found_on})"
+        )
     return f"quote not found in source document {document_id}"
 
 

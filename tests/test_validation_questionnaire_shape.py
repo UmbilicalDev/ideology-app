@@ -313,7 +313,7 @@ def test_settings_defaults() -> None:
         settings.min_statements,
         settings.max_statements,
         settings.max_topic_share_percent,
-    ) == (60, 25, 35, 30)
+    ) == (50, 25, 35, 30)
     assert (DEFAULT_MIN_STATEMENTS, DEFAULT_MAX_STATEMENTS, DEFAULT_MAX_TOPIC_SHARE_PERCENT) == (
         25, 35, 30
     )

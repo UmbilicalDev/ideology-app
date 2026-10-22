@@ -15,6 +15,7 @@ from pipeline_fixtures import (
     chunk_pages,
     fake_provider,
     findings_response,
+    invent_quote_after_extraction,
     offline_guard,
     seed_election,
     statements_payload,
@@ -50,7 +51,7 @@ SEPARATION_ROW_1 = (
 POOL_HEADER = "pool\tposition\ttopic\tstances\tdistinct\tspread\ttier\tstatus\ttext"
 DEFAULT_SETTINGS = (
     "validation_settings: max_statements=35, max_topic_share_percent=30, "
-    "min_party_coverage_percent=60, min_statements=25"
+    "min_party_coverage_percent=50, min_statements=25"
 )
 PROMPTS_LINE = "prompt_versions: " + ", ".join(
     f"{task}={PROMPT_VERSIONS[task]}" for task in sorted(PROMPT_VERSIONS)
@@ -82,6 +83,7 @@ KEYS = [
     "statement_agenda",
     "statement_selection",
     "selection_coverage",
+    "findings_check",
     "publication",
 ]
 TABLES = [
@@ -204,11 +206,21 @@ def iso(value: dt.datetime | None) -> str:
     return "not recorded" if value is None else value.isoformat(timespec="seconds")
 
 
-def _invented_for_party2(request: LLMRequest[Any]) -> dict[str, Any]:
-    """Party 2 cites an invented quote for Statement 1 (evidence_quotes fails)."""
+def _two_discards(request: LLMRequest[Any]) -> dict[str, Any]:
+    """Party 1 cites its page-2 quote on page 1; Party 2 invents its Statement 1 quote.
+
+    The real findings come first, so the default (filling) fake cites them on
+    every Statement except the one whose own first candidate is discarded.
+    """
     real = findings_response()(request)
-    if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
-        return real
+    pages = dict(chunk_pages(request))
+    if pages.get(1) == PAGES[1][0]:
+        return {
+            "findings": [
+                real["findings"][0],
+                {"statement": 2, "value": 1, "quote": PAGES[1][1], "page": 1},
+            ]
+        }
     kept = [f for f in real["findings"] if f["statement"] != 1]
     return {"findings": [*kept, {"statement": 1, "value": -1, "quote": INVENTED, "page": 1}]}
 
@@ -299,6 +311,7 @@ def test_report_of_a_passed_and_published_run(run, report, seeded, use_fake, db_
         "statement_selection: v1, pool 50, selected 35, rule coverage_met, topic_cap 7, "
         "projected_failures none",
         "selection_coverage: party 1 35/35 (pool 50/50); party 2 35/35 (pool 50/50)",
+        "findings_check: v1, checked 4, discarded 0, cleared 0; party 1 0/2; party 2 0/2",
         "publication: published: live for election 1",
         "",
         "validation report:",
@@ -362,11 +375,13 @@ def test_report_of_a_run_that_failed_validation(run, report, seeded, use_fake) -
 
 
 def test_report_of_a_failed_run_names_the_earlier_live_version(
-    run, report, seeded, use_fake
+    run, report, seeded, use_fake, monkeypatch
 ) -> None:
     use_fake(fake_provider())
     assert run("pipeline", "run", "--election", "1").exit_code == 0
-    use_fake(fake_provider(position_findings=_invented_for_party2))
+    # The invented quote bypasses the extraction check (pipeline-verified-findings).
+    invent_quote_after_extraction(monkeypatch, INVENTED)
+    use_fake(fake_provider())
     assert run("pipeline", "run", "--election", "1").exit_code == 1
 
     result = report(2)
@@ -485,13 +500,13 @@ def test_report_shows_the_threshold_used_by_pipeline_run(
     run, report, seeded, use_fake, monkeypatch
 ) -> None:
     use_fake(fake_provider())
-    monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "50")
+    monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "40")
     assert run("pipeline", "run", "--election", "1").exit_code == 0
     monkeypatch.delenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT")
 
     assert fields(report(1))["validation_settings"] == (
         "max_statements=35, max_topic_share_percent=30, "
-        "min_party_coverage_percent=50, min_statements=25"
+        "min_party_coverage_percent=40, min_statements=25"
     )
 
 
@@ -500,7 +515,7 @@ def test_report_shows_the_threshold_used_by_pipeline_validate(
 ) -> None:
     _validating_run(db_url, fake_provider())
     assert fields(report(1))["validation_settings"] == "not recorded"
-    monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "50")
+    monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "40")
     monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "40")
     assert run("pipeline", "validate", "--run", "1").exit_code == 0
     monkeypatch.delenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT")
@@ -508,7 +523,7 @@ def test_report_shows_the_threshold_used_by_pipeline_validate(
 
     assert fields(report(1))["validation_settings"] == (
         "max_statements=40, max_topic_share_percent=30, "
-        "min_party_coverage_percent=50, min_statements=25"
+        "min_party_coverage_percent=40, min_statements=25"
     )
 
 
@@ -771,3 +786,94 @@ def test_report_selection_without_agenda_shows_not_recorded(
     got = fields(report(1))
     assert got["statement_agenda"] == "not recorded"
     assert got["statement_selection"].startswith("v1, pool 50, selected 35")
+
+
+# pipeline-verified-findings Scenario 8: discarded findings in the report
+
+FINDINGS_HEADER = "party\tdocument\tpage\tstatement\tposition\tvalue\treason\tcleared\tquote"
+
+
+def test_report_lists_the_discarded_findings(run, report, seeded, use_fake, db_url) -> None:
+    use_fake(fake_provider(position_findings=_two_discards))
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+
+    result = report(1)
+
+    assert result.exit_code == 0, result.output
+    assert fields(result)["findings_check"] == (
+        "v1, checked 4, discarded 2, cleared 2; party 1 1/2 cleared 1; party 2 1/2 cleared 1"
+    )
+    pool = read_run(db_url, 1).statement_selection["pool"]
+    # The questionnaire position of each pool Statement, empty when not selected.
+    position = {e["pool"]: "" if e["position"] is None else e["position"] for e in pool}
+    parts = result.output.split("\n\n")
+    assert len(parts) == 4
+    assert parts[3].splitlines() == [
+        "discarded findings:",
+        FINDINGS_HEADER,
+        f"1\t1\t1\t2\t{position[2]}\t1\tother_page (page 2)\t2\t{PAGES[1][1]}",
+        f"2\t2\t1\t1\t{position[1]}\t-1\tnot_found\t1\t{INVENTED}",
+    ]
+
+
+def test_report_shows_the_position_only_for_a_selected_statement(
+    run, report, seeded, use_fake, db_url
+) -> None:
+    def _two_more(request: LLMRequest[Any]) -> dict[str, Any]:
+        real = findings_response()(request)
+        # After the real Statement 1 finding, so the reduce never cites it.
+        uncited = {"statement": 1, "value": 1, "quote": "Nunca citada.", "page": 1}
+        slip = {"statement": 50, "value": 1, "quote": "Línea\tinventada.", "page": 1}
+        return {"findings": [*real["findings"], uncited, slip]}
+
+    use_fake(fake_provider(position_findings=_two_more))
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    pool = read_run(db_url, 1).statement_selection["pool"]
+    first = pool[0]["position"]
+    assert first is not None and pool[49]["position"] is None
+
+    rows = report(1).output.split("\n\n")[3].splitlines()[2:]
+    # Pool Statement 1 is selected and nothing was cleared; pool Statement 50
+    # is not selected, so its position is empty. Quotes are shown on one line.
+    assert rows == [
+        f"1\t1\t1\t1\t{first}\t1\tnot_found\t\tNunca citada.",
+        "1\t1\t1\t50\t\t1\tnot_found\t50\tLínea inventada.",
+        f"2\t2\t1\t1\t{first}\t1\tnot_found\t\tNunca citada.",
+        "2\t2\t1\t50\t\t1\tnot_found\t50\tLínea inventada.",
+    ]
+
+
+def test_report_without_a_findings_record_shows_not_recorded(
+    run, report, seeded, use_fake, db_url
+) -> None:
+    # Runs recorded before pipeline-verified-findings have no "findings" key.
+    use_fake(fake_provider(position_findings=_two_discards))
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    engine = _engine(db_url)
+    try:
+        with session_scope(engine) as session:
+            stored = session.get(PipelineRun, 1)
+            assert stored is not None and stored.statement_selection is not None
+            selection = dict(stored.statement_selection)
+            del selection["findings"]
+            stored.statement_selection = selection
+    finally:
+        engine.dispose()
+
+    result = report(1)
+
+    assert fields(result)["findings_check"] == "not recorded"
+    assert "discarded findings:" not in result.output
+    assert len(result.output.split("\n\n")) == 3
+
+
+def test_report_of_a_run_that_failed_before_selection_shows_not_recorded(
+    run, report, seeded, use_fake
+) -> None:
+    use_fake(fake_provider(statement_candidates={"candidates": []}))
+    assert run("pipeline", "run", "--election", "1").exit_code == 1
+
+    result = report(1)
+
+    assert fields(result)["findings_check"] == "not recorded"
+    assert "discarded findings:" not in result.output

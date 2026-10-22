@@ -297,3 +297,35 @@ def test_run_checks_reports_a_failed_evidence_quotes_result() -> None:
     assert result.name == "evidence_quotes"
     assert not result.passed
     assert result.entries == (ReportEntry("quote not found in source document 1", 101, 1),)
+
+
+# pipeline-verified-findings: the shared matcher used by extraction too
+
+
+def test_normalize_pages_normalises_each_page() -> None:
+    from ideology_app.validation import normalize_pages
+
+    assert normalize_pages([(2, "Dos, ÚNICA."), (1, "ﬁn")]) == {2: "dosunica", 1: "fin"}
+    assert normalize_pages([]) == {}
+
+
+@pytest.mark.parametrize(
+    ("pages", "page", "quote", "expected"),
+    [
+        (["La sustituiremos."], 1, "la sustituiremos", None),
+        (["La sustituiremos."], 1, "las sustituiremos", ("not_found", None)),
+        (["Uno.", "Dos y", "tres."], 1, "dos y tres", ("other_page", 2)),
+        (["Igual.", "Igual."], 2, "Igual", None),
+        (["Otra.", "Igual.", "Igual."], 1, "Igual", ("other_page", 2)),
+        (["Uno."], 1, " - ¡! ", ("no_letters", None)),
+        (["Empieza aquí y", "sigue."], 1, "aquí y sigue", None),
+    ],
+)
+def test_find_quote_miss(
+    pages: list[str], page: int, quote: str, expected: tuple[str, int | None] | None
+) -> None:
+    from ideology_app.validation import QuoteMiss, find_quote_miss, normalize_pages
+
+    norm = normalize_pages(enumerate(pages, start=1))
+    miss = find_quote_miss(quote, norm, page)
+    assert miss == (None if expected is None else QuoteMiss(*expected))

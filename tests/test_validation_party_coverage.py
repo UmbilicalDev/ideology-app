@@ -88,15 +88,15 @@ def test_registry_runs_party_coverage_after_evidence_quotes() -> None:
     assert PARTY_COVERAGE.name == "party_coverage"
 
 
-# Scenario 1: boundary at the default threshold (60 since pipeline-balanced-statements)
+# Scenario 1: boundary at the default threshold (50 since pipeline-verified-findings)
 
 
-def test_60_percent_passes_and_50_percent_fails_at_10_statements() -> None:
-    result = PARTY_COVERAGE.run(data(10, {1: 6, 2: 5}))
+def test_50_percent_passes_and_40_percent_fails_at_10_statements() -> None:
+    result = PARTY_COVERAGE.run(data(10, {1: 5, 2: 4}))
 
-    assert result == [entry(2, 5, 10, 50, 60)]
+    assert result == [entry(2, 4, 10, 40, 50)]
     assert result[0].message == (
-        "party 2 has positions on 5 of 10 statements (50%); minimum is 60%"
+        "party 2 has positions on 4 of 10 statements (40%); minimum is 50%"
     )
     assert result[0].statement_id is None
 
@@ -105,20 +105,21 @@ def test_60_percent_passes_and_50_percent_fails_at_10_statements() -> None:
     ("covered", "expected"),
     [
         (30, []),
-        (18, []),
-        (17, [entry(1, 17, 30, 56, 60)]),
-        (12, [entry(1, 12, 30, 40, 60)]),
+        (15, []),
+        (14, [entry(1, 14, 30, 46, 50)]),
+        (12, [entry(1, 12, 30, 40, 50)]),
     ],
-    ids=["30-of-30", "18-of-30-is-60", "17-of-30-is-56", "12-of-30-is-40"],
+    ids=["30-of-30", "15-of-30-is-50", "14-of-30-is-46", "12-of-30-is-40"],
 )
 def test_boundary_at_30_statements(covered: int, expected: list[ReportEntry]) -> None:
     assert PARTY_COVERAGE.run(data(30, {1: covered})) == expected
 
 
-def test_default_threshold_is_60() -> None:
-    # pipeline-balanced-statements: lowered from 70 (user decision 2026-10-22).
-    assert DEFAULT_MIN_PARTY_COVERAGE_PERCENT == 60
-    assert ValidationSettings().min_party_coverage_percent == 60
+def test_default_threshold_is_50() -> None:
+    # pipeline-balanced-statements lowered it from 70 to 60, and
+    # pipeline-verified-findings from 60 to 50 (user decisions 2026-10-22).
+    assert DEFAULT_MIN_PARTY_COVERAGE_PERCENT == 50
+    assert ValidationSettings().min_party_coverage_percent == 50
     assert ValidationInput(statements=(), positions=(), party_ids=()).settings == (
         ValidationSettings()
     )
@@ -137,13 +138,13 @@ def test_explicit_threshold_70_keeps_its_boundary(
 
 
 def test_run_checks_reports_party_coverage() -> None:
-    results = run_checks(data(10, {1: 6, 2: 5}), CHECKS[:3])
+    results = run_checks(data(10, {1: 5, 2: 4}), CHECKS[:3])
     assert [(r.name, r.passed) for r in results] == [
         ("evidence_quotes", False),  # plain data has no documents
         ("party_coverage", False),
         ("statement_separation", False),  # every plain-data value is 1
     ]
-    assert results[1].entries == (entry(2, 5, 10, 50, 60),)
+    assert results[1].entries == (entry(2, 4, 10, 40, 50),)
 
 
 # Scenario 2: threshold is configurable
@@ -170,7 +171,7 @@ def test_threshold_0_passes_a_party_without_stances() -> None:
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [(None, 60), ("", 60), ("   ", 60), (" 55 ", 55), ("0", 0), ("100", 100), ("70", 70)],
+    [(None, 50), ("", 50), ("   ", 50), (" 55 ", 55), ("0", 0), ("100", 100), ("70", 70)],
 )
 def test_validation_settings_from_env(
     monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: int
@@ -204,24 +205,24 @@ def test_validation_settings_rejects_bad_values(value: object) -> None:
 
 def test_party_without_rows_or_only_no_stance_has_zero_coverage() -> None:
     only_no_stance = data(30, {1: 21, 2: 0})
-    assert PARTY_COVERAGE.run(only_no_stance) == [entry(2, 0, 30, 0, 60)]
+    assert PARTY_COVERAGE.run(only_no_stance) == [entry(2, 0, 30, 0, 50)]
     no_rows = data(30, {1: 21}, party_ids=(1, 2))
-    assert PARTY_COVERAGE.run(no_rows) == [entry(2, 0, 30, 0, 60)]
+    assert PARTY_COVERAGE.run(no_rows) == [entry(2, 0, 30, 0, 50)]
     assert PARTY_COVERAGE.run(no_rows)[0].message == (
-        "party 2 has positions on 0 of 30 statements (0%); minimum is 60%"
+        "party 2 has positions on 0 of 30 statements (0%); minimum is 50%"
     )
 
 
 def test_several_offending_parties_are_reported_in_party_id_order() -> None:
-    result = PARTY_COVERAGE.run(data(10, {1: 7, 2: 3, 5: 0, 9: 5}))
-    assert result == [entry(2, 3, 10, 30, 60), entry(5, 0, 10, 0, 60), entry(9, 5, 10, 50, 60)]
+    result = PARTY_COVERAGE.run(data(10, {1: 7, 2: 3, 5: 0, 9: 4}))
+    assert result == [entry(2, 3, 10, 30, 50), entry(5, 0, 10, 0, 50), entry(9, 4, 10, 40, 50)]
 
 
 def test_positions_of_parties_not_in_the_election_are_ignored() -> None:
     mixed = data(10, {1: 7, 2: 10}, party_ids=(1,))
     assert PARTY_COVERAGE.run(mixed) == []
     foreign_only = data(10, {1: 0, 7: 10}, party_ids=(1,))
-    assert PARTY_COVERAGE.run(foreign_only) == [entry(1, 0, 10, 0, 60)]
+    assert PARTY_COVERAGE.run(foreign_only) == [entry(1, 0, 10, 0, 50)]
 
 
 def test_zero_statements_report_nothing() -> None:

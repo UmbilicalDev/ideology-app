@@ -17,6 +17,7 @@ from pipeline_fixtures import (
     default_responses,
     fake_provider,
     findings_response,
+    invent_quote_after_extraction,
     offline_guard,
     positions_response,
     seed_election,
@@ -404,7 +405,7 @@ def test_positions_lists_every_statement_party_pair(
 
 
 def test_positions_show_negative_values_urls_and_one_line_quotes(
-    run, seeded, use_fake, db_url
+    run, seeded, use_fake, db_url, monkeypatch
 ) -> None:
     engine = make_engine(db_url)
     try:
@@ -419,12 +420,15 @@ def test_positions_show_negative_values_urls_and_one_line_quotes(
     quote = "Bajaremos\tel IVA\n\n  de la luz."
     use_fake(
         fake_provider(
-            position_findings={
-                "findings": [{"statement": 2, "value": -2, "quote": quote, "page": 2}]
-            },
             party_positions={"positions": [{"statement": 2, "value": -2, "evidence": 1}]},
         )
     )
+    # Extraction would discard a quote that is on no page (pipeline-verified-
+    # findings), so it is put in after extraction for both Parties.
+    for party_id in (1, 2):
+        invent_quote_after_extraction(
+            monkeypatch, quote, party_id=party_id, statement=2, value=-2, page=2
+        )
     # The quote is on no page, so the run fails Validation but keeps its positions.
     assert run("pipeline", "run", "--election", "1").exit_code == 1
 
@@ -495,7 +499,7 @@ PASSED_CHECKS = (
 )
 PARTY2_ZERO = (
     "party_coverage\tfailed\t\t2\t"
-    "party 2 has positions on 0 of 25 statements (0%); minimum is 60%"
+    "party 2 has positions on 0 of 25 statements (0%); minimum is 50%"
 )
 # Party 2 without stances: no Statement separates the two Parties, so the
 # selection keeps min_statements (25) of them.
@@ -504,19 +508,6 @@ ONLY_PARTY1_ROWS = [
     f"statement {n} does not separate parties: only party 1 has a stance (value 1)"
     for n in range(1, 26)
 ]
-
-
-def _invented_for_party2(request: LLMRequest[Any]) -> dict[str, Any]:
-    """Party 2 cites an invented quote for Statement 1 only (real Statement 2 first).
-
-    The invented finding keeps Party 2's default value (-1), so the Statements
-    still separate the Parties.
-    """
-    real = findings_response()(request)
-    if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
-        return real
-    kept = [f for f in real["findings"] if f["statement"] != 1]
-    return {"findings": [*kept, {"statement": 1, "value": -1, "quote": INVENTED, "page": 1}]}
 
 
 def _fail_party2_document(db_url: str) -> None:
@@ -578,8 +569,12 @@ def test_checks_of_a_passed_run(run, seeded, use_fake) -> None:
     assert result.output == PASSED_CHECKS
 
 
-def test_run_failing_validation_is_committed_and_reported(run, seeded, use_fake) -> None:
-    use_fake(fake_provider(position_findings=_invented_for_party2))
+def test_run_failing_validation_is_committed_and_reported(
+    run, seeded, use_fake, monkeypatch
+) -> None:
+    # The invented quote bypasses the extraction check (pipeline-verified-findings).
+    invent_quote_after_extraction(monkeypatch, INVENTED)
+    use_fake(fake_provider())
 
     result = run("pipeline", "run", "--election", "1")
 
@@ -608,20 +603,22 @@ def test_run_failing_validation_is_committed_and_reported(run, seeded, use_fake)
     assert f"1\t2\t-1\t2\t1\t\t{INVENTED}" in positions.output.splitlines()
 
 
-def test_checks_list_one_row_per_entry(run, seeded, use_fake) -> None:
-    def _all_invented(request: LLMRequest[Any]) -> dict[str, Any]:
-        return {
-            "findings": [
-                {"statement": page, "value": -1, "quote": f"Inventada\t{page}.", "page": page}
-                for page, _ in chunk_pages(request)
-            ]
-        }
+def test_checks_list_one_row_per_entry(run, seeded, use_fake, monkeypatch) -> None:
+    # Every stance gets an invented quote after extraction (extraction itself
+    # would discard them, pipeline-verified-findings).
+    for party_id in (1, 2):
+        for statement in (1, 2):
+            invent_quote_after_extraction(
+                monkeypatch,
+                f"Inventada\t{statement}.",
+                party_id=party_id,
+                statement=statement,
+                page=statement,
+            )
 
     # Sparse (no fill): no Statement separates, so the selection keeps 25; each
     # Party covers 2 of them with value -1, so all three checks fail.
-    use_fake(
-        fake_provider(position_findings=_all_invented, party_positions=positions_response())
-    )
+    use_fake(fake_provider(party_positions=positions_response()))
     assert run("pipeline", "run", "--election", "1").exit_code == 1
 
     result = run("pipeline", "checks", "--run", "1")
@@ -634,9 +631,9 @@ def test_checks_list_one_row_per_entry(run, seeded, use_fake) -> None:
         "evidence_quotes\tfailed\t2\t1\tquote not found in source document 1",
         "evidence_quotes\tfailed\t2\t2\tquote not found in source document 2",
         "party_coverage\tfailed\t\t1\t"
-        "party 1 has positions on 2 of 25 statements (8%); minimum is 60%",
+        "party 1 has positions on 2 of 25 statements (8%); minimum is 50%",
         "party_coverage\tfailed\t\t2\t"
-        "party 2 has positions on 2 of 25 statements (8%); minimum is 60%",
+        "party 2 has positions on 2 of 25 statements (8%); minimum is 50%",
         "statement_separation\tfailed\t1\t\t"
         "statement 1 does not separate parties: all 2 parties with a stance have value -1",
         "statement_separation\tfailed\t2\t\t"
@@ -677,8 +674,11 @@ def test_validate_a_run_left_in_validating(run, seeded, db_url, no_provider) -> 
     assert run("pipeline", "checks", "--run", "1").output == PASSED_CHECKS
 
 
-def test_validate_a_failing_run_left_in_validating(run, seeded, db_url, no_provider) -> None:
-    _validating_run(db_url, fake_provider(position_findings=_invented_for_party2))
+def test_validate_a_failing_run_left_in_validating(
+    run, seeded, db_url, no_provider, monkeypatch
+) -> None:
+    invent_quote_after_extraction(monkeypatch, INVENTED)
+    _validating_run(db_url, fake_provider())
 
     result = run("pipeline", "validate", "--run", "1")
 
@@ -1118,10 +1118,13 @@ def test_run_publishes_then_supersedes(run, seeded, use_fake) -> None:
     assert len(positions.output.splitlines()) == 71
 
 
-def test_failing_run_after_a_publish_keeps_its_output(run, seeded, use_fake) -> None:
+def test_failing_run_after_a_publish_keeps_its_output(
+    run, seeded, use_fake, monkeypatch
+) -> None:
     use_fake(fake_provider())
     assert run("pipeline", "run", "--election", "1").exit_code == 0
-    use_fake(fake_provider(position_findings=_invented_for_party2))
+    invent_quote_after_extraction(monkeypatch, INVENTED)
+    use_fake(fake_provider())
 
     result = run("pipeline", "run", "--election", "1")
 
@@ -1131,8 +1134,11 @@ def test_failing_run_after_a_publish_keeps_its_output(run, seeded, use_fake) -> 
     assert _election_status(run) == "active"
 
 
-def test_failing_first_run_leaves_the_election_draft(run, seeded, use_fake) -> None:
-    use_fake(fake_provider(position_findings=_invented_for_party2))
+def test_failing_first_run_leaves_the_election_draft(
+    run, seeded, use_fake, monkeypatch
+) -> None:
+    invent_quote_after_extraction(monkeypatch, INVENTED)
+    use_fake(fake_provider())
 
     result = run("pipeline", "run", "--election", "1")
 

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from typing import Any
 
 import pytest
 from pipeline_fixtures import PARTIES, offline_guard
@@ -31,7 +32,15 @@ from ideology_app.pipeline import (
     request_hash,
     statement_set_schema,
 )
-from ideology_app.pipeline.generation import candidate_request
+from ideology_app.llm import LLMRequest
+from ideology_app.models import SourceDocumentRole
+from ideology_app.pipeline.generation import DocumentPages, candidate_request
+from ideology_app.pipeline.positions import (
+    _Candidate,
+    findings_request,
+    positions_request,
+    statement_lines,
+)
 from ideology_app.pipeline.prompts import _COMMON_RULES
 
 # To change a prompt: bump its version, then replace its entry here with the new
@@ -56,6 +65,13 @@ REFERENCE_SCHEMAS = {
 # on base commit b992e57, before pipeline-output-bounds: the statement_candidates
 # request must stay byte-identical so recorded calls stay reusable.
 CANDIDATE_REQUEST_HASH = "2936c24068bdc5d815241addb8324d71f4032fc878e880cd953fb36feccf9dab"
+
+# request_hash("fake", "fake-model", ...) of the position requests below, computed
+# on main cf062e4, before pipeline-verified-findings changed extraction: the
+# position_findings and party_positions requests must stay byte-identical so
+# recorded calls stay reusable (--resume-from / --reuse-from).
+FINDINGS_REQUEST_HASH = "b8a610c8de1b1baf6b9bbd4365e32959718c8a1222e5cfc09cec56841291f2ff"
+POSITIONS_REQUEST_HASH = "7bebf386e9b4167ad9d1c972a2be8055b9c6c944d57c572a0f689f30b66bdea0"
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +136,50 @@ def test_statement_candidates_request_is_byte_identical() -> None:
     request = candidate_request("[página 1]\nTexto")
     assert request.schema is CandidateList
     assert request_hash("fake", "fake-model", request) == CANDIDATE_REQUEST_HASH
+
+
+def _pin_documents() -> tuple[DocumentPages, DocumentPages]:
+    url = "https://example.org/a.pdf"
+    return (
+        DocumentPages(1, 10, [(1, "Texto")], url, SourceDocumentRole.MAIN),
+        DocumentPages(1, 11, [(2, "Otro")], None, SourceDocumentRole.ADDITIONAL),
+    )
+
+
+def _pinned_position_requests() -> tuple[LLMRequest[Any], LLMRequest[Any]]:
+    listed = statement_lines(["Afirmación uno", "Afirmación dos"])
+    main, extra = _pin_documents()
+    candidates = [_Candidate(1, 1, "Texto", 1, main), _Candidate(2, -1, "Otro", 2, extra)]
+    return (
+        findings_request(listed, "[página 1]\nTexto", 2),
+        positions_request(listed, candidates, 2),
+    )
+
+
+def test_position_requests_are_byte_identical() -> None:
+    # pipeline-verified-findings changes no request: same versions, same hashes.
+    assert PROMPT_VERSIONS == {
+        "statement_candidates": "v1",
+        "generate_statements": "v4",
+        "position_findings": "v3",
+        "party_positions": "v2",
+    }
+    findings, positions = _pinned_position_requests()
+    assert request_hash("fake", "fake-model", findings) == FINDINGS_REQUEST_HASH
+    assert request_hash("fake", "fake-model", positions) == POSITIONS_REQUEST_HASH
+
+
+def test_a_verification_verdict_does_not_change_the_positions_request() -> None:
+    # The party_positions request lists unverifiable candidates exactly like
+    # verified ones, so its hash does not depend on the verdicts.
+    listed = statement_lines(["Afirmación uno", "Afirmación dos"])
+    main, extra = _pin_documents()
+    missed = [
+        _Candidate(1, 1, "Texto", 1, main, "not_found"),
+        _Candidate(2, -1, "Otro", 2, extra, "other_page", 3),
+    ]
+    request = positions_request(listed, missed, 2)
+    assert request_hash("fake", "fake-model", request) == POSITIONS_REQUEST_HASH
 
 
 def test_prompt_versions_and_constants() -> None:
