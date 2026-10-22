@@ -465,12 +465,13 @@ def test_execute_run_records_settings_from_env(
     seeded: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "50")
-    provider = fake_provider(generate_statements=statements_payload(20))
+    # A Validation failure the generate_statements schema still allows.
+    provider = fake_provider(generate_statements=statements_payload(duplicate=(2, 5)))
     run_id = queue(seeded, provider)
 
     outcome = execute_run(seeded, run_id, provider)
 
-    assert outcome.failed_checks == ("statement_count",)
+    assert outcome.failed_checks == ("statement_uniqueness",)
     assert read_run(seeded, run_id).validation_settings == {
         **DEFAULT_SETTINGS_DICT,
         "min_party_coverage_percent": 50,
@@ -781,12 +782,19 @@ def _assert_shape_failure(
         ]
 
 
-def test_twenty_statements_fail_the_run_on_statement_count(seeded: Engine) -> None:
+def test_twenty_statements_fail_the_run_on_statement_count(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Since pipeline-output-bounds 20 Statements fail at generation with the
+    # defaults, so generate with a range that allows 20 (as a run validated
+    # later with other thresholds would be), then validate with the defaults.
     payload = statements_payload(20)
     provider = fake_provider(generate_statements=payload)
-    run_id = queue(seeded, provider)
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "20")
+    run_id = validating_run(seeded, provider)
+    monkeypatch.delenv("VALIDATION_MIN_STATEMENTS")
 
-    outcome = execute_run(seeded, run_id, provider)
+    outcome = validate_run(seeded, run_id)
 
     assert outcome.statement_count == 20
     _assert_shape_failure(
@@ -854,12 +862,15 @@ def test_execute_run_uses_the_configured_statement_range(seeded: Engine) -> None
 def test_validate_run_reads_statement_range_from_env(
     seeded: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run_id = validating_run(seeded, fake_provider(generate_statements=statements_payload(20)))
+    # Generation needs the range too (the schema bounds the count), so the env
+    # is set before it; without the env validate_run would use 25..35 and fail.
     monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "20")
+    run_id = validating_run(seeded, fake_provider(generate_statements=statements_payload(20)))
 
     outcome = validate_run(seeded, run_id)
 
     assert outcome.status is PipelineRunStatus.PASSED
+    assert read_run(seeded, run_id).validation_settings["min_statements"] == 20
 
 
 @pytest.mark.parametrize(

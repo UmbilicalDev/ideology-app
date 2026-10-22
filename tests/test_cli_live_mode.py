@@ -378,14 +378,15 @@ def test_validation_failure_points_at_the_checks(
     run, seeded, live, pdf: Path, use_fake, db_url: str
 ) -> None:
     assert run("source", "add", "--party", "1", "--file", str(pdf)).exit_code == 0
-    use_fake(fake_provider(generate_statements=statements_payload(20)))
+    # A Validation failure the generate_statements schema still allows.
+    use_fake(fake_provider(generate_statements=statements_payload(duplicate=(2, 5))))
 
     result = run("pipeline", "run-queued")
 
     assert result.exit_code == 1
     assert result.stdout == ""
     assert result.stderr == (
-        "Error: pipeline run 1 failed: validation failed: statement_count; "
+        "Error: pipeline run 1 failed: validation failed: statement_uniqueness; "
         'see "ideology pipeline checks --run 1"\n'
         "Error: 1 of 1 queued pipeline runs failed\n"
     )

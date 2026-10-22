@@ -6,8 +6,15 @@ __pycache__/
 *.egg-info/
 .env
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
+# The shared database is committed (shared-database); its sidecars stay ignored.
+!data/ideology.db
 .DS_Store
 source_files/
 node_modules/
 apps/web/dist/
 *.tsbuildinfo
+# No PDF is ever committed under data/ (source-text-bundle).
+data/**/*.pdf

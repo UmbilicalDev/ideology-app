@@ -12,7 +12,7 @@ from ideology_app.pdf_text import NO_TEXT_LAYER
 
 HEADER = [
     "id", "origin", "status", "pages", "content_hash", "filename", "url", "failure_reason",
-    "replaced_by",
+    "replaced_by", "bundle_file",
 ]
 TEXT_PAGES = ["Programa electoral\nSubir el salario mínimo.", "Página dos: educación."]
 
@@ -89,7 +89,7 @@ def test_add_blank_pdf_fails_but_is_committed(run, party, blank: Path, files_dir
     assert result.stderr == f"Error: source document 1 failed: {NO_TEXT_LAYER}\n"
     assert result.stdout == ""
     digest = hashlib.sha256(blank.read_bytes()).hexdigest()
-    assert _list_rows(run)[1] == ["1", "upload", "failed", "2", digest, "scan.pdf", "", NO_TEXT_LAYER, ""]
+    assert _list_rows(run)[1] == ["1", "upload", "failed", "2", digest, "scan.pdf", "", NO_TEXT_LAYER, "", ""]
     assert (files_dir / f"{digest}.pdf").exists()
 
 
@@ -180,8 +180,8 @@ def test_list_and_text(run, party, text_pdf: Path, blank: Path) -> None:
 
     assert _list_rows(run) == [
         HEADER,
-        ["1", "upload", "parsed", "2", text_hash, "manifesto.pdf", "", "", ""],
-        ["2", "upload", "failed", "2", blank_hash, "scan.pdf", "", NO_TEXT_LAYER, ""],
+        ["1", "upload", "parsed", "2", text_hash, "manifesto.pdf", "", "", "", ""],
+        ["2", "upload", "failed", "2", blank_hash, "scan.pdf", "", NO_TEXT_LAYER, "", ""],
     ]
 
     full = run("source", "text", "--document", "1")

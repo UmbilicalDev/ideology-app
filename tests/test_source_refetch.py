@@ -300,6 +300,26 @@ def test_only_current_parsed_url_documents_are_due(
         refetch_url_document(session, 99, now=much_later, files_dir=files_dir, fetch=web)
 
 
+def test_a_bundle_url_document_is_never_due_nor_refetched(
+    session: Session, party: int, web: Web, files_dir: Path
+) -> None:
+    """source-text-bundle Scenario 10: a URL row imported from a bundle is never fetched."""
+    url_id = _add_url(session, files_dir)
+    _doc(session, url_id).bundle_file = "pa.md"
+    session.commit()
+
+    much_later = T0 + dt.timedelta(days=365)
+    assert due_url_document_ids(session, now=much_later, interval=SIX_HOURS) == []
+    with pytest.raises(InvalidInputError) as caught:
+        refetch_url_document(session, url_id, now=much_later, files_dir=files_dir, fetch=web)
+    assert str(caught.value) == (
+        f"source document {url_id} was imported from a source text bundle; "
+        "it is never re-fetched"
+    )
+    assert web.calls == []
+    assert _doc(session, url_id).last_checked_at is None
+
+
 def test_refetch_with_an_interval_refuses_a_document_not_due(
     session: Session, party: int, web: Web, files_dir: Path
 ) -> None:

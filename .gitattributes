@@ -1,0 +1,4 @@
+# Source Text files are byte-exact (text_sha256): no EOL conversion; GitHub collapses their diffs.
+data/elections/**/*.md -text linguist-generated
+# The shared database (shared-database): never diffed, merged or EOL-converted.
+data/ideology.db binary

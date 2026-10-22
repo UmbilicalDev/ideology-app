@@ -9,6 +9,11 @@ from pathlib import Path
 DEFAULT_DATABASE_URL = "sqlite:///ideology.db"
 DEFAULT_SOURCE_FILES_DIR = "source_files"
 DEFAULT_WEB_DIST_DIR = "apps/web/dist"
+DEFAULT_ELECTIONS_DATA_DIR = "data/elections"
+# The database committed to git and shared by every developer (shared-database).
+# Relative to the current directory, like the other defaults; selected only
+# through DATABASE_URL / --database-url (sqlite:///data/ideology.db).
+SHARED_DATABASE_PATH = Path("data/ideology.db")
 
 DEFAULT_LLM_PROVIDER = "anthropic"
 # Default model per provider. Adding a provider adds one entry here.
@@ -116,6 +121,14 @@ def database_url() -> str:
 def source_files_dir() -> Path:
     """Return ``SOURCE_FILES_DIR`` if set, else ``source_files`` in the current directory."""
     return Path(os.environ.get("SOURCE_FILES_DIR") or DEFAULT_SOURCE_FILES_DIR)
+
+
+def elections_data_dir() -> Path:
+    """Return ``ELECTIONS_DATA_DIR`` (trimmed) if set, else ``data/elections`` in the current directory.
+
+    It holds one Source Text Bundle per Election, in ``<slug>/`` (see ``source_bundle``).
+    """
+    return Path(_env("ELECTIONS_DATA_DIR") or DEFAULT_ELECTIONS_DATA_DIR)
 
 
 def _env(name: str) -> str | None:

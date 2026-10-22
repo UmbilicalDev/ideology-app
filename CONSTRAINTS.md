@@ -23,6 +23,10 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Tests MUST NOT open a network connection: mock `ideology_app.http_fetch._open` (or pass `fetch=` to `add_url_document`) and keep the autouse socket guard in every module that touches URL fetching. Reason: a deterministic, offline CI.
 - A URL Source Document whose re-fetched bytes changed MUST become a new row (same Party and URL); the old row MUST only get `replaced_by_id` and `last_checked_at`, and its content hash, pages and stored file MUST NOT change. Reason: Evidence of older Dataset Versions points at the old row (`evidence_source_document_id`, `pipeline_run_source_documents`).
 - Pipeline input MUST be only current documents (`replaced_by_id IS NULL`, via `runs._parsed_documents_query`). Reason: one version per URL lineage; a replaced version must never be read again.
+- Source Text files (`data/elections/<slug>/*.md`) MUST be written only by `ideology source extract` and MUST NOT be edited by hand; they MUST be read and written as bytes (no text-mode newlines, no `splitlines()`), and only `ideology_app.source_bundle` MAY parse or serialise them. Reason: `text_sha256`, the canonical-form check and the per-Party content hash make any edit a different document, and the text must stay exactly what pypdf extracted.
+- No PDF MAY be committed under `data/` (`.gitignore` `data/**/*.pdf`; `read_bundle` refuses a `*.pdf` in a bundle). Reason: repository size; the `.md` files are the source of truth once extracted.
+- A bundle Source Document (`bundle_file` set) MUST NOT be re-fetched, and MUST change only through `ideology data import` of a changed file, which inserts a replacement row and sets only the old row's `replaced_by_id` (as for a re-fetch). Reason: the committed file is the single writer of its page text, and old Evidence points at the old row.
+- Tests MUST build bundles in `tmp_path` (`tests/bundle_factory.py`); the committed bundles are only read (`tests/test_source_bundle.py`). Reason: tests must never change committed data.
 - A re-fetch MUST NOT write a Source Document row, a file or a Pipeline Run when the download, the PDF check or the text extraction fails (pages are extracted before the replacement row is inserted); only `last_checked_at` is recorded. Reason: a failing site must never hide the parsed document or queue a run.
 
 ## LLM Providers
@@ -34,6 +38,7 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - The `claude_code` child environment MUST strip every `ANTHROPIC_*` and `CLAUDE*` variable except `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CONFIG_DIR`, the provider MUST NOT read or pass an API key, and `--bare` MUST NOT be used. Reason: an inherited key or session token would bill the API or authenticate as another session (the one real call during planning failed with 401 for exactly this reason); `--bare` forces API-key auth.
 - `claude_code` MUST NOT be used in a deployment or to serve Voters; it is for local Operator runs with the Operator's own subscription. Use `anthropic` there. Reason: subscription terms and usage limits, and the in-process multi-hour waits.
 - An `AnthropicProvider` that creates its own client MUST be closed (`with provider:` or `close()`). Reason: an unclosed HTTP client can emit a `ResourceWarning`, which fails the gate.
+- The `generate_statements` request schema MUST take its Statement-count bounds from the same `ValidationSettings` object that the run's Validation uses (never a second copy). Every Statement or candidate number that an LLM output schema accepts MUST be bounded to the numbers listed in that request (`statement_set_schema`, `finding_list_schema`, `position_list_schema` in `pipeline/prompts.py`). Reason: such output then fails at the call that produced it, not hours later at Validation or silently as a stance on a Statement that does not exist (`pipeline-output-bounds`).
 
 ## Pipeline
 
@@ -95,3 +100,11 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 ## Public Copy
 
 - `apps/web/src/features/methodology/MethodologyPage.tsx` and its test MUST be updated in the same change whenever a Validation check, a `ValidationSettings` default, the matching rule (`match-score.ts` constants or formula), the prompt rules it describes, or the privacy model changes. Reason: the page is static copy and the public description of the method; stale copy is a legal and trust risk.
+
+## Shared Database
+
+- The committed `data/ideology.db` MUST stay in `delete` journal mode (no WAL) and MUST be committed only after `ideology db check` prints `Safe to commit: yes`. Reason: a WAL file or a leftover journal means the committed file alone is incomplete.
+- The committed `data/ideology.db` MUST NOT be downgraded. Reason: `0003`'s downgrade deletes every page row (see "SQLite downgrades that recreate a table" in `docs/risks-and-open-questions.md`).
+- A PR that adds a migration MUST also run `ideology db upgrade` on `data/ideology.db` (with `DATABASE_URL=sqlite:///data/ideology.db`), check it with `ideology db check` and commit it, only when nobody is generating. Reason: one shared file is the source of truth; `tests/test_committed_database.py` fails until it is at head.
+- Tests MUST NOT write to `data/ideology.db`: they open it only read-only (`shared_db.read_only_url`, `mode=ro`), and a test that needs a shared database builds `<tmp_path>/data/ideology.db`. Reason: the file is shared through git; a test write would be committed.
+- Application code MUST NOT invoke git (no hooks, auto-commit or `git` subprocesses) and the default `DATABASE_URL` MUST NOT point at the shared file. Reason: the Operator commits the DB by hand, and a stray command must never write the shared file silently.

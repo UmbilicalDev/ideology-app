@@ -3,12 +3,19 @@
 Changing a prompt's system text, template or schema MUST bump its ``version``
 and the fingerprint pinned in ``tests/test_pipeline_prompts.py``. A Pipeline Run
 records ``PROMPT_VERSIONS`` so it is known which prompt produced its output.
+
+The static ``StatementSet``, ``FindingList`` and ``PositionList`` are base
+types only. Every request uses the bounded schema of its builder
+(``statement_set_schema``, ``finding_list_schema``, ``position_list_schema``),
+which limits the Statement count and every Statement or candidate number to
+the ones that request allows or lists.
 """
 
 from dataclasses import dataclass
-from typing import Annotated, Literal, get_args
+from functools import cache
+from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints, create_model
 
 Topic = Literal[
     "economy",
@@ -57,7 +64,46 @@ class CandidateList(BaseModel):
 class StatementSet(BaseModel):
     """The final ordered list of Statements for a Questionnaire."""
 
+    # Base type only: requests use ``statement_set_schema`` (the Validation range).
     statements: list[StatementDraft] = Field(min_length=1, max_length=60)
+
+
+def _check_bound(name: str, value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name} must be an integer of at least 1, got {value!r}")
+    return value
+
+
+def _subclass(base: type[BaseModel], **fields: Any) -> Any:
+    """A subclass of ``base`` with the same name and docstring, so its schema
+    title, description and error messages stay those of the base."""
+    return create_model(base.__name__, __base__=base, __doc__=base.__doc__, **fields)
+
+
+@cache
+def _statement_set_schema(min_statements: int, max_statements: int) -> type[StatementSet]:
+    return _subclass(
+        StatementSet,
+        statements=(
+            list[StatementDraft],
+            Field(min_length=min_statements, max_length=max_statements),
+        ),
+    )
+
+
+def statement_set_schema(min_statements: int, max_statements: int) -> type[StatementSet]:
+    """``StatementSet`` with ``min_statements``..``max_statements`` Statements.
+
+    Raises ``ValueError`` unless both are integers of at least 1 and min is not
+    above max. Cached: the same bounds give the same class.
+    """
+    low = _check_bound("min_statements", min_statements)
+    high = _check_bound("max_statements", max_statements)
+    if low > high:
+        raise ValueError(
+            f"min_statements ({low}) must not be above max_statements ({high})"
+        )
+    return _statement_set_schema(low, high)
 
 
 @dataclass(frozen=True)
@@ -105,7 +151,7 @@ STATEMENT_CANDIDATES = PromptSpec(
 
 GENERATE_STATEMENTS = PromptSpec(
     task="generate_statements",
-    version="v1",
+    version="v2",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Recibes afirmaciones candidatas "
@@ -115,14 +161,13 @@ GENERATE_STATEMENTS = PromptSpec(
         "Reglas para la lista:\n"
         "- Cubre los temas de forma amplia: ningún tema debe superar aproximadamente "
         "una cuarta parte de la lista.\n"
-        "- Sin afirmaciones casi duplicadas.\n"
-        f"- Unas {TARGET_STATEMENT_COUNT} afirmaciones en total."
+        "- Sin afirmaciones casi duplicadas."
     ),
     template=(
         "Afirmaciones candidatas (una por línea, con su tema entre corchetes):\n\n"
         "{candidates}\n\n"
-        "Elabora la lista final de {count} afirmaciones del cuestionario, en el orden "
-        "en que deben presentarse."
+        "Elabora la lista final de {count} afirmaciones del cuestionario (como mínimo "
+        "{min_count} y como máximo {max_count}), en el orden en que deben presentarse."
     ),
     schema=StatementSet,
     max_tokens=8192,
@@ -166,6 +211,49 @@ class PositionList(BaseModel):
     positions: list[PositionChoice] = Field(max_length=60)
 
 
+# The static FindingList and PositionList above are base types only: requests
+# use these builders, which bound each number to the ones the request lists.
+
+
+@cache
+def _finding_list_schema(statement_count: int) -> type[FindingList]:
+    finding = _subclass(Finding, statement=(int, Field(ge=1, le=statement_count)))
+    return _subclass(FindingList, findings=(list[finding], Field(max_length=60)))
+
+
+def finding_list_schema(statement_count: int) -> type[FindingList]:
+    """``FindingList`` whose ``statement`` numbers are 1..``statement_count``.
+
+    Raises ``ValueError`` unless the count is an integer of at least 1. Cached.
+    """
+    return _finding_list_schema(_check_bound("statement_count", statement_count))
+
+
+@cache
+def _position_list_schema(statement_count: int, candidate_count: int) -> type[PositionList]:
+    choice = _subclass(
+        PositionChoice,
+        statement=(int, Field(ge=1, le=statement_count)),
+        evidence=(int, Field(ge=1, le=candidate_count)),
+    )
+    return _subclass(
+        PositionList, positions=(list[choice], Field(max_length=statement_count))
+    )
+
+
+def position_list_schema(statement_count: int, candidate_count: int) -> type[PositionList]:
+    """``PositionList`` with ``statement`` 1..N, ``evidence`` 1..K and at most N entries.
+
+    N is ``statement_count``, K is ``candidate_count``. Raises ``ValueError``
+    unless both are integers of at least 1. Cached. A repeated Statement is
+    still allowed here; extraction rejects it.
+    """
+    return _position_list_schema(
+        _check_bound("statement_count", statement_count),
+        _check_bound("candidate_count", candidate_count),
+    )
+
+
 _SCALE = (
     "Escala de posición, desde el punto de vista del programa: -2 totalmente en "
     "desacuerdo, -1 en desacuerdo, 0 neutral, 1 de acuerdo, 2 totalmente de acuerdo."
@@ -173,7 +261,7 @@ _SCALE = (
 
 POSITION_FINDINGS = PromptSpec(
     task="position_findings",
-    version="v1",
+    version="v2",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Lees un fragmento de un programa "
@@ -206,7 +294,7 @@ ADDITIONAL_LABEL = "programa adicional"
 
 PARTY_POSITIONS = PromptSpec(
     task="party_positions",
-    version="v1",
+    version="v2",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Recibes las citas candidatas que se "

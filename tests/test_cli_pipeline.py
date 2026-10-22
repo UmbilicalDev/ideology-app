@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from ideology_app import cli
 from ideology_app.cli import NOT_INITIALISED, main
-from ideology_app.config import GenerationMode
+from ideology_app.config import GenerationMode, ValidationSettings
 from ideology_app.db import make_engine, run_migrations, session_scope
 from ideology_app.llm import FakeProvider, LLMProviderError, LLMRequest, claude_code_provider
 from ideology_app.models import (
@@ -529,8 +529,14 @@ def _fail_party2_document(db_url: str) -> None:
         engine.dispose()
 
 
-def _validating_run(db_url: str, provider: FakeProvider) -> None:
-    """Leave run 1 in ``validating``, as before this feature or after a crash."""
+def _validating_run(
+    db_url: str, provider: FakeProvider, settings: ValidationSettings | None = None
+) -> None:
+    """Leave run 1 in ``validating``, as before this feature or after a crash.
+
+    ``settings`` bounds the generated Statement count (default 25..35); a wider
+    range stands for a run generated with other thresholds.
+    """
     engine = make_engine(db_url)
     try:
         with session_scope(engine) as session:
@@ -543,7 +549,7 @@ def _validating_run(db_url: str, provider: FakeProvider) -> None:
             ).id
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(runs_module, "validate_run", lambda engine, run_id, **kwargs: None)
-            execute_run(engine, run_id, provider)
+            execute_run(engine, run_id, provider, settings or ValidationSettings())
     finally:
         engine.dispose()
 
@@ -900,10 +906,16 @@ def test_default_run_prints_six_passed_checks(run, seeded, use_fake) -> None:
     assert len(result.output.splitlines()) == 7
 
 
-def test_count_failure_is_committed_and_reported(run, seeded, use_fake) -> None:
-    use_fake(fake_provider(generate_statements=statements_payload(20)))
+TWENTY = ValidationSettings(min_statements=20)
 
-    result = run("pipeline", "run", "--election", "1")
+
+def test_count_failure_is_committed_and_reported(run, seeded, db_url, no_provider) -> None:
+    # Since pipeline-output-bounds 20 Statements fail at generation with the
+    # defaults, so the run is generated with a range that allows 20 and then
+    # validated with the defaults.
+    _validating_run(db_url, fake_provider(generate_statements=statements_payload(20)), TWENTY)
+
+    result = run("pipeline", "validate", "--run", "1")
 
     assert result.exit_code == 1
     assert result.stdout == ""
@@ -924,6 +936,22 @@ def test_count_failure_is_committed_and_reported(run, seeded, use_fake) -> None:
     # The failed run keeps its candidate Dataset Version and its 20 Statements.
     statements = run("pipeline", "statements", "--dataset-version", "1").output.splitlines()
     assert len(statements) == 21
+
+
+def test_out_of_range_count_fails_pipeline_run_at_generation(run, seeded, use_fake) -> None:
+    use_fake(fake_provider(generate_statements=statements_payload(20)))
+
+    result = run("pipeline", "run", "--election", "1")
+
+    assert result.exit_code == 1
+    reason = (
+        "FakeProvider response for task 'generate_statements' does not match "
+        "StatementSet: 1 validation error(s)"
+    )
+    assert result.stderr == f"Error: pipeline run 1 failed: {reason}\n"
+    row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
+    assert (row[1], row[5], row[6], row[10]) == ("failed", "", "", reason)
+    assert run("pipeline", "checks", "--run", "1").output == f"{CHECKS_HEADER}\n"
 
 
 def test_configured_statement_range_is_used_by_pipeline_run(
@@ -1014,7 +1042,7 @@ def test_validate_with_invalid_topic_share_leaves_the_run_validating(
 
 
 def test_validate_reports_a_count_failure(run, seeded, db_url, no_provider) -> None:
-    _validating_run(db_url, fake_provider(generate_statements=statements_payload(20)))
+    _validating_run(db_url, fake_provider(generate_statements=statements_payload(20)), TWENTY)
 
     result = run("pipeline", "validate", "--run", "1")
 

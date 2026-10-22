@@ -10,13 +10,13 @@ from typing import Any
 
 import pytest
 from click.testing import CliRunner
-from pipeline_fixtures import fake_provider, offline_guard, seed_election
+from pipeline_fixtures import fake_provider, offline_guard, seed_election, statements_payload
 from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
 from ideology_app import cli
 from ideology_app.cli import main
-from ideology_app.config import GenerationMode
+from ideology_app.config import GenerationMode, ValidationSettings
 from ideology_app.db import make_engine, run_migrations, session_scope
 from ideology_app.elections import InvalidInputError, NotFoundError, create_election
 from ideology_app.llm import FakeProvider, LLMProviderError, LLMRequest, LLMResult
@@ -390,3 +390,60 @@ def test_recorded_calls_with_the_same_hash_are_reused_in_sequence_order(
         "Segunda propuesta.",
     ]
     assert inner.calls == []
+
+
+# pipeline-output-bounds Scenario 7: bounded schemas and checkpoint reuse
+
+
+def _reused_by_task(rows: list[PipelineRunCall]) -> dict[str, list[bool]]:
+    result: dict[str, list[bool]] = {}
+    for row in rows:
+        result.setdefault(row.task, []).append(row.reused)
+    return result
+
+
+def test_resume_on_the_same_settings_reuses_every_task(seeded: Engine) -> None:
+    # Stopped on the last call: the six recorded calls cover all four tasks.
+    stopped_id = stop_run(seeded, stop_at=7)
+    provider = fake_provider()
+    resumed_id = queue(seeded, provider, resume_from=stopped_id)
+
+    outcome = execute_run(seeded, resumed_id, provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert [c.task for c in provider.calls] == ["party_positions"]
+    assert _reused_by_task(calls(seeded, resumed_id)) == {
+        "statement_candidates": [True, True],
+        "generate_statements": [True],
+        "position_findings": [True, True],
+        "party_positions": [True, False],
+    }
+
+
+def test_resume_of_a_run_recorded_with_a_wider_range(seeded: Engine) -> None:
+    # Stands for a run recorded with the old 1..60 schema: 44 Statements.
+    wide = Stopping(
+        fake_provider(generate_statements=statements_payload(44)),
+        5,
+        LLMProviderError("usage limit beyond max wait"),
+    )
+    stopped_id = queue(seeded, wide)
+    stopped = execute_run(seeded, stopped_id, wide, ValidationSettings(max_statements=60))
+    assert stopped.status is PipelineRunStatus.FAILED
+    assert [r.task for r in calls(seeded, stopped_id)] == DEFAULT_TASKS[:4]
+
+    provider = fake_provider()
+    resumed_id = queue(seeded, provider, resume_from=stopped_id)
+    outcome = execute_run(seeded, resumed_id, provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert outcome.statement_count == 30
+    # statement_candidates is byte-identical, so it is reused; generate_statements
+    # (another schema) and the position calls (other N, other Statements) miss.
+    assert [c.task for c in provider.calls] == DEFAULT_TASKS[2:]
+    assert _reused_by_task(calls(seeded, resumed_id)) == {
+        "statement_candidates": [True, True],
+        "generate_statements": [False],
+        "position_findings": [False, False],
+        "party_positions": [False, False],
+    }

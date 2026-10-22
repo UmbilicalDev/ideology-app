@@ -16,7 +16,7 @@ change made by ``publishing``; there is no delete path.
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 
-from sqlalchemy import Engine, Select, exists, select
+from sqlalchemy import Engine, Select, exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ideology_app import config
@@ -31,6 +31,7 @@ from ideology_app.models import (
     Party,
     PartyPosition,
     PipelineRun,
+    PipelineRunCall,
     PipelineRunSourceDocument,
     PipelineRunStatus,
     SourceDocument,
@@ -342,8 +343,9 @@ def execute_run(
     either ``validating`` with a complete ``candidate`` Dataset Version, or
     ``failed`` with a reason and no Dataset Version. A ``validating`` run is
     then validated by ``validate_run`` (``passed`` or ``failed``), whose outcome
-    is returned; ``validation_settings`` is passed to it (``None``: read with
-    ``config.validation_settings()`` first, so an invalid value raises
+    is returned; the same ``validation_settings`` object bounds the Statement
+    count of the ``generate_statements`` schema and is passed to it (``None``:
+    read with ``config.validation_settings()`` first, so an invalid value raises
     ``ConfigError`` before any write or LLM call). Ctrl-C records ``failed``
     (``interrupted``) and re-raises. Every successful LLM call is committed to
     ``pipeline_run_calls`` as it returns; a run queued with
@@ -359,7 +361,12 @@ def execute_run(
     usage = Usage()
     try:
         check_position_budget(run_input.documents)
-        statements = generate_statements(provider, build_chunks(run_input.documents), usage)
+        statements = generate_statements(
+            provider,
+            build_chunks(run_input.documents),
+            usage,
+            settings=validation_settings,
+        )
         positions = extract_positions(
             provider,
             [s.text for s in statements],
@@ -525,6 +532,56 @@ def list_queued_run_ids(session: Session, election_id: int | None = None) -> lis
         _get_election(session, election_id)
         query = query.where(PipelineRun.election_id == election_id)
     return list(session.scalars(query.order_by(PipelineRun.id)))
+
+
+@dataclass(frozen=True)
+class UnfinishedRun:
+    """A stopped run that should be resumed rather than paid for again (plain data)."""
+
+    run_id: int
+    status: PipelineRunStatus
+    recorded_calls: int
+
+
+_UNFINISHED_STATUSES = (PipelineRunStatus.RUNNING, PipelineRunStatus.FAILED)
+
+
+def find_unfinished_run(
+    session: Session,
+    election_id: int,
+    provider: str | None = None,
+    model: str | None = None,
+) -> UnfinishedRun | None:
+    """The Election's latest run with recorded calls, when it is unfinished. Read-only.
+
+    It takes the highest-id run of ``election_id`` that has at least one
+    recorded LLM call. It is unfinished when it has no Dataset Version, its
+    status is ``running`` or ``failed``, and (when given) its provider and model
+    equal ``provider`` / ``model`` (another model's run cannot be resumed).
+    Otherwise, or when the Election has no such run, ``None``.
+    """
+    calls = (
+        select(PipelineRunCall.pipeline_run_id, func.count().label("calls"))
+        .group_by(PipelineRunCall.pipeline_run_id)
+        .subquery()
+    )
+    row = session.execute(
+        select(PipelineRun, calls.c.calls)
+        .join(calls, calls.c.pipeline_run_id == PipelineRun.id)
+        .where(PipelineRun.election_id == election_id)
+        .order_by(PipelineRun.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    run, recorded = row
+    if run.dataset_version is not None or run.status not in _UNFINISHED_STATUSES:
+        return None
+    if provider is not None and run.llm_provider != provider:
+        return None
+    if model is not None and run.llm_model != model:
+        return None
+    return UnfinishedRun(run_id=run.id, status=run.status, recorded_calls=int(recorded))
 
 
 def get_dataset_version(session: Session, dataset_version_id: int) -> DatasetVersion:
