@@ -39,6 +39,7 @@ from ideology_app.models import (
     DatasetVersionStatus,
     PartyPosition,
     PipelineRun,
+    PipelineRunCall,
     PipelineRunSourceDocument,
     PipelineRunStatus,
     SourceDocument,
@@ -571,29 +572,165 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
 
 
 def test_quotes_are_stored_exactly_as_returned(seeded: Engine) -> None:
-    odd = "  Texto\tcon  espacios\ny saltos.  "
+    # pipeline-verified-findings: a quote with odd case and whitespace is still
+    # on its page, so it is kept and stored exactly as returned; an invented
+    # quote is discarded at extraction and never stored.
+    odd: dict[int, str] = {}
 
     def _findings(request: LLMRequest[Any]) -> dict[str, Any]:
-        return {"findings": [{"statement": 3, "value": 0, "quote": odd, "page": 2}]}
+        text = dict(chunk_pages(request))[2]
+        quote = "  " + text.upper().replace(" ", "\t ", 1).replace(" ", "\n  ", 2) + "  "
+        odd[len(odd) + 1] = quote
+        return {
+            "findings": [
+                {"statement": 3, "value": 0, "quote": quote, "page": 2},
+                {"statement": 4, "value": 1, "quote": "Texto que no está.", "page": 1},
+            ]
+        }
 
     provider = fake_provider(
-        position_findings=_findings, party_positions=_positions((3, 0, 1))
+        position_findings=_findings, party_positions=_positions((3, 0, 1), (4, 1, 2))
     )
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    # The odd quote is on no page, each Party covers 1 of 25 Statements and no
-    # Statement separates the Parties, so all three checks fail; the quotes
-    # stay as returned.
+    # Each Party covers 1 of 25 Statements and no Statement separates them, so
+    # coverage and separation fail; evidence_quotes passes.
     assert outcome.status is PipelineRunStatus.FAILED
-    assert outcome.failure_reason == (
-        "validation failed: evidence_quotes, party_coverage, statement_separation"
-    )
-    assert outcome.failed_checks == ("evidence_quotes", "party_coverage", "statement_separation")
+    assert outcome.failed_checks == ("party_coverage", "statement_separation")
     stances = [r for r in position_rows(seeded) if r.value is not None]
     assert [(r.party_id, r.value, r.evidence_quote, r.evidence_page) for r in stances] == [
-        (1, 0, odd, 2),
-        (2, 0, odd, 2),
+        (1, 0, odd[1], 2),
+        (2, 0, odd[2], 2),
     ]
+    assert all(r.evidence_quote != "Texto que no está." for r in position_rows(seeded))
+    findings = read_run(seeded, outcome.run_id).statement_selection["findings"]
+    assert (findings["checked"], findings["discarded"], findings["cleared"]) == (4, 2, 2)
+    assert [(i["party_id"], i["reason"], i["cleared"]) for i in findings["items"]] == [
+        (1, "not_found", [4]),
+        (2, "not_found", [4]),
+    ]
+
+
+# pipeline-verified-findings Scenarios 1, 5 and 6 (run level)
+
+SLIP = "Propuestas sobre sanidades pública."  # PAGES[1][1] says "sanidad"
+
+
+def _slip_for_party1(request: LLMRequest[Any]) -> dict[str, Any]:
+    """Every page as a finding (Statement n = page n); Party 1's page 2 slipped."""
+    pages = chunk_pages(request)
+    party1 = pages[0][1] == PAGES[1][0]
+    value = 1 if party1 else -1
+    return {
+        "findings": [
+            {
+                "statement": number,
+                "value": value,
+                "quote": SLIP if party1 and number == 2 else text,
+                "page": number,
+            }
+            for number, text in pages
+        ]
+    }
+
+
+SLIP_ITEM = {
+    "party_id": 1,
+    "document_id": 1,
+    "page": 2,
+    "statement": 2,
+    "value": 1,
+    "reason": "not_found",
+    "found_on": None,
+    "cleared": [2],
+    "quote": SLIP,
+}
+
+
+def test_slipped_finding_is_discarded_recorded_and_never_stored(seeded: Engine) -> None:
+    provider = fake_provider(position_findings=_slip_for_party1)
+    run_id = queue(seeded, provider)
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    selection = read_run(seeded, run_id).statement_selection
+    assert selection["findings"] == {
+        "version": "v1",
+        "checked": 4,
+        "discarded": 1,
+        "cleared": 1,
+        "parties": [
+            {"party_id": 1, "findings": 2, "discarded": 1, "cleared": 1},
+            {"party_id": 2, "findings": 2, "discarded": 0, "cleared": 0},
+        ],
+        "items": [SLIP_ITEM],
+    }
+    assert all(r.evidence_quote != SLIP for r in position_rows(seeded))
+    # The request is unchanged: the reduce still lists the slipped candidate.
+    reduce = [c for c in provider.calls if c.task == "party_positions"]
+    assert [c["quote"] for c in candidate_lines(reduce[0])] == [PAGES[1][0], SLIP]
+    # Scenario 6: the selection saw verified findings only.
+    pool = selection["pool"]
+    assert pool[1]["values"][0] is None
+    assert all(entry["values"][0] is not None for entry in pool if entry["pool"] != 2)
+    party1 = selection["parties"][0]
+    assert party1["pool_stances"] == selection["pool_size"] - 1
+
+
+class _Raising:
+    """A provider with the fake's name and model that fails on any call."""
+
+    name = "fake"
+    model = "fake-model"
+
+    def generate(self, request: LLMRequest[Any]) -> Any:
+        raise AssertionError(f"unexpected LLM call: {request.task}")
+
+
+def _calls(engine: Engine, run_id: int) -> list[tuple[str, str, bool]]:
+    with Session(engine) as s:
+        rows = s.scalars(
+            select(PipelineRunCall)
+            .where(PipelineRunCall.pipeline_run_id == run_id)
+            .order_by(PipelineRunCall.sequence)
+        ).all()
+        return [(r.task, r.request_hash, r.reused) for r in rows]
+
+
+def test_reuse_from_replays_every_call_with_the_same_findings_record(seeded: Engine) -> None:
+    # Scenario 5: the slipped finding changes no request, so a --reuse-from
+    # replay reuses every call and never reaches the provider.
+    first = fake_provider(position_findings=_slip_for_party1)
+    source = queue(seeded, first)
+    finished = execute_run(seeded, source, first)
+    assert finished.dataset_version_id is not None
+
+    with session_scope(seeded) as session:
+        replay = queue_run(
+            session,
+            1,
+            llm_provider="fake",
+            llm_model="fake-model",
+            generation_mode=GenerationMode.PRECOMPUTED,
+            resumed_from_run_id=source,
+            allow_finished_source=True,
+        ).id
+    outcome = execute_run(seeded, replay, _Raising())
+
+    recorded, replayed = _calls(seeded, source), _calls(seeded, replay)
+    assert len(replayed) == len(recorded) == len(first.calls)
+    assert all(reused for _, _, reused in replayed)
+    assert [h for _, h, _ in replayed] == [h for _, h, _ in recorded]
+    assert (outcome.status, outcome.failure_reason, outcome.statement_count) == (
+        finished.status,
+        finished.failure_reason,
+        finished.statement_count,
+    )
+    assert outcome.position_count == finished.position_count
+    a = read_run(seeded, source).statement_selection
+    b = read_run(seeded, replay).statement_selection
+    assert b == a
+    assert b["findings"]["items"] == [SLIP_ITEM]
 
 
 # Scenario 2 (run level): document roles and evidence from an additional document
@@ -687,7 +824,7 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
             (
                 "party_coverage",
                 False,
-                [(None, 2, "party 2 has positions on 0 of 25 statements (0%); minimum is 60%")],
+                [(None, 2, "party 2 has positions on 0 of 25 statements (0%); minimum is 50%")],
             ),
             (
                 "statement_separation",

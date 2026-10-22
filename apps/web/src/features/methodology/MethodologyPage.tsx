@@ -111,7 +111,7 @@ export function MethodologyPage() {
         </p>
         <p>
           El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos
-          tienen posición en al menos el 60&nbsp;% de ellas. Si no es posible cumplir estas
+          tienen posición en al menos el 50&nbsp;% de ellas. Si no es posible cumplir estas
           condiciones, el procedimiento se acerca todo lo que puede y las comprobaciones
           posteriores impiden publicar el resultado. Las afirmaciones conservan el texto y el orden
           con que se propusieron.
@@ -126,7 +126,7 @@ export function MethodologyPage() {
             cada cita aparece literalmente en el programa del partido, empezando en la página
             indicada, sin tener en cuenta mayúsculas, tildes, espacios ni signos de puntuación;
           </li>
-          <li>cada partido tiene posición en al menos el 60&nbsp;% de las afirmaciones;</li>
+          <li>cada partido tiene posición en al menos el 50&nbsp;% de las afirmaciones;</li>
           <li>
             en cada afirmación hay al menos dos posiciones distintas entre los partidos que tienen
             posición;

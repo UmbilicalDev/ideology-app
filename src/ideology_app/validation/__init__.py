@@ -27,7 +27,10 @@ from ideology_app.validation.base import (
 )
 from ideology_app.validation.evidence_quotes import (
     EVIDENCE_QUOTES,
+    QuoteMiss,
+    find_quote_miss,
     normalize_for_match,
+    normalize_pages,
     quote_starts_on,
 )
 from ideology_app.validation.party_coverage import PARTY_COVERAGE
@@ -66,13 +69,16 @@ __all__ = [
     "Check",
     "CheckResult",
     "PositionRow",
+    "QuoteMiss",
     "ReportEntry",
     "RunDocument",
     "StatementRow",
     "ValidationInput",
     "ValidationSettings",
+    "find_quote_miss",
     "load_input",
     "normalize_for_match",
+    "normalize_pages",
     "quote_starts_on",
     "run_checks",
 ]

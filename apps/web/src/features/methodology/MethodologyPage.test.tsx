@@ -83,7 +83,7 @@ const SELECTION_TEXTS = [
     "tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas y, " +
     "después, las que se propusieron antes. Todos los partidos cuentan igual.",
   "El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos tienen " +
-    `posición en al menos el 60${NBSP}% de ellas. Si no es posible cumplir estas condiciones, ` +
+    `posición en al menos el 50${NBSP}% de ellas. Si no es posible cumplir estas condiciones, ` +
     "el procedimiento se acerca todo lo que puede y las comprobaciones posteriores impiden " +
     "publicar el resultado. Las afirmaciones conservan el texto y el orden con que se " +
     "propusieron.",
@@ -172,12 +172,16 @@ describe("MethodologyPage", () => {
     const items = within(region).getAllByRole("listitem");
     expect(items).toHaveLength(6);
     expect(items[1]?.textContent).toBe(
-      `cada partido tiene posición en al menos el 60${NBSP}% de las afirmaciones;`,
+      `cada partido tiene posición en al menos el 50${NBSP}% de las afirmaciones;`,
     );
     expect(items[4]?.textContent).toBe("el cuestionario tiene entre 25 y 35 afirmaciones;");
     expect(items[5]?.textContent).toBe(
       `ningún tema reúne más del 30${NBSP}% de las afirmaciones.`,
     );
+    // pipeline-verified-findings: the threshold is 50 % (it was 60 %).
+    const main = screen.getByRole("main").textContent ?? "";
+    expect(main.split(`50${NBSP}%`)).toHaveLength(3);
+    expect(main).not.toContain(`60${NBSP}%`);
   });
 
   test("states the privacy model and the disclaimer inside the Aviso card", () => {

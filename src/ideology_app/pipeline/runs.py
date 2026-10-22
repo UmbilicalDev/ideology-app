@@ -57,6 +57,7 @@ from ideology_app.pipeline.generation import (
 from ideology_app.pipeline import publishing
 from ideology_app.pipeline.checkpoint import CheckpointProvider
 from ideology_app.pipeline.positions import (
+    FindingCheck,
     PositionResult,
     check_position_budget,
     extract_positions,
@@ -362,7 +363,8 @@ def execute_run(
     """Generate Statements and extract Party Positions for a ``queued`` run, then validate it.
 
     Generation returns a Statement Pool; positions are extracted for the whole
-    pool, and ``selection.select_statements`` (with the same
+    pool (findings whose quote is not on their page are discarded and recorded
+    under ``statement_selection["findings"]``), and ``selection.select_statements`` (with the same
     ``validation_settings``) chooses the Statements of the Dataset Version.
     Commits up to four times: ``running`` (with the Source Documents it reads)
     before any LLM call, then (after the calls, made outside any transaction)
@@ -385,6 +387,7 @@ def execute_run(
     run_input = _start(engine, run_id, provider)
     provider = CheckpointProvider(provider, engine, run_id, run_input.resumed_from_run_id)
     usage = Usage()
+    findings = FindingCheck()
     try:
         check_position_budget(run_input.documents)
         pool = generate_statements(
@@ -399,6 +402,7 @@ def execute_run(
             run_input.documents,
             run_input.party_ids,
             usage,
+            findings,
         )
         selection = select_statements(
             pool.statements, pool_positions, run_input.party_ids, validation_settings
@@ -410,7 +414,11 @@ def execute_run(
             selection.statements,
             selection.positions,
             None,
-            selection={**selection.report, "agenda": pool.agenda.report},
+            selection={
+                **selection.report,
+                "agenda": pool.agenda.report,
+                "findings": findings.report(),
+            },
         )
     except (LLMError, GenerationError) as exc:
         return _fail(engine, run_id, usage, str(exc))

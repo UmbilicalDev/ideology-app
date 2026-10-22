@@ -19,6 +19,7 @@ from pipeline_fixtures import (
     chunk_pages,
     fake_provider,
     findings_response,
+    invent_quote_after_extraction,
     offline_guard,
     positions_response,
     seed_election,
@@ -196,8 +197,33 @@ def _invented_for_party2(request: LLMRequest[Any]) -> dict[str, Any]:
     return {"findings": [*kept, {"statement": 1, "value": -1, "quote": INVENTED, "page": 1}]}
 
 
-def test_invented_quote_fails_the_run_with_one_entry(seeded: Engine) -> None:
+def test_invented_finding_is_discarded_at_extraction(seeded: Engine) -> None:
+    # pipeline-verified-findings: the invented finding never becomes Evidence;
+    # Party 2 has no stance on Statement 1 and the run passes.
     provider = fake_provider(position_findings=_invented_for_party2)
+    run_id = queue(seeded, provider)
+
+    outcome = execute_run(seeded, run_id, provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    with Session(seeded) as s:
+        assert s.scalar(
+            select(func.count()).select_from(PartyPosition).where(
+                PartyPosition.evidence_quote == INVENTED
+            )
+        ) == 0
+    findings = read_run(seeded, run_id).statement_selection["findings"]
+    assert [(i["party_id"], i["statement"], i["reason"], i["cleared"], i["quote"])
+            for i in findings["items"]] == [(2, 1, "not_found", [1], INVENTED)]
+    assert read_run(seeded, run_id).statement_selection["pool"][0]["values"] == [1, None]
+
+
+def test_invented_quote_fails_the_run_with_one_entry(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The evidence_quotes failure path, with the extraction check bypassed.
+    invent_quote_after_extraction(monkeypatch, INVENTED)
+    provider = fake_provider()
     run_id = queue(seeded, provider)
 
     outcome = execute_run(seeded, run_id, provider)
@@ -388,10 +414,12 @@ def test_a_check_raising_inside_execute_run_is_recorded_once(
 
 
 @pytest.mark.parametrize("status", ["passed", "failed"])
-def test_validate_run_rejects_a_run_that_is_not_validating(seeded: Engine, status: str) -> None:
-    provider = fake_provider(
-        position_findings=findings_response() if status == "passed" else _invented_for_party2
-    )
+def test_validate_run_rejects_a_run_that_is_not_validating(
+    seeded: Engine, status: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if status == "failed":
+        invent_quote_after_extraction(monkeypatch, INVENTED)
+    provider = fake_provider()
     run_id = queue(seeded, provider)
     execute_run(seeded, run_id, provider)
     before = results(seeded, run_id)
@@ -421,7 +449,7 @@ def test_validate_run_unknown_run(migrated_engine: Engine) -> None:
 # pipeline-run-report: the thresholds a run was validated with are recorded
 
 DEFAULT_SETTINGS_DICT = {
-    "min_party_coverage_percent": 60,
+    "min_party_coverage_percent": 50,
     "min_statements": 25,
     "max_statements": 35,
     "max_topic_share_percent": 30,
@@ -496,7 +524,7 @@ def test_generation_failure_records_no_settings(seeded: Engine) -> None:
 
 # validation-party-coverage Scenario 4: party_coverage at the run level
 
-PARTY2_ZERO = "party 2 has positions on 0 of 25 statements (0%); minimum is 60%"
+PARTY2_ZERO = "party 2 has positions on 0 of 25 statements (0%); minimum is 50%"
 ONLY_PARTY1 = "does not separate parties: only party 1 has a stance (value 1)"
 
 
@@ -568,10 +596,11 @@ def test_party_with_no_stance_fails_the_run_on_coverage(seeded: Engine, cause: s
     _assert_kept_candidate(seeded)
 
 
-def test_both_checks_failing_are_named(seeded: Engine) -> None:
-    provider = fake_provider(
-        position_findings=_invented_for_party2, party_positions=positions_response()
-    )
+def test_both_checks_failing_are_named(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    invent_quote_after_extraction(monkeypatch, INVENTED)
+    provider = fake_provider(party_positions=positions_response())
     run_id = queue(seeded, provider)
 
     outcome = execute_run(seeded, run_id, provider)
@@ -593,8 +622,8 @@ def test_both_checks_failing_are_named(seeded: Engine) -> None:
         "party_coverage",
         False,
         [
-            (None, 1, "party 1 has positions on 2 of 25 statements (8%); minimum is 60%"),
-            (None, 2, "party 2 has positions on 2 of 25 statements (8%); minimum is 60%"),
+            (None, 1, "party 1 has positions on 2 of 25 statements (8%); minimum is 50%"),
+            (None, 2, "party 2 has positions on 2 of 25 statements (8%); minimum is 50%"),
         ],
     )
 

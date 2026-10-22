@@ -3,8 +3,10 @@
 Unit level for Scenarios 2 (coalition precedence and roles), 4 (no findings or
 no documents), 5 (party-blind, deterministic prompts), 6 (invalid output) and
 7 (call budget). The run-level versions live in ``test_pipeline_runs.py``.
+pipeline-verified-findings Scenarios 1-3 (unit) are at the end.
 """
 
+import inspect
 from typing import Any
 
 import pytest
@@ -22,6 +24,7 @@ from ideology_app.models import SourceDocumentRole
 from ideology_app.pipeline import (
     MAX_POSITION_CALLS_PER_RUN,
     DocumentPages,
+    FindingCheck,
     GenerationError,
     PositionResult,
     Usage,
@@ -29,6 +32,15 @@ from ideology_app.pipeline import (
     extract_positions,
     plan_position_calls,
 )
+from ideology_app.pipeline import positions as positions_module
+from ideology_app.validation import (
+    PositionRow,
+    RunDocument,
+    StatementRow,
+    ValidationInput,
+    evidence_quotes,
+)
+from ideology_app.validation.evidence_quotes import check_evidence_quotes
 
 MAIN = SourceDocumentRole.MAIN
 ADDITIONAL = SourceDocumentRole.ADDITIONAL
@@ -304,7 +316,8 @@ def test_any_candidate_may_support_any_statement() -> None:
         position_findings=_findings(_finding(statement=1), _finding(statement=2, quote="Dos.")),
         party_positions=_positions((5, 2, 1), (1, -2, 2)),
     )
-    result = extract(fake, [doc(1, 1, "Uno.")])
+    # Both quotes are on page 1, so both findings are verified.
+    result = extract(fake, [doc(1, 1, "Uno. Dos.")])
     assert result[1][4] == PositionResult(5, 2, 1, "Uno.", 1, None)
     assert result[1][0] == PositionResult(1, -2, 1, "Dos.", 1, None)
 
@@ -381,3 +394,176 @@ def test_requests_bound_to_pool_size() -> None:
     positions = reduce.schema.model_json_schema()
     assert positions["$defs"]["PositionChoice"]["properties"]["statement"]["maximum"] == 60
     assert positions["properties"]["positions"]["maxItems"] == 60
+
+
+# pipeline-verified-findings: unverifiable findings never become Evidence
+
+
+def _verified_and_slipped(request: LLMRequest[Any]) -> dict[str, Any]:
+    return _findings(
+        _finding(statement=1, quote="las sustituiremos", page=1),
+        _finding(statement=2, value=-1, quote="Ley de Vivienda", page=1),
+    )
+
+
+def test_slipped_quote_is_no_stance_and_the_verified_one_is_kept() -> None:
+    # Scenario 1: "las" for "la". The reduce cites both candidates.
+    fake = provider(
+        position_findings=_verified_and_slipped,
+        party_positions=_positions((1, 1, 1), (2, -1, 2)),
+    )
+    check = FindingCheck()
+    page = "La Ley de Vivienda: la sustituiremos por otra."
+    url = "https://example.org/programa.pdf"
+    result = extract_positions(
+        fake, STATEMENTS, [doc(1, 7, page, url=url)], [1, 2], Usage(), check
+    )
+
+    assert result[1][0] == PositionResult(1, None)
+    assert result[1][1] == PositionResult(2, -1, 7, "Ley de Vivienda", 1, url)
+    # The request is unchanged: it still lists the slipped candidate.
+    reduce = [c for c in fake.calls if c.task == "party_positions"][0]
+    assert [c["quote"] for c in candidate_lines(reduce)] == ["las sustituiremos", "Ley de Vivienda"]
+    assert check.report() == {
+        "version": "v1",
+        "checked": 2,
+        "discarded": 1,
+        "cleared": 1,
+        "parties": [
+            {"party_id": 1, "findings": 2, "discarded": 1, "cleared": 1},
+            {"party_id": 2, "findings": 0, "discarded": 0, "cleared": 0},
+        ],
+        "items": [
+            {
+                "party_id": 1,
+                "document_id": 7,
+                "page": 1,
+                "statement": 1,
+                "value": 1,
+                "reason": "not_found",
+                "found_on": None,
+                "cleared": [1],
+                "quote": "las sustituiremos",
+            }
+        ],
+    }
+
+
+def test_a_discarded_finding_not_cited_clears_nothing() -> None:
+    fake = provider(
+        position_findings=_verified_and_slipped, party_positions=_positions((2, -1, 2))
+    )
+    check = FindingCheck()
+    extract_positions(fake, STATEMENTS, [doc(1, 1, "la Ley de Vivienda")], [1], Usage(), check)
+    report = check.report()
+    assert (report["checked"], report["discarded"], report["cleared"]) == (2, 1, 0)
+    assert report["items"][0]["cleared"] == []
+
+
+def test_one_discarded_finding_cited_twice_clears_both_statements() -> None:
+    fake = provider(
+        position_findings=_findings(_finding(quote="Nada de esto.")),
+        party_positions=_positions((1, 1, 1), (3, 1, 1)),
+    )
+    check = FindingCheck()
+    result = extract_positions(fake, STATEMENTS, [doc(1, 1, "Uno.")], [1], Usage(), check)
+    assert all(p == PositionResult(n, None) for n, p in enumerate(result[1], start=1))
+    assert check.report()["items"][0]["cleared"] == [1, 3]
+    assert check.report()["cleared"] == 2
+
+
+def test_party_with_only_unverifiable_findings_still_gets_its_reduce_call() -> None:
+    documents = [doc(1, 1, "Uno.", "Dos.")]
+    fake = provider(position_findings=_findings(_finding(quote="Inventada.")))
+    result = extract(fake, documents)
+    assert tasks(fake) == ["position_findings", "party_positions"]
+    assert len(fake.calls) == plan_position_calls(documents)
+    assert all(p.value is None for p in result[1])
+
+
+def test_repeated_statement_still_raises_when_a_choice_cites_a_discarded_finding() -> None:
+    fake = provider(
+        position_findings=_findings(_finding(quote="Inventada.")),
+        party_positions=_positions((1, 1, 1), (1, 1, 1)),
+    )
+    with pytest.raises(GenerationError, match="repeated statement 1"):
+        extract(fake, [doc(1, 1, "Uno.")])
+
+
+def test_cited_page_outside_the_chunk_is_discarded_even_if_the_quote_is_there() -> None:
+    # Scenario 2: two chunks (each page is near the size limit). The first
+    # chunk's finding cites page 2, where the quote is, but page 2 is not in it.
+    first, second = "Uno. " + "a" * 39_000, "Dos. " + "b" * 39_000
+
+    def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
+        statement = 1 if chunk_pages(request)[0][0] == 1 else 2
+        return _findings(_finding(statement=statement, quote="Dos.", page=2))
+
+    fake = provider(position_findings=_respond, party_positions=positions_response())
+    check = FindingCheck()
+    result = extract_positions(fake, STATEMENTS, [doc(1, 1, first, second)], [1], Usage(), check)
+
+    assert tasks(fake) == ["position_findings", "position_findings", "party_positions"]
+    assert result[1][0] == PositionResult(1, None)
+    assert result[1][1] == PositionResult(2, 1, 1, "Dos.", 2, None)
+    item = check.report()["items"][0]
+    assert (item["reason"], item["page"], item["cleared"]) == ("page_not_in_chunk", 2, [1])
+
+
+def test_other_page_records_where_the_quote_starts() -> None:
+    fake = provider(position_findings=_findings(_finding(quote="Texto de la página dos.")))
+    check = FindingCheck()
+    extract_positions(
+        fake, STATEMENTS, [doc(1, 1, "Uno.", "Texto de la página dos.")], [1], Usage(), check
+    )
+    item = check.report()["items"][0]
+    assert (item["reason"], item["found_on"], item["cleared"]) == ("other_page", 2, [1])
+
+
+def test_extraction_uses_the_evidence_quotes_matcher() -> None:
+    # Scenario 3: one matcher, shared with Validation; no second normaliser.
+    assert positions_module.find_quote_miss is evidence_quotes.find_quote_miss
+    assert positions_module.normalize_pages is evidence_quotes.normalize_pages
+    source = inspect.getsource(positions_module)
+    assert "unicodedata" not in source and "casefold" not in source
+
+
+# (pages, cited page, quote, kept?, reason)
+MATCH_CASES = [
+    (["La sustituiremos."], 1, "las sustituiremos", False, "not_found"),
+    (["Uno.", "Texto de la dos."], 1, "Texto de la dos.", False, "other_page"),
+    (["Uno."], 1, "... ¡! —", False, "no_letters"),
+    (["Empieza aquí y", "sigue en la siguiente."], 1, "aquí y sigue en", True, None),
+    (["Política PÚBLICA de vivienda"], 1, "politica publica", True, None),
+    (["ﬁnanciación autonómica"], 1, "financiacion autonomica", True, None),
+    (["vivienda, alquiler\n y  suelo"], 1, "Vivienda alquiler y suelo.", True, None),
+    (["Uno.", "Dos y", "tres."], 2, "dos y tres", True, None),
+    (["Uno.", "Dos y", "tres."], 1, "dos y tres", False, "other_page"),
+]
+
+
+@pytest.mark.parametrize(("pages", "page", "quote", "kept", "reason"), MATCH_CASES)
+def test_extraction_and_validation_give_the_same_verdict(
+    pages: list[str], page: int, quote: str, kept: bool, reason: str | None
+) -> None:
+    fake = provider(
+        position_findings=_findings(_finding(quote=quote, page=page)),
+        party_positions=_positions((1, 1, 1)),
+    )
+    check = FindingCheck()
+    result = extract_positions(fake, STATEMENTS, [doc(1, 1, *pages)], [1], Usage(), check)
+    extraction_kept = result[1][0].value is not None
+    assert extraction_kept is kept
+    assert [i["reason"] for i in check.report()["items"]] == ([] if kept else [reason])
+    if kept:
+        assert result[1][0].quote == quote
+
+    data = ValidationInput(
+        statements=(StatementRow(id=1, position=1, text="Afirmación 1.", topic="economy"),),
+        positions=(PositionRow(1, 1, 1, 1, 1, quote, page, None),),
+        party_ids=(1,),
+        documents={
+            1: RunDocument(1, MAIN, None, {n: t for n, t in enumerate(pages, start=1)})
+        },
+    )
+    assert (check_evidence_quotes(data) == []) is kept
