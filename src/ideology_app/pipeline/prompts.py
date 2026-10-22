@@ -41,7 +41,13 @@ Topic = Literal[
 # The topic slugs, in order. ``Topic`` is the single source of the list.
 TOPICS: tuple[str, ...] = get_args(Topic)
 
-TARGET_STATEMENT_COUNT = 30
+# The Statement Pool that ``generate_statements`` asks for. The final
+# Questionnaire (``ValidationSettings.min_statements``..``max_statements``) is
+# chosen from it by ``pipeline.selection``; ``generation.pool_bounds`` widens
+# these bounds when the configured maximum is larger.
+POOL_MIN_STATEMENTS = 45
+POOL_MAX_STATEMENTS = 60
+POOL_TARGET_STATEMENTS = 55
 
 StatementText = Annotated[
     str, StringConstraints(min_length=1, max_length=300, pattern=r"\S")
@@ -64,7 +70,7 @@ class CandidateList(BaseModel):
 class StatementSet(BaseModel):
     """The final ordered list of Statements for a Questionnaire."""
 
-    # Base type only: requests use ``statement_set_schema`` (the Validation range).
+    # Base type only: requests use ``statement_set_schema`` (the pool bounds).
     statements: list[StatementDraft] = Field(min_length=1, max_length=60)
 
 
@@ -151,14 +157,17 @@ STATEMENT_CANDIDATES = PromptSpec(
 
 GENERATE_STATEMENTS = PromptSpec(
     task="generate_statements",
-    version="v2",
+    version="v3",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Recibes afirmaciones candidatas "
-        "extraídas de varios programas electorales y eliges y redactas la lista final "
+        "extraídas de varios programas electorales y eliges y redactas una lista amplia "
+        "de afirmaciones; después, un procedimiento automático elegirá entre ellas las "
         "del cuestionario.\n\n"
         f"{_COMMON_RULES}\n"
         "Reglas para la lista:\n"
+        "- Prefiere propuestas sobre las que se pronuncien varios programas, no medidas "
+        "de detalle que solo aparecen en uno.\n"
         "- Cubre los temas de forma amplia: ningún tema debe superar aproximadamente "
         "una cuarta parte de la lista.\n"
         "- Sin afirmaciones casi duplicadas."
@@ -166,11 +175,12 @@ GENERATE_STATEMENTS = PromptSpec(
     template=(
         "Afirmaciones candidatas (una por línea, con su tema entre corchetes):\n\n"
         "{candidates}\n\n"
-        "Elabora la lista final de {count} afirmaciones del cuestionario (como mínimo "
-        "{min_count} y como máximo {max_count}), en el orden en que deben presentarse."
+        "Elabora una lista de {count} afirmaciones (como mínimo {min_count} y como "
+        "máximo {max_count}), en el orden en que deben presentarse."
     ),
     schema=StatementSet,
-    max_tokens=8192,
+    # 60 Statements of up to 300 characters are about 6-7k output tokens.
+    max_tokens=16384,
 )
 
 # Party Position extraction: findings per chunk, then one reduce per Party.

@@ -51,7 +51,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0011"
+    assert _version(db_url) == "0012"
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -59,7 +59,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0011"
+    assert _version(db_url) == "0012"
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -843,7 +843,7 @@ def test_downgrade_to_0007_drops_only_the_column_and_keeps_rows(db_url: str) -> 
 
     run_migrations(db_url)
     assert "validation_settings" in _pipeline_run_columns(db_url)
-    assert _version(db_url) == "0011"
+    assert _version(db_url) == "0012"
 
 
 def test_offline_postgresql_render_of_0008() -> None:
@@ -976,7 +976,7 @@ def test_downgrade_to_0008_drops_only_the_columns_and_keeps_pages(db_url: str) -
 
     run_migrations(db_url)
     assert {"replaced_by_id", "last_checked_at"} <= set(_source_document_columns(db_url))
-    assert _version(db_url) == "0011"
+    assert _version(db_url) == "0012"
 
 
 def test_offline_postgresql_render_of_0009() -> None:
@@ -1032,7 +1032,7 @@ def test_upgrade_0010_adds_the_calls_table_and_column_and_keeps_rows(db_url: str
 
     run_migrations(db_url)
 
-    assert _version(db_url) == "0011"
+    assert _version(db_url) == "0012"
     assert _tables(db_url) == ALL_TABLES
     columns = _pipeline_run_columns(db_url)
     assert columns["resumed_from_run_id"]["nullable"] is True
@@ -1086,7 +1086,7 @@ def test_downgrade_to_0009_drops_the_calls_and_keeps_runs_and_versions(db_url: s
         "dataset_versions": 1,
     }
     run_migrations(db_url)
-    assert _version(db_url) == "0011"
+    assert _version(db_url) == "0012"
 
 
 def test_offline_postgresql_render_of_0010() -> None:
@@ -1115,7 +1115,7 @@ def test_upgrade_0011_adds_a_nullable_bundle_file_and_keeps_rows(db_url: str) ->
     before = _source_document_columns(db_url)
     assert "bundle_file" not in before
 
-    run_migrations(db_url)
+    run_migrations(db_url, "0011")
 
     assert _version(db_url) == "0011"
     after = _source_document_columns(db_url)
@@ -1165,7 +1165,7 @@ def test_downgrade_to_0010_drops_only_bundle_file_and_keeps_pages(db_url: str) -
         "source_document_pages": 1,
     }
     run_migrations(db_url)
-    assert _version(db_url) == "0011"
+    assert _version(db_url) == "0012"
 
 
 def test_offline_postgresql_render_of_0011() -> None:
@@ -1185,3 +1185,97 @@ def test_offline_postgresql_render_of_0011() -> None:
     assert "ALTER TABLE source_documents ADD COLUMN bundle_file VARCHAR(255);" in up_sql
     assert "CHECK" not in up_sql
     assert "ALTER TABLE source_documents DROP COLUMN bundle_file;" in down.getvalue()
+
+
+# Migration 0012: statement_selection on pipeline_runs (pipeline-coverage-selection).
+
+
+def test_upgrade_0012_adds_nullable_statement_selection_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url, "0011")
+    engine = make_engine(db_url)
+    try:
+        _seed_run_and_version(engine)
+    finally:
+        engine.dispose()
+    before = _pipeline_run_columns(db_url)
+    assert "statement_selection" not in before
+    sql_before = _pipeline_run_sql(db_url)
+
+    run_migrations(db_url)
+
+    assert _version(db_url) == "0012"
+    after = _pipeline_run_columns(db_url)
+    assert set(after) - set(before) == {"statement_selection"}
+    assert after["statement_selection"]["nullable"] is True
+    assert isinstance(after["statement_selection"]["type"], sa.JSON)
+    # Plain ADD COLUMN: the table and its CHECKs are not recreated.
+    sql_after = _pipeline_run_sql(db_url)
+    for name in ("ck_pipeline_runs_pipeline_run_status", "ck_pipeline_runs_generation_mode"):
+        assert name in sql_before and name in sql_after
+    assert _counts(db_url, ("pipeline_runs", "dataset_versions", "statements")) == {
+        "pipeline_runs": 1,
+        "dataset_versions": 1,
+        "statements": 1,
+    }
+    engine = make_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            assert (
+                conn.execute(sa.text("SELECT statement_selection FROM pipeline_runs")).scalar()
+                is None
+            )
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_to_0011_drops_only_the_column_and_keeps_versions(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_run_and_version(engine)
+        with engine.begin() as conn:
+            conn.execute(sa.text(
+                "UPDATE pipeline_runs SET statement_selection = '{\"version\": \"v1\"}'"
+            ))
+    finally:
+        engine.dispose()
+    sql_before = _pipeline_run_sql(db_url)
+    columns_before = set(_pipeline_run_columns(db_url))
+
+    downgrade(db_url, "0011")
+
+    assert _version(db_url) == "0011"
+    assert set(_pipeline_run_columns(db_url)) == columns_before - {"statement_selection"}
+    assert _tables(db_url) == ALL_TABLES
+    assert PUBLISHED_INDEX in _dataset_version_indexes(db_url)
+    # Not recreated: the CHECKs stay and the ON DELETE CASCADE never fires.
+    sql_after = _pipeline_run_sql(db_url)
+    for name in ("ck_pipeline_runs_pipeline_run_status", "ck_pipeline_runs_generation_mode"):
+        assert name in sql_before and name in sql_after
+    assert _counts(db_url, ("pipeline_runs", "dataset_versions", "statements")) == {
+        "pipeline_runs": 1,
+        "dataset_versions": 1,
+        "statements": 1,
+    }
+    run_migrations(db_url)
+    assert _version(db_url) == "0012"
+    assert "statement_selection" in _pipeline_run_columns(db_url)
+
+
+def test_offline_postgresql_render_of_0012() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0011:0012",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0012:0011",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "ALTER TABLE pipeline_runs ADD COLUMN statement_selection JSON;" in up_sql
+    assert "CHECK" not in up_sql
+    assert "ALTER TABLE pipeline_runs DROP COLUMN statement_selection;" in down.getvalue()

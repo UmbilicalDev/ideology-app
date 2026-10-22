@@ -146,7 +146,7 @@ def candidates_response(count: int = 3) -> Callable[[LLMRequest[Any]], dict[str,
 
 
 def statements_payload(
-    count: int = 30,
+    count: int = 50,
     *,
     topic: tuple[str, int] | None = None,
     duplicate: tuple[int, int] | None = None,

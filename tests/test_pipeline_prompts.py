@@ -10,11 +10,13 @@ from pydantic import BaseModel, ValidationError
 from ideology_app.pipeline import (
     GENERATE_STATEMENTS,
     PARTY_POSITIONS,
+    POOL_MAX_STATEMENTS,
+    POOL_MIN_STATEMENTS,
+    POOL_TARGET_STATEMENTS,
     POSITION_FINDINGS,
     PROMPT_VERSIONS,
     PROMPTS,
     STATEMENT_CANDIDATES,
-    TARGET_STATEMENT_COUNT,
     TOPICS,
     CandidateList,
     Finding,
@@ -35,7 +37,7 @@ from ideology_app.pipeline.generation import candidate_request
 # (task, version) and the fingerprint printed by the failing test.
 FINGERPRINTS = {
     ("statement_candidates", "v1"): "a2073f8c4dcc630a08056db3bef2f59f3e412532693fd2b364af902bbfbe1177",
-    ("generate_statements", "v2"): "a1c732fca7b482760df9f2a3e09b8331a20b993b1c32fc61640b432a601e1704",
+    ("generate_statements", "v3"): "b63a0e50a53bad3d90ce06c34ceaf618b6dac4aedb2b5656651ffdf36eee37b8",
     ("position_findings", "v2"): "d64cc4a53bbf4ca79f7088b4a85dad6464521074b8bcdff8c5ce5c782fcbc8bb",
     ("party_positions", "v2"): "cd473fcb60cd0ad4c7cbbd0e30c4d5c1d2bfeb37340bcd4aa7801277f1eee9e3",
 }
@@ -44,7 +46,7 @@ FINGERPRINTS = {
 # schema: a builder change then fails the pin too.
 REFERENCE_SCHEMAS = {
     "statement_candidates": lambda: CandidateList,
-    "generate_statements": lambda: statement_set_schema(25, 35),
+    "generate_statements": lambda: statement_set_schema(45, 60),
     "position_findings": lambda: finding_list_schema(30),
     "party_positions": lambda: position_list_schema(30, 10),
 }
@@ -105,7 +107,7 @@ def test_fingerprint_detects_a_change() -> None:
     positions = (PARTY_POSITIONS.task, PARTY_POSITIONS.version)
     assert fingerprint(PARTY_POSITIONS, position_list_schema(30, 11)) != FINGERPRINTS[positions]
     generate = (GENERATE_STATEMENTS.task, GENERATE_STATEMENTS.version)
-    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(25, 36)) != FINGERPRINTS[generate]
+    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(45, 61)) != FINGERPRINTS[generate]
 
 
 def test_statement_candidates_request_is_byte_identical() -> None:
@@ -122,7 +124,7 @@ def test_statement_candidates_request_is_byte_identical() -> None:
 def test_prompt_versions_and_constants() -> None:
     assert PROMPT_VERSIONS == {
         "statement_candidates": "v1",
-        "generate_statements": "v2",
+        "generate_statements": "v3",
         "position_findings": "v2",
         "party_positions": "v2",
     }
@@ -133,8 +135,8 @@ def test_prompt_versions_and_constants() -> None:
     assert STATEMENT_CANDIDATES.schema is CandidateList
     assert STATEMENT_CANDIDATES.max_tokens == 4096
     assert GENERATE_STATEMENTS.schema is StatementSet
-    assert GENERATE_STATEMENTS.max_tokens == 8192
-    assert TARGET_STATEMENT_COUNT == 30
+    assert GENERATE_STATEMENTS.max_tokens == 16384
+    assert (POOL_MIN_STATEMENTS, POOL_MAX_STATEMENTS, POOL_TARGET_STATEMENTS) == (45, 60, 55)
     assert len(TOPICS) == 18 and len(set(TOPICS)) == 18
     assert TOPICS[0] == "economy" and TOPICS[-1] == "infrastructure_transport"
 
@@ -152,8 +154,12 @@ def test_system_prompt_states_the_rules(spec: PromptSpec) -> None:
 def test_reduce_prompt_adds_list_rules() -> None:
     assert "cuarta parte" in GENERATE_STATEMENTS.system
     assert "casi duplicadas" in GENERATE_STATEMENTS.system
+    # The pool (v3): broad proposals several manifestos address, chosen from later.
+    assert "lista amplia" in GENERATE_STATEMENTS.system
+    assert "procedimiento automático" in GENERATE_STATEMENTS.system
+    assert "se pronuncien varios programas" in GENERATE_STATEMENTS.system
     # The count lives only in the template, so it cannot contradict the range.
-    assert str(TARGET_STATEMENT_COUNT) not in GENERATE_STATEMENTS.system
+    assert str(POOL_TARGET_STATEMENTS) not in GENERATE_STATEMENTS.system
     assert "afirmaciones en total" not in GENERATE_STATEMENTS.system
     for field in ("{count}", "{min_count}", "{max_count}"):
         assert field in GENERATE_STATEMENTS.template

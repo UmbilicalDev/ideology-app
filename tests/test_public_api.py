@@ -15,10 +15,10 @@ from pipeline_fixtures import (
     add_parsed_document,
     candidate_lines,
     fake_provider,
+    findings_response,
     offline_guard,
     positions_response,
     seed_election,
-    statements_payload,
 )
 from sqlalchemy import Engine, event, select
 from sqlalchemy.orm import Session
@@ -102,15 +102,19 @@ def run_pipeline(engine: Engine, provider: FakeProvider, **kwargs: Any) -> int:
 
 
 def gamma_positions() -> Callable[[LLMRequest[Any]], dict[str, Any]]:
-    """``positions_response(fill=True)``, but Party 3 leaves one Statement ``no stance``."""
+    """``positions_response(fill=True)``, but Party 3 has ``no stance`` on even Statements.
+
+    The selection (pipeline-coverage-selection) serves Party 3 first, so it
+    takes the 25 odd pool Statements and then the lowest even ones (2, 4 ... 20)
+    up to 35; Party 3 covers 25 of 35 (71 %) and Dataset Version Statement
+    ``GAMMA_NO_STANCE`` (pool Statement 2) is ``no stance``.
+    """
     base = positions_response(fill=True)
 
     def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
         result = base(request)
         if any(c["quote"] == GAMMA_PAGE for c in candidate_lines(request)):
-            result["positions"] = [
-                p for p in result["positions"] if p["statement"] != GAMMA_NO_STANCE
-            ]
+            result["positions"] = [p for p in result["positions"] if p["statement"] % 2]
         return result
 
     return _respond
@@ -262,7 +266,7 @@ def test_published_version_follows_contract(
     dt.datetime.strptime(body["created_at"], "%Y-%m-%dT%H:%M:%SZ")
 
     statements = body["statements"]
-    assert [s["position"] for s in statements] == list(range(1, 31))
+    assert [s["position"] for s in statements] == list(range(1, 36))
     assert all(list(s) == ["id", "position", "text", "topic"] for s in statements)
     statement_ids = [s["id"] for s in statements]
 
@@ -518,9 +522,9 @@ def test_unknown_candidate_and_malformed_version_ids(
 ) -> None:
     seed_election(migrated_engine)
     v1 = run_pipeline(migrated_engine, fake_provider())
-    # A failed Validation the generate_statements schema still allows.
+    # A failed Validation the selection cannot fix (no Statement separates).
     v3 = run_pipeline(
-        migrated_engine, fake_provider(generate_statements=statements_payload(duplicate=(2, 5)))
+        migrated_engine, fake_provider(position_findings=findings_response(value=1))
     )
     with Session(migrated_engine) as session:
         candidate = session.get(DatasetVersion, v3)
@@ -556,7 +560,7 @@ def test_election_without_published_version(
     seed_election(migrated_engine)
     # Only a candidate version (failed Validation): still no Published version.
     run_pipeline(
-        migrated_engine, fake_provider(generate_statements=statements_payload(duplicate=(2, 5)))
+        migrated_engine, fake_provider(position_findings=findings_response(value=1))
     )
     client = client_for()
 

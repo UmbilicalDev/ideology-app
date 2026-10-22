@@ -730,6 +730,14 @@ def pipeline() -> None:
     "and model) and only call the LLM for the rest.",
 )
 @click.option(
+    "--reuse-from",
+    "reuse_from",
+    type=int,
+    default=None,
+    help="Reuse the identical recorded LLM calls of this earlier run (same election, "
+    "provider and model), even one that already has a dataset version.",
+)
+@click.option(
     "--fresh",
     is_flag=True,
     help="Start from zero even though the election has an unfinished run.",
@@ -737,7 +745,12 @@ def pipeline() -> None:
 @click.option("--yes", is_flag=True, help="Do not ask for confirmation on the shared database.")
 @requires_db
 def pipeline_run(
-    app: AppContext, election_id: int, resume_from: int | None, fresh: bool, yes: bool
+    app: AppContext,
+    election_id: int,
+    resume_from: int | None,
+    reuse_from: int | None,
+    fresh: bool,
+    yes: bool,
 ) -> None:
     """Generate Statements and Party Positions, validate them and publish on pass.
 
@@ -745,10 +758,15 @@ def pipeline_run(
     halfway can be resumed with ``--resume-from``. Without it, an unfinished
     run of the election (running or failed, no dataset version, same provider
     and model) is refused on the shared database and warned about elsewhere;
-    ``--fresh`` starts from zero anyway.
+    ``--fresh`` starts from zero anyway. ``--reuse-from`` reuses the identical
+    calls of a finished run too (one with a dataset version, passed or failed);
+    it runs the same unfinished-run check as a plain run.
     """
+    if resume_from is not None and reuse_from is not None:
+        raise click.UsageError("pass at most one of --resume-from or --reuse-from")
     if fresh and resume_from is not None:
         raise click.UsageError("pass at most one of --fresh or --resume-from")
+    source_run = resume_from if resume_from is not None else reuse_from
     try:
         mode = config.generation_mode()
         settings = config.validation_settings()
@@ -766,13 +784,19 @@ def pipeline_run(
                 llm_provider=provider.name,
                 llm_model=provider.model,
                 generation_mode=mode,
-                resumed_from_run_id=resume_from,
+                resumed_from_run_id=source_run,
+                allow_finished_source=reuse_from is not None,
             )
             run_id = run.id
         if resume_from is not None:
             click.echo(
                 f"Pipeline run {run_id}: resuming from run {resume_from} "
                 f"({pipelines.count_recorded_calls(app.engine, resume_from)} recorded calls)"
+            )
+        if reuse_from is not None:
+            click.echo(
+                f"Pipeline run {run_id}: reusing identical calls of run {reuse_from} "
+                f"({pipelines.count_recorded_calls(app.engine, reuse_from)} recorded calls)"
             )
         outcome = pipelines.execute_run(app.engine, run_id, provider, settings)
     finally:
@@ -1052,6 +1076,51 @@ def _publication(report: pipelines.RunReport) -> str:
     )
 
 
+SELECTION_POOL_HEADER = [
+    "pool", "position", "topic", "stances", "distinct", "spread", "tier", "status", "text"
+]
+
+
+def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object]]:
+    """The ``statement_selection`` summary lines of ``pipeline report``."""
+    if selection is None:
+        return [("statement_selection", NOT_RECORDED), ("selection_coverage", NOT_RECORDED)]
+    failures = selection["projected_failures"]
+    summary = (
+        f"{selection['version']}, pool {selection['pool_size']}, "
+        f"selected {selection['selected_count']}, rule {selection['count_rule']}, "
+        f"topic_cap {selection['topic_cap']}, "
+        f"projected_failures {', '.join(failures) if failures else 'none'}"
+    )
+    selected, size = selection["selected_count"], selection["pool_size"]
+    coverage = "; ".join(
+        f"party {p['party_id']} {p['selected_stances']}/{selected} "
+        f"(pool {p['pool_stances']}/{size})"
+        for p in selection["parties"]
+    )
+    return [
+        ("statement_selection", summary),
+        ("selection_coverage", coverage or "none"),
+    ]
+
+
+def _selection_rows(selection: dict[str, Any]) -> list[list[object]]:
+    return [
+        [
+            entry["pool"],
+            entry["position"],
+            entry["topic"],
+            entry["stances"],
+            entry["distinct"],
+            entry["spread"],
+            entry["tier"],
+            entry["status"],
+            _one_line(entry["text"]),
+        ]
+        for entry in selection["pool"]
+    ]
+
+
 def _sorted_pairs(values: dict[str, Any] | None) -> str:
     if values is None:
         return NOT_RECORDED
@@ -1110,6 +1179,7 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
             else report.dataset_version_status.value,
         ),
         ("statements", "none" if report.statement_count is None else report.statement_count),
+        *_selection_lines(report.statement_selection),
         ("publication", _publication(report)),
     ]
     for key, value in lines:
@@ -1117,3 +1187,7 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
     click.echo("")
     click.echo("validation report:")
     _print_rows(CHECKS_HEADER, rows)
+    if report.statement_selection is not None:
+        click.echo("")
+        click.echo("statement pool:")
+        _print_rows(SELECTION_POOL_HEADER, _selection_rows(report.statement_selection))

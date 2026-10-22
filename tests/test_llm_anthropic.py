@@ -251,8 +251,8 @@ def test_bounded_statement_count_is_validated_on_the_client(mock_provider: Any) 
         provider.generate(reduce_request([StatementDraft(text="Alfa.", topic="housing")]))
 
     statements = _sent_schema(captured[0])["properties"]["statements"]
-    assert "maxItems: 35" in statements["description"]
-    assert "minItems: 25" in statements["description"]
+    assert "maxItems: 60" in statements["description"]
+    assert "minItems: 45" in statements["description"]
 
 
 def test_in_range_bounded_output_passes(mock_provider: Any) -> None:

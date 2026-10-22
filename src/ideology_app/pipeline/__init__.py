@@ -20,6 +20,7 @@ from ideology_app.pipeline.generation import (
     build_chunks,
     build_document_chunks,
     generate_statements,
+    pool_bounds,
 )
 from ideology_app.pipeline.positions import (
     MAX_POSITION_CALLS_PER_RUN,
@@ -30,11 +31,13 @@ from ideology_app.pipeline.positions import (
 from ideology_app.pipeline.prompts import (
     GENERATE_STATEMENTS,
     PARTY_POSITIONS,
+    POOL_MAX_STATEMENTS,
+    POOL_MIN_STATEMENTS,
+    POOL_TARGET_STATEMENTS,
     POSITION_FINDINGS,
     PROMPT_VERSIONS,
     PROMPTS,
     STATEMENT_CANDIDATES,
-    TARGET_STATEMENT_COUNT,
     TOPICS,
     CandidateList,
     Finding,
@@ -54,6 +57,12 @@ from ideology_app.pipeline.publishing import (
     publish_dataset_version,
 )
 from ideology_app.pipeline.reports import RunReport, get_run_report
+from ideology_app.pipeline.selection import (
+    SELECTION_VERSION,
+    Selection,
+    select_statements,
+    topic_cap,
+)
 from ideology_app.pipeline.runs import (
     INTERRUPTED_REASON,
     RunOutcome,
@@ -84,12 +93,15 @@ __all__ = [
     "MAX_POSITION_CALLS_PER_RUN",
     "NO_CANDIDATES_REASON",
     "PARTY_POSITIONS",
+    "POOL_MAX_STATEMENTS",
+    "POOL_MIN_STATEMENTS",
+    "POOL_TARGET_STATEMENTS",
     "POSITION_FINDINGS",
     "PROMPTS",
     "PROMPT_VERSIONS",
     "QUEUE_ON_SOURCE_CHANGE",
+    "SELECTION_VERSION",
     "STATEMENT_CANDIDATES",
-    "TARGET_STATEMENT_COUNT",
     "TOPICS",
     "CandidateList",
     "Chunk",
@@ -104,6 +116,7 @@ __all__ = [
     "PublishOutcome",
     "RunOutcome",
     "RunReport",
+    "Selection",
     "SourceChangeOutcome",
     "UnfinishedRun",
     "StatementDraft",
@@ -125,12 +138,15 @@ __all__ = [
     "list_runs",
     "list_validation_results",
     "plan_position_calls",
+    "pool_bounds",
     "position_list_schema",
     "publish_dataset_version",
     "queue_run",
     "queue_run_for_source_change",
     "queues_on_source_change",
     "request_hash",
+    "select_statements",
     "statement_set_schema",
+    "topic_cap",
     "validate_run",
 ]

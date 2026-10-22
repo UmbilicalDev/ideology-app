@@ -39,7 +39,13 @@ A verbatim quote from a Source Document plus its locator (page and/or URL) that 
 An immutable snapshot of one Election's Questionnaire and Party Positions produced by one Pipeline Run. Share Links reference a Dataset Version.
 
 ### Pipeline Run
-One execution of the AI process that generates Statements and Party Positions from Source Documents, followed by Validation.
+One execution of the AI process that generates a Statement Pool and Party Positions from Source Documents, chooses the Questionnaire by Statement Selection, and is followed by Validation.
+
+### Statement Pool
+The larger list of candidate Statements (45 to 60 by default) that a Pipeline Run generates and positions every Party on, before the Questionnaire is chosen from it.
+
+### Statement Selection
+The deterministic choice (no AI, no randomness, every Party weighted the same) of the Questionnaire's Statements from the Statement Pool: duplicates and Statements that do not separate the Parties are left out, no topic exceeds its share, the Parties' coverage is maximised starting with the worst-covered one, and the count is the largest in the configured range that meets the coverage threshold. It is recorded on the Pipeline Run and shown by `ideology pipeline report`. Selected Statements are never edited.
 
 ### Validation
 Automatic checks a Pipeline Run's output must pass before it is published. There is no human review or manual editing.
