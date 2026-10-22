@@ -52,14 +52,14 @@ export function MethodologyPage() {
         <p>
           Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones:
           propuestas políticas concretas con las que se puede estar de acuerdo o en desacuerdo.
-          Después elige y redacta la lista final, de unas 30 afirmaciones, y asigna a cada una un
-          tema.
+          Después elige y redacta una lista más amplia, de unas 55 afirmaciones candidatas, y
+          asigna a cada una un tema.
         </p>
         <p>
           Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres de
           partidos o de políticos, una sola propuesta por afirmación, temas variados y,
-          preferiblemente, propuestas en las que los partidos discrepen. Nadie modifica a mano el
-          resultado.
+          preferiblemente, propuestas en las que los partidos discrepen y propuestas que traten
+          varios programas. Nadie modifica a mano el resultado.
         </p>
       </section>
 
@@ -80,6 +80,30 @@ export function MethodologyPage() {
           leer la cita y comprobarla. Las comprobaciones automáticas verifican que la cita está
           en el programa, pero no pueden confirmar que respalde la posición asignada; por eso es
           importante que puedas leerla.
+        </p>
+      </section>
+
+      <section aria-labelledby="methodology-selection-title">
+        <h2 id="methodology-selection-title">Cómo se eligen las afirmaciones del cuestionario</h2>
+        <p>
+          La inteligencia artificial propone más afirmaciones de las que tendrá el cuestionario,
+          entre 45 y 60, y sitúa a cada partido en todas ellas. Después, un procedimiento
+          automático, sin inteligencia artificial y sin azar, elige entre 25 y 35 para el
+          cuestionario.
+        </p>
+        <p>
+          Deja fuera las afirmaciones repetidas y las que no separan a los partidos, porque todos
+          los que tienen posición coinciden, y no deja que un tema supere el 30&nbsp;% del
+          cuestionario. Entre las demás, elige primero las que dan posición al partido que menos
+          tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas y,
+          después, las que se propusieron antes. Todos los partidos cuentan igual.
+        </p>
+        <p>
+          El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos
+          tienen posición en al menos el 70&nbsp;% de ellas. Si no es posible cumplir estas
+          condiciones, el procedimiento se acerca todo lo que puede y las comprobaciones
+          posteriores impiden publicar el resultado. Las afirmaciones conservan el texto y el orden
+          con que se propusieron.
         </p>
       </section>
 

@@ -14,8 +14,10 @@ from ideology_app.llm.base import LLMProvider, LLMRequest, LLMResult
 from ideology_app.models import SourceDocumentRole
 from ideology_app.pipeline.prompts import (
     GENERATE_STATEMENTS,
+    POOL_MAX_STATEMENTS,
+    POOL_MIN_STATEMENTS,
+    POOL_TARGET_STATEMENTS,
     STATEMENT_CANDIDATES,
-    TARGET_STATEMENT_COUNT,
     CandidateList,
     PromptSpec,
     StatementDraft,
@@ -140,26 +142,40 @@ def candidate_request(chunk: str) -> LLMRequest[Any]:
     return _request(STATEMENT_CANDIDATES, chunk=chunk)
 
 
-def reduce_request(
-    candidates: Iterable[StatementDraft], settings: ValidationSettings | None = None
-) -> LLMRequest[Any]:
-    """The ``generate_statements`` request: candidates deduplicated and sorted.
+def pool_bounds(settings: ValidationSettings | None = None) -> tuple[int, int, int]:
+    """``(low, high, target)`` for the Statement Pool of a run with ``settings``.
 
-    The schema bounds the Statement count to ``settings.min_statements`` ..
-    ``settings.max_statements`` (``None``: the ``config.ValidationSettings``
-    defaults; env is never read here). The prompt asks for
-    ``TARGET_STATEMENT_COUNT`` clamped to that range.
+    ``low`` is at least ``POOL_MIN_STATEMENTS`` and at least
+    ``settings.max_statements``, so the pool is never smaller than the largest
+    allowed Questionnaire; ``high`` is at least ``POOL_MAX_STATEMENTS`` and at
+    least ``low``; ``target`` is ``POOL_TARGET_STATEMENTS`` clamped to them.
+    ``None``: the ``config.ValidationSettings`` defaults (env is never read here).
     """
     if settings is None:
         settings = ValidationSettings()
-    low, high = settings.min_statements, settings.max_statements
+    low = max(POOL_MIN_STATEMENTS, settings.max_statements)
+    high = max(POOL_MAX_STATEMENTS, low)
+    target = min(max(POOL_TARGET_STATEMENTS, low), high)
+    return low, high, target
+
+
+def reduce_request(
+    candidates: Iterable[StatementDraft], settings: ValidationSettings | None = None
+) -> LLMRequest[Any]:
+    """The ``generate_statements`` request for the Statement Pool.
+
+    Candidates are deduplicated and sorted. The schema bounds the pool size to
+    ``pool_bounds(settings)`` (``None``: the ``config.ValidationSettings``
+    defaults), and the prompt asks for its ``target``.
+    """
+    low, high, target = pool_bounds(settings)
     unique = sorted({(c.topic, c.text) for c in candidates})
     lines = "\n".join(f"- [{topic}] {text}" for topic, text in unique)
     return _request(
         GENERATE_STATEMENTS,
         schema=statement_set_schema(low, high),
         candidates=lines,
-        count=min(max(TARGET_STATEMENT_COUNT, low), high),
+        count=target,
         min_count=low,
         max_count=high,
     )
@@ -171,11 +187,13 @@ def generate_statements(
     usage: Usage,
     settings: ValidationSettings | None = None,
 ) -> list[StatementDraft]:
-    """Map each chunk to candidates, then reduce them to the final Statements.
+    """Map each chunk to candidates, then reduce them to the Statement Pool.
 
-    ``settings`` (a ``config.ValidationSettings``; ``None``: its defaults)
-    bounds the Statement count in the reduce schema, so an out-of-range list
-    fails that call with ``LLMOutputError``. Raises ``GenerationError`` before
+    The final Statements are chosen from the pool later
+    (``pipeline.selection``). ``settings`` (a ``config.ValidationSettings``;
+    ``None``: its defaults) gives the pool bounds of the reduce schema
+    (``pool_bounds``), so an out-of-range list fails that call with
+    ``LLMOutputError``. Raises ``GenerationError`` before
     any call when there are too many chunks, or when no chunk yields a
     candidate. ``LLMError`` from the provider propagates; ``usage`` keeps the
     counts of the calls that succeeded.
@@ -210,5 +228,6 @@ __all__ = [
     "build_document_chunks",
     "candidate_request",
     "generate_statements",
+    "pool_bounds",
     "reduce_request",
 ]

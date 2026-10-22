@@ -2,7 +2,7 @@
 
 import datetime as dt
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 import sqlalchemy as sa
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -236,6 +236,10 @@ class PipelineRun(Base):
     # The run whose recorded LLM calls this run may reuse (``--resume-from``).
     # No FOREIGN KEY: adding one on SQLite needs a table recreate (see 0010).
     resumed_from_run_id: Mapped[int | None] = mapped_column(sa.Integer)
+    # The Statement Selection report (pool, scores, picks; JSON), written once by
+    # ``runs._finish`` in the commit that writes the Dataset Version; null for a
+    # run without one and for runs before ``pipeline-coverage-selection``.
+    statement_selection: Mapped[dict[str, Any] | None] = mapped_column(sa.JSON)
 
     election: Mapped[Election] = relationship(back_populates="pipeline_runs")
     dataset_version: Mapped["DatasetVersion | None"] = relationship(

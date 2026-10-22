@@ -10,7 +10,13 @@ from typing import Any
 
 import pytest
 from click.testing import CliRunner
-from pipeline_fixtures import fake_provider, offline_guard, seed_election, statements_payload
+from pipeline_fixtures import (
+    fake_provider,
+    findings_response,
+    offline_guard,
+    seed_election,
+    statements_payload,
+)
 from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
@@ -71,7 +77,10 @@ class Stopping:
         return self._inner.generate(request)
 
 
-def queue(engine: Engine, provider: Any, resume_from: int | None = None) -> int:
+def queue(
+    engine: Engine, provider: Any, resume_from: int | None = None, reuse_from: int | None = None
+) -> int:
+    """Queue a run; ``reuse_from`` is ``--reuse-from`` (a finished source is allowed)."""
     with session_scope(engine) as session:
         run = queue_run(
             session,
@@ -79,7 +88,8 @@ def queue(engine: Engine, provider: Any, resume_from: int | None = None) -> int:
             llm_provider=provider.name,
             llm_model=provider.model,
             generation_mode=GenerationMode.PRECOMPUTED,
-            resumed_from_run_id=resume_from,
+            resumed_from_run_id=resume_from if reuse_from is None else reuse_from,
+            allow_finished_source=reuse_from is not None,
         )
         return run.id
 
@@ -421,14 +431,14 @@ def test_resume_on_the_same_settings_reuses_every_task(seeded: Engine) -> None:
 
 
 def test_resume_of_a_run_recorded_with_a_wider_range(seeded: Engine) -> None:
-    # Stands for a run recorded with the old 1..60 schema: 44 Statements.
+    # Stands for a run recorded with other pool bounds: a 70-Statement pool.
     wide = Stopping(
-        fake_provider(generate_statements=statements_payload(44)),
+        fake_provider(generate_statements=statements_payload(70)),
         5,
         LLMProviderError("usage limit beyond max wait"),
     )
     stopped_id = queue(seeded, wide)
-    stopped = execute_run(seeded, stopped_id, wide, ValidationSettings(max_statements=60))
+    stopped = execute_run(seeded, stopped_id, wide, ValidationSettings(max_statements=70))
     assert stopped.status is PipelineRunStatus.FAILED
     assert [r.task for r in calls(seeded, stopped_id)] == DEFAULT_TASKS[:4]
 
@@ -437,7 +447,7 @@ def test_resume_of_a_run_recorded_with_a_wider_range(seeded: Engine) -> None:
     outcome = execute_run(seeded, resumed_id, provider)
 
     assert outcome.status is PipelineRunStatus.PASSED
-    assert outcome.statement_count == 30
+    assert outcome.statement_count == 35
     # statement_candidates is byte-identical, so it is reused; generate_statements
     # (another schema) and the position calls (other N, other Statements) miss.
     assert [c.task for c in provider.calls] == DEFAULT_TASKS[2:]
@@ -447,3 +457,86 @@ def test_resume_of_a_run_recorded_with_a_wider_range(seeded: Engine) -> None:
         "position_findings": [False, False],
         "party_positions": [False, False],
     }
+
+
+# pipeline-coverage-selection: --reuse-from reuses identical calls even of a
+# run that already has a Dataset Version (passed or failed Validation).
+
+
+@pytest.mark.parametrize("source", ["passed", "failed"])
+def test_reuse_from_a_run_with_a_dataset_version(seeded: Engine, source: str) -> None:
+    first = (
+        fake_provider()
+        if source == "passed"
+        else fake_provider(position_findings=findings_response(value=1))
+    )
+    done = queue(seeded, first)
+    finished = execute_run(seeded, done, first)
+    assert finished.status.value == source
+    assert finished.dataset_version_id is not None
+
+    provider = fake_provider()
+    reused_id = queue(seeded, provider, reuse_from=done)
+    assert run_row(seeded, reused_id).resumed_from_run_id == done
+
+    outcome = execute_run(seeded, reused_id, provider)
+
+    # Every request is identical, so every call is reused with zero tokens and
+    # the stored answers give the same result as the source run.
+    assert outcome.status is finished.status
+    rows = calls(seeded, reused_id)
+    assert _reused_by_task(rows) == {
+        "statement_candidates": [True, True],
+        "generate_statements": [True],
+        "position_findings": [True, True],
+        "party_positions": [True, True],
+    }
+    assert provider.calls == []
+    assert all(r.input_tokens == 0 and r.output_tokens == 0 for r in rows)
+    assert statements(seeded, reused_id) == statements(seeded, done)
+
+
+def test_reuse_from_calls_the_provider_for_changed_requests(seeded: Engine) -> None:
+    first = fake_provider()
+    done = queue(seeded, first)
+    execute_run(seeded, done, first)
+
+    provider = fake_provider()
+    reused_id = queue(seeded, provider, reuse_from=done)
+    # Another pool bound changes the generate_statements request, so it goes to
+    # the provider; it returns the same pool, so the position calls are reused.
+    outcome = execute_run(
+        seeded, reused_id, provider, ValidationSettings(min_statements=25, max_statements=50)
+    )
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert _reused_by_task(calls(seeded, reused_id)) == {
+        "statement_candidates": [True, True],
+        "generate_statements": [False],
+        "position_findings": [True, True],
+        "party_positions": [True, True],
+    }
+    assert [c.task for c in provider.calls] == ["generate_statements"]
+
+
+def test_reuse_refused_for_unknown_run_other_model_other_election(seeded: Engine) -> None:
+    provider = fake_provider()
+    done = queue(seeded, provider)
+    execute_run(seeded, done, provider)
+
+    with pytest.raises(NotFoundError, match="pipeline run 99 not found"):
+        queue(seeded, fake_provider(), reuse_from=99)
+    with pytest.raises(InvalidInputError, match="used fake/fake-model, not fake/other"):
+        queue(seeded, FakeProvider(model="other"), reuse_from=done)
+    with session_scope(seeded) as session:
+        other = create_election(
+            session, country="PT", type="general", date=dt.date(2024, 3, 10), name="Legislativas"
+        )
+        other_id = other.id
+    with session_scope(seeded) as session:
+        session.execute(
+            update(PipelineRun).where(PipelineRun.id == done).values(election_id=other_id)
+        )
+    with pytest.raises(InvalidInputError, match=f"belongs to election {other_id}, not 1"):
+        queue(seeded, fake_provider(), reuse_from=done)
+    with Session(seeded) as s:
+        assert [r.id for r in s.scalars(select(PipelineRun))] == [done]

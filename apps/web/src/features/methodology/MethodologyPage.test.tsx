@@ -13,6 +13,7 @@ const HEADINGS = [
   "Programas electorales",
   "Cómo se redactan las afirmaciones",
   "Cómo se sitúa a cada partido",
+  "Cómo se eligen las afirmaciones del cuestionario",
   "Comprobaciones antes de publicar",
   "Cómo se calcula la afinidad",
   "Tus respuestas",
@@ -47,6 +48,35 @@ const DISCLAIMER_TEXT =
   "partidos han hecho o votado. Contrasta las citas con los programas originales antes de " +
   "sacar conclusiones.";
 
+const STATEMENTS_TEXT =
+  "Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones: " +
+  "propuestas políticas concretas con las que se puede estar de acuerdo o en desacuerdo. " +
+  "Después elige y redacta una lista más amplia, de unas 55 afirmaciones candidatas, y asigna " +
+  "a cada una un tema.";
+
+const STATEMENTS_RULES_TEXT =
+  "Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres de " +
+  "partidos o de políticos, una sola propuesta por afirmación, temas variados y, " +
+  "preferiblemente, propuestas en las que los partidos discrepen y propuestas que traten " +
+  "varios programas. Nadie modifica a mano el resultado.";
+
+const SELECTION_TEXTS = [
+  "La inteligencia artificial propone más afirmaciones de las que tendrá el cuestionario, " +
+    "entre 45 y 60, y sitúa a cada partido en todas ellas. Después, un procedimiento " +
+    "automático, sin inteligencia artificial y sin azar, elige entre 25 y 35 para el " +
+    "cuestionario.",
+  "Deja fuera las afirmaciones repetidas y las que no separan a los partidos, porque todos " +
+    `los que tienen posición coinciden, y no deja que un tema supere el 30${NBSP}% del ` +
+    "cuestionario. Entre las demás, elige primero las que dan posición al partido que menos " +
+    "tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas y, " +
+    "después, las que se propusieron antes. Todos los partidos cuentan igual.",
+  "El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos tienen " +
+    `posición en al menos el 70${NBSP}% de ellas. Si no es posible cumplir estas condiciones, ` +
+    "el procedimiento se acerca todo lo que puede y las comprobaciones posteriores impiden " +
+    "publicar el resultado. Las afirmaciones conservan el texto y el orden con que se " +
+    "propusieron.",
+];
+
 function renderMethodology() {
   const fetch = vi.fn<FetchLike>();
   render(
@@ -67,7 +97,7 @@ describe("MethodologyPage", () => {
     expect(screen.getByText(INTRO_TEXT)).toBeTruthy();
   });
 
-  test("has the seven sections in order, each a named region", () => {
+  test("has the eight sections in order, each a named region", () => {
     renderMethodology();
     const h2s = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
     expect(h2s).toEqual(HEADINGS);
@@ -75,7 +105,26 @@ describe("MethodologyPage", () => {
     for (const name of HEADINGS) {
       expect(screen.getByRole("region", { name })).toBeTruthy();
     }
-    expect(screen.getAllByRole("region")).toHaveLength(7);
+    expect(screen.getAllByRole("region")).toHaveLength(8);
+  });
+
+  test("describes the candidate pool when the statements are written", () => {
+    renderMethodology();
+    const region = screen.getByRole("region", { name: "Cómo se redactan las afirmaciones" });
+    expect(within(region).getByText(STATEMENTS_TEXT)).toBeTruthy();
+    expect(within(region).getByText(STATEMENTS_RULES_TEXT)).toBeTruthy();
+    expect(screen.queryByText(/unas 30 afirmaciones/)).toBeNull();
+  });
+
+  test("explains the deterministic selection of the questionnaire", () => {
+    renderMethodology();
+    const region = screen.getByRole("region", {
+      name: "Cómo se eligen las afirmaciones del cuestionario",
+    });
+    const paragraphs = within(region)
+      .getAllByText((_, element) => element?.tagName === "P")
+      .map((p) => p.textContent);
+    expect(paragraphs).toEqual(SELECTION_TEXTS);
   });
 
   test("states that prompts never add party names, without claiming the text omits them", () => {

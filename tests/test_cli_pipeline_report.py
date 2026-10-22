@@ -43,7 +43,11 @@ PASSED_ROWS = [
         "topic_spread",
     )
 ]
-UNIQUENESS_ROW = "statement_uniqueness\tfailed\t5\t\tstatement 5 duplicates statement 2"
+SEPARATION_ROW_1 = (
+    "statement_separation\tfailed\t1\t\t"
+    "statement 1 does not separate parties: all 2 parties with a stance have value 1"
+)
+POOL_HEADER = "pool\tposition\ttopic\tstances\tdistinct\tspread\ttier\tstatus\ttext"
 DEFAULT_SETTINGS = (
     "validation_settings: max_statements=35, max_topic_share_percent=30, "
     "min_party_coverage_percent=70, min_statements=25"
@@ -75,6 +79,8 @@ KEYS = [
     "dataset_version",
     "dataset_version_status",
     "statements",
+    "statement_selection",
+    "selection_coverage",
     "publication",
 ]
 TABLES = [
@@ -177,9 +183,19 @@ def fields(result: Result) -> dict[str, str]:
 
 
 def table(result: Result) -> list[str]:
-    """The Validation report table after the blank line."""
-    tail = result.output.split("\n\n", 1)[1].splitlines()
+    """The Validation report table after the first blank line."""
+    tail = result.output.split("\n\n")[1].splitlines()
     assert tail[:2] == ["validation report:", CHECKS_HEADER]
+    return tail[2:]
+
+
+def pool_table(result: Result) -> list[str] | None:
+    """The ``statement pool:`` table after the second blank line, or None without one."""
+    parts = result.output.split("\n\n")
+    if len(parts) < 3:
+        return None
+    tail = parts[2].splitlines()
+    assert tail[:2] == ["statement pool:", POOL_HEADER]
     return tail[2:]
 
 
@@ -276,12 +292,23 @@ def test_report_of_a_passed_and_published_run(run, report, seeded, use_fake, db_
         DEFAULT_SETTINGS,
         "dataset_version: 1",
         "dataset_version_status: published",
-        "statements: 30",
+        "statements: 35",
+        "statement_selection: v1, pool 50, selected 35, rule coverage_met, topic_cap 7, "
+        "projected_failures none",
+        "selection_coverage: party 1 35/35 (pool 50/50); party 2 35/35 (pool 50/50)",
         "publication: published: live for election 1",
         "",
         "validation report:",
         CHECKS_HEADER,
         *PASSED_ROWS,
+        "",
+        "statement pool:",
+        POOL_HEADER,
+        *(
+            f"{n}\t{n if n <= 35 else ''}\t{st['topic']}\t2\t2\t2\t1\t"
+            f"{'selected' if n <= 35 else 'not_picked'}\t{st['text']}"
+            for n, st in enumerate(statements_payload()["statements"], start=1)
+        ),
     ]
     assert result.output == "".join(f"{line}\n" for line in expected_head)
     assert len(PROMPT_VERSIONS) == 4
@@ -307,9 +334,8 @@ def test_usage_is_deterministic(run, report, seeded, use_fake, db_url) -> None:
 
 
 def test_report_of_a_run_that_failed_validation(run, report, seeded, use_fake) -> None:
-    # A Validation failure the generate_statements schema still allows (since
-    # pipeline-output-bounds 20 Statements fail at generation).
-    use_fake(fake_provider(generate_statements=statements_payload(duplicate=(2, 5))))
+    # A Validation failure the selection cannot fix: both Parties agree everywhere.
+    use_fake(fake_provider(position_findings=findings_response(value=1)))
     assert run("pipeline", "run", "--election", "1").exit_code == 1
 
     result = report(1)
@@ -317,14 +343,18 @@ def test_report_of_a_run_that_failed_validation(run, report, seeded, use_fake) -
     assert result.exit_code == 0, result.output
     got = fields(result)
     assert got["status"] == "failed"
-    assert got["failure_reason"] == "validation failed: statement_uniqueness"
+    assert got["failure_reason"] == "validation failed: statement_separation"
     assert got["dataset_version"] == "1"
     assert got["dataset_version_status"] == "candidate"
-    assert got["statements"] == "30"
+    assert got["statements"] == "25"
+    assert got["statement_selection"] == (
+        "v1, pool 50, selected 25, rule short, topic_cap 7, "
+        "projected_failures statement_separation"
+    )
     assert got["publication"] == "not published: the run failed; live for election 1: none"
     assert got["validation_settings"] == DEFAULT_SETTINGS.split(": ", 1)[1]
     assert got["validated_at"] != "not recorded"
-    assert UNIQUENESS_ROW in table(result)
+    assert SEPARATION_ROW_1 in table(result)
     assert table(result) == run("pipeline", "checks", "--run", "1").output.splitlines()[1:]
 
 
@@ -416,6 +446,8 @@ def test_report_of_a_run_that_failed_during_generation(
     assert got["dataset_version_status"] == "none"
     assert got["statements"] == "none"
     assert got["publication"] == "none: the run failed before a dataset version was created"
+    assert got["statement_selection"] == "not recorded"
+    assert pool_table(result) is None
     assert got["validated_at"] == "not recorded"
     assert got["validation_settings"] == "not recorded"
     assert got["generation_finished_at"] == iso(stored.generation_finished_at) != "not recorded"
@@ -566,7 +598,7 @@ def test_report_of_a_queued_run(report, seeded, db_url) -> None:
 def test_report_changes_nothing(run, report, seeded, use_fake, db_url) -> None:
     use_fake(fake_provider())
     assert run("pipeline", "run", "--election", "1").exit_code == 0
-    use_fake(fake_provider(generate_statements=statements_payload(duplicate=(2, 5))))
+    use_fake(fake_provider(position_findings=findings_response(value=1)))
     assert run("pipeline", "run", "--election", "1").exit_code == 1
     _validating_run(db_url, fake_provider())
     before = snapshot(db_url)
@@ -610,3 +642,71 @@ def test_requires_current_schema(db_url: str, revision: str | None) -> None:
 
     assert result.exit_code == 1
     assert result.output == f"Error: {NOT_INITIALISED}\n"
+
+
+# pipeline-coverage-selection: the Statement Selection in the report
+
+
+def test_report_shows_statement_selection_and_pool_table(
+    run, report, seeded, use_fake
+) -> None:
+    # Party 2 takes Party 1's value on pool Statement 2 (so it does not
+    # separate); its first finding (-1) still fills every other Statement.
+    def _findings(request: LLMRequest[Any]) -> dict[str, Any]:
+        real = findings_response()(request)
+        if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
+            return real
+        return {
+            "findings": [
+                f | {"value": 1} if f["statement"] == 2 else f for f in real["findings"]
+            ]
+        }
+
+    payload = statements_payload(duplicate=(3, 4))
+    use_fake(fake_provider(generate_statements=payload, position_findings=_findings))
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+
+    result = report(1)
+
+    assert result.exit_code == 0, result.output
+    got = fields(result)
+    assert got["statements"] == "35"
+    assert got["statement_selection"] == (
+        "v1, pool 50, selected 35, rule coverage_met, topic_cap 7, projected_failures none"
+    )
+    assert got["selection_coverage"] == (
+        "party 1 35/35 (pool 50/50); party 2 35/35 (pool 50/50)"
+    )
+    rows = [row.split("\t") for row in pool_table(result) or []]
+    assert len(rows) == 50
+    texts = payload["statements"]
+    # 2 (both 1) does not separate (tier 2); 4 repeats 3 (no tier).
+    assert rows[1][:8] == ["2", "", texts[1]["topic"], "2", "1", "0", "2", "not_picked"]
+    assert rows[3][:8] == ["4", "", texts[3]["topic"], "2", "2", "2", "", "duplicate"]
+    assert rows[2][7] == "selected"
+    assert [r[8] for r in rows] == [st["text"] for st in texts]
+    selected = [r for r in rows if r[7] == "selected"]
+    assert [r[0] for r in selected] == ["1", "3", *map(str, range(5, 38))]
+    assert [r[1] for r in selected] == [str(n) for n in range(1, 36)]
+
+
+def test_report_old_run_selection_not_recorded(run, report, seeded, use_fake, db_url) -> None:
+    use_fake(fake_provider())
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    engine = _engine(db_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                update(PipelineRun).where(PipelineRun.id == 1).values(statement_selection=None)
+            )
+    finally:
+        engine.dispose()
+
+    result = report(1)
+
+    assert result.exit_code == 0, result.output
+    got = fields(result)
+    assert got["statement_selection"] == "not recorded"
+    assert got["selection_coverage"] == "not recorded"
+    assert pool_table(result) is None
+    assert table(result) == PASSED_ROWS

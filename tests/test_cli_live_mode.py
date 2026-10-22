@@ -9,6 +9,7 @@ from pdf_factory import blank_pdf, make_text_pdf
 from pipeline_fixtures import (
     default_responses,
     fake_provider,
+    findings_response,
     offline_guard,
     seed_election,
     statements_payload,
@@ -275,7 +276,7 @@ def test_run_queued_executes_the_queued_run(run, seeded, live, pdf: Path, use_fa
 
     assert result.exit_code == 0, result.output
     assert result.output == (
-        "Pipeline run 1: passed (dataset version 1, 30 statements, 60 party positions)\n"
+        "Pipeline run 1: passed (dataset version 1, 35 statements, 70 party positions)\n"
         "Published dataset version 1 for election 1\n"
     )
     assert provider.calls
@@ -364,7 +365,7 @@ def test_failed_run_is_reported_and_later_runs_still_execute(
 
     assert result.exit_code == 1
     assert result.stdout == (
-        "Pipeline run 2: passed (dataset version 1, 30 statements, 60 party positions)\n"
+        "Pipeline run 2: passed (dataset version 1, 35 statements, 70 party positions)\n"
         "Published dataset version 1 for election 1\n"
     )
     assert result.stderr == (
@@ -378,15 +379,15 @@ def test_validation_failure_points_at_the_checks(
     run, seeded, live, pdf: Path, use_fake, db_url: str
 ) -> None:
     assert run("source", "add", "--party", "1", "--file", str(pdf)).exit_code == 0
-    # A Validation failure the generate_statements schema still allows.
-    use_fake(fake_provider(generate_statements=statements_payload(duplicate=(2, 5))))
+    # A Validation failure the selection cannot fix: every Party agrees everywhere.
+    use_fake(fake_provider(position_findings=findings_response(value=1)))
 
     result = run("pipeline", "run-queued")
 
     assert result.exit_code == 1
     assert result.stdout == ""
     assert result.stderr == (
-        "Error: pipeline run 1 failed: validation failed: statement_uniqueness; "
+        "Error: pipeline run 1 failed: validation failed: statement_separation; "
         'see "ideology pipeline checks --run 1"\n'
         "Error: 1 of 1 queued pipeline runs failed\n"
     )

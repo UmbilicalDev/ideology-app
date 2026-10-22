@@ -496,6 +496,30 @@ def test_fresh_with_resume_from_is_a_usage_error(
     assert runs(engine) == []
 
 
+def test_reuse_from_is_still_guarded(
+    shared: Path, engine: Engine, use_provider: Callable[[Any], Any]
+) -> None:
+    # pipeline-coverage-selection: --reuse-from runs the same unfinished-run
+    # guard as a plain run (an unfinished run must be resumed, or --fresh).
+    use_provider(fake_provider())
+    ok(invoke("pipeline", "run", "--election", "1", "--yes"))
+    stop_run(use_provider)
+    provider = use_provider(fake_provider())
+
+    result = invoke("pipeline", "run", "--election", "1", "--reuse-from", "1", "--yes")
+
+    assert result.exit_code == 1
+    assert result.output == f"Error: {unfinished_message(2, 'failed', 3)}\n"
+    assert provider.calls == []
+    assert len(runs(engine)) == 2
+
+    fresh = ok(
+        invoke("pipeline", "run", "--election", "1", "--reuse-from", "1", "--fresh", "--yes")
+    )
+    assert "Pipeline run 3: reusing identical calls of run 1 (7 recorded calls)" in fresh.output
+    assert provider.calls == []
+
+
 def test_resume_from_is_not_blocked(engine: Engine, use_provider: Callable[[Any], Any]) -> None:
     stop_run(use_provider)
     use_provider(fake_provider())

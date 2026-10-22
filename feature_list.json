@@ -688,11 +688,33 @@
     "notes": "Found by real runs of e2e-real-2023-election (38 and 44 Statements; a finding for statement 101). The Statement bounds must come from the same settings as the questionnaire-shape Validation, not a second hard-coded copy. Bumping a prompt version changes its checkpoint request hash, so only the changed tasks should be bumped (statement_candidates stays reusable for --resume-from)."
   },
   {
+    "id": "pipeline-coverage-selection",
+    "area": "pipeline",
+    "title": "Choose the final Statements by Party coverage and separation",
+    "user_visible_behavior": "A Pipeline Run generates a larger pool of candidate Statements, extracts every Party's Positions for the whole pool with the same per-chunk calls, and then deterministically selects the final 25..35 Statements that most Parties take a position on and that best separate them, respecting the questionnaire-shape rules and treating every Party identically; only the selected Statements and their Positions form the Dataset Version. The methodology page explains the selection.",
+    "depends_on": [],
+    "status": "accepted",
+    "verification": [
+      "pytest with FakeProvider: pool generation within its schema bounds; positions extracted for the pool; deterministic selection (same input -> same Statements and order) that respects statement count, uniqueness and topic spread, prefers coverage and separation, and never weights a Party differently; the Dataset Version holds only the selected Statements, renumbered; the selection is recorded and shown by `pipeline report`; LLM call count unchanged versus the current pipeline",
+      "Browser check of the updated methodology page at 375px and desktop"
+    ],
+    "evidence": [
+      "2026-10-22 implementer self-verification on feature/pipeline-coverage-selection: CI=true ./init.sh exit 0, pytest 1388 passed (was 1341), Vitest 349 passed (was 347), web typecheck and vite build ok.",
+      "New tests: tests/test_pipeline_selection.py (deterministic, Party relabelling symmetry, duplicates keep first, topic cap + topic_spread, count within settings, worst-covered Party first, ties distinct/spread/pool order, largest count meeting coverage, best worst coverage, non-separating fill to minimum, fewer unique than minimum, renumbering with Evidence unchanged, JSON report); generation pool bounds/out-of-range 44 and 61/target prompt; positions bound to pool size 60; runs: Dataset Version holds only the selection, LLM call count = chunks + 1 + chunks + Parties, selection stored in the _finish commit, failed generation stores none; checkpoint and CLI --reuse-from (passed and failed sources, refusals, exclusive with --resume-from, unfinished guard on plain and shared DBs); report selection lines and pool table, old run not recorded; migrations 0012 upgrade/downgrade with Dataset Version rows and offline PostgreSQL render.",
+      "statement_candidates request hash unchanged (CANDIDATE_REQUEST_HASH); only generate_statements bumped to v3 (PROMPT_VERSIONS v1/v3/v2/v2); alembic check on a scratch DB at head: no new upgrade operations.",
+      "data/ideology.db upgraded 0011 -> 0012 with DATABASE_URL=sqlite:///data/ideology.db ideology db upgrade; ideology db check -> Safe to commit: yes; row counts unchanged (elections 1, parties 9, source_documents 9, source_document_pages 1163, pipeline/dataset tables 0); journal mode delete.",
+      "Sample fake-run pipeline report: 'statement_selection: v1, pool 50, selected 35, rule coverage_met, topic_cap 7, projected_failures none' and 'selection_coverage: party 1 35/35 (pool 50/50); party 2 35/35 (pool 50/50)', then the statement pool table.",
+      "Browser check (Claude desktop built-in Chromium browser, port 8061, worktree build, scratch DB outside the repo): /metodologia at 375x812 (no horizontal scroll) and desktop 1024px shows 8 sections in order with the new 'Cómo se eligen las afirmaciones del cuestionario' copy; console empty; no failed request.",
+      "2026-10-22 independent validator verdict: accept: CI=true ./init.sh exit 0 (pytest 1388, Vitest 349, typecheck, vite build); 400-pool randomised property check (determinism, Party relabelling and order invariance, ascending renumbering, count <= max, duplicates keep first, topic cap, coverage_met maximal); only generate_statements changed (v3), CANDIDATE_REQUEST_HASH unchanged, LLM call count unchanged; data/ideology.db rows identical to 867b3df, only column statement_selection + alembic 0012, db check safe, downgrade/upgrade round-trip ok; --reuse-from accepts finished runs while --resume-from still refuses them and the unfinished guard holds; browser /metodologia at 375x812 and 1024px on port 8061 with scratch DB: 8 sections, new copy exact, console empty. Non-blocking: methodology tie-break copy omits the spread tie-break; short-count topic share."
+    ],
+    "notes": "From the diagnosis of e2e-real-2023-election run 2 (shared DB, 2026-10-22): all 9 Parties below 70% coverage and 8 Statements not separating; the loss is in position_findings, not in the party_positions reduce. Validation thresholds stay unchanged (user decision). Selection is deterministic code, never an LLM call and never a hand edit."
+  },
+  {
     "id": "e2e-real-2023-election",
     "area": "validation",
     "title": "End-to-end run on the real 2023 general election",
     "user_visible_behavior": "The 2023 manifestos of the parties with seats go through a real-provider run, which is published only if it passes Validation, and a Voter completes the flow and shares a link.",
-    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code", "pipeline-run-checkpoint", "source-text-bundle", "shared-database", "pipeline-output-bounds"],
+    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code", "pipeline-run-checkpoint", "source-text-bundle", "shared-database", "pipeline-output-bounds", "pipeline-coverage-selection"],
     "status": "in_progress",
     "verification": [
       "A recorded Pipeline Run report with status passed",

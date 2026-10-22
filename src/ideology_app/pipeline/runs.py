@@ -7,14 +7,18 @@ Validation keeps its ``candidate`` Dataset Version, which is never published.
 A ``passed`` run publishes its version (``publishing.publish_dataset_version``)
 in the commit that stores its Validation results, unless a newer run's version
 is already Published.
+Statement generation returns a Statement Pool; Party Positions are extracted
+for the whole pool, and ``selection.select_statements`` (deterministic, no LLM)
+chooses the Questionnaire's Statements before anything is written.
 Dataset Versions, Statements and Party Positions are only ever inserted here,
-together in one commit; Validation results are inserted with the run's
+together in one commit with the run's ``statement_selection``; Validation results are inserted with the run's
 ``passed`` / ``failed`` status and the ``validation_settings`` it used. The only update is the Dataset Version status
 change made by ``publishing``; there is no delete path.
 """
 
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from typing import Any
 
 from sqlalchemy import Engine, Select, exists, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -57,6 +61,7 @@ from ideology_app.pipeline.positions import (
     extract_positions,
 )
 from ideology_app.pipeline.prompts import PROMPT_VERSIONS, StatementDraft
+from ideology_app.pipeline.selection import select_statements
 from ideology_app.validation import CHECKS, MESSAGE_MAX, Check, load_input, run_checks
 
 _REASON_MAX = 500
@@ -134,12 +139,15 @@ def queue_run(
     llm_model: str,
     generation_mode: GenerationMode,
     resumed_from_run_id: int | None = None,
+    allow_finished_source: bool = False,
 ) -> PipelineRun:
     """Record a ``queued`` run. Raises NotFoundError or InvalidInputError.
 
-    With ``resumed_from_run_id`` the run will reuse that run's recorded LLM
-    calls (``pipeline-run-checkpoint``); it must be a run of the same Election,
-    queued for the same provider and model, that has no Dataset Version.
+    With ``resumed_from_run_id`` the run will reuse that run's identical
+    recorded LLM calls (``pipeline-run-checkpoint``); it must be a run of the
+    same Election, queued for the same provider and model, that has no Dataset
+    Version (``--resume-from``). With ``allow_finished_source`` that run may
+    also have a Dataset Version (``--reuse-from``: reuse from a finished run).
     The caller commits.
     """
     _get_election(session, election_id)
@@ -148,7 +156,12 @@ def queue_run(
         raise InvalidInputError(f"election {election_id} has no parsed source documents")
     if resumed_from_run_id is not None:
         _check_resumable(
-            session, resumed_from_run_id, election_id, llm_provider, llm_model
+            session,
+            resumed_from_run_id,
+            election_id,
+            llm_provider,
+            llm_model,
+            allow_finished_source=allow_finished_source,
         )
     run = PipelineRun(
         election_id=election_id,
@@ -168,7 +181,13 @@ def queue_run(
 
 
 def _check_resumable(
-    session: Session, run_id: int, election_id: int, llm_provider: str, llm_model: str
+    session: Session,
+    run_id: int,
+    election_id: int,
+    llm_provider: str,
+    llm_model: str,
+    *,
+    allow_finished_source: bool = False,
 ) -> None:
     source = session.get(PipelineRun, run_id)
     if source is None:
@@ -183,7 +202,7 @@ def _check_resumable(
             f"pipeline run {run_id} used {source.llm_provider}/{source.llm_model}, "
             f"not {llm_provider}/{llm_model}"
         )
-    if source.dataset_version is not None:
+    if source.dataset_version is not None and not allow_finished_source:
         raise InvalidInputError(
             f"pipeline run {run_id} already has dataset version "
             f"{source.dataset_version.id}; there is nothing to resume"
@@ -268,11 +287,13 @@ def _finish(
     statements: Sequence[StatementDraft] | None,
     positions: dict[int, list[PositionResult]] | None,
     failure_reason: str | None,
+    selection: dict[str, Any] | None = None,
 ) -> RunOutcome:
     """Record the result: a complete candidate Dataset Version, or ``failed``. Commits.
 
-    The Dataset Version, its Statements and every Party Position are inserted
-    in this one commit, so a Dataset Version never exists without them.
+    The Dataset Version, its Statements, every Party Position and the run's
+    ``statement_selection`` report are inserted in this one commit, so a
+    Dataset Version never exists without them. A failed run stores no selection.
     """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
@@ -286,6 +307,7 @@ def _finish(
             run.failure_reason = (failure_reason or "")[:_REASON_MAX]
             session.flush()
             return RunOutcome(run_id, run.status, None, 0, run.failure_reason)
+        run.statement_selection = selection
         version = DatasetVersion(
             election_id=run.election_id,
             pipeline_run_id=run.id,
@@ -338,13 +360,16 @@ def execute_run(
 ) -> RunOutcome:
     """Generate Statements and extract Party Positions for a ``queued`` run, then validate it.
 
+    Generation returns a Statement Pool; positions are extracted for the whole
+    pool, and ``selection.select_statements`` (with the same
+    ``validation_settings``) chooses the Statements of the Dataset Version.
     Commits up to four times: ``running`` (with the Source Documents it reads)
     before any LLM call, then (after the calls, made outside any transaction)
     either ``validating`` with a complete ``candidate`` Dataset Version, or
     ``failed`` with a reason and no Dataset Version. A ``validating`` run is
     then validated by ``validate_run`` (``passed`` or ``failed``), whose outcome
-    is returned; the same ``validation_settings`` object bounds the Statement
-    count of the ``generate_statements`` schema and is passed to it (``None``:
+    is returned; the same ``validation_settings`` object gives the pool bounds
+    of the ``generate_statements`` schema, drives the selection and is passed to it (``None``:
     read with ``config.validation_settings()`` first, so an invalid value raises
     ``ConfigError`` before any write or LLM call). Ctrl-C records ``failed``
     (``interrupted``) and re-raises. Every successful LLM call is committed to
@@ -361,20 +386,31 @@ def execute_run(
     usage = Usage()
     try:
         check_position_budget(run_input.documents)
-        statements = generate_statements(
+        pool = generate_statements(
             provider,
             build_chunks(run_input.documents),
             usage,
             settings=validation_settings,
         )
-        positions = extract_positions(
+        pool_positions = extract_positions(
             provider,
-            [s.text for s in statements],
+            [s.text for s in pool],
             run_input.documents,
             run_input.party_ids,
             usage,
         )
-        outcome = _finish(engine, run_id, usage, statements, positions, None)
+        selection = select_statements(
+            pool, pool_positions, run_input.party_ids, validation_settings
+        )
+        outcome = _finish(
+            engine,
+            run_id,
+            usage,
+            selection.statements,
+            selection.positions,
+            None,
+            selection=selection.report,
+        )
     except (LLMError, GenerationError) as exc:
         return _fail(engine, run_id, usage, str(exc))
     except KeyboardInterrupt:

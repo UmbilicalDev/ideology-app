@@ -8,6 +8,7 @@ Formatting belongs to the CLI (``ideology pipeline report``).
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -32,7 +33,9 @@ class RunReport:
 
     ``validated_at`` is the earliest Validation result's ``created_at`` (``None``
     before Validation). ``dataset_version_*`` and ``statement_count`` are
-    ``None`` when the run has no Dataset Version. ``live_*`` name the Election's
+    ``None`` when the run has no Dataset Version. ``statement_selection`` is
+    the stored Statement Selection report (``None`` for a run without a
+    Dataset Version and for runs before ``pipeline-coverage-selection``). ``live_*`` name the Election's
     Published Dataset Version (``None`` before its first publish). ``results``
     are the run's Validation results in check order, with their entries; they
     are ORM rows, so read them inside the session that built the report.
@@ -59,6 +62,7 @@ class RunReport:
     dataset_version_id: int | None
     dataset_version_status: DatasetVersionStatus | None
     statement_count: int | None
+    statement_selection: dict[str, Any] | None
     live_dataset_version_id: int | None
     live_run_id: int | None
     results: Sequence[ValidationResult]
@@ -114,6 +118,9 @@ def get_run_report(session: Session, run_id: int) -> RunReport:
         dataset_version_id=None if version is None else version.id,
         dataset_version_status=None if version is None else version.status,
         statement_count=statement_count,
+        statement_selection=(
+            None if run.statement_selection is None else dict(run.statement_selection)
+        ),
         live_dataset_version_id=None if live is None else live.id,
         live_run_id=None if live is None else live.pipeline_run_id,
         results=list_validation_results(session, run.id),

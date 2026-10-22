@@ -361,3 +361,23 @@ def test_plan_matches_the_calls_made_when_every_party_has_findings() -> None:
 
 def test_cap_constant() -> None:
     assert MAX_POSITION_CALLS_PER_RUN == 300
+
+
+def test_requests_bound_to_pool_size() -> None:
+    # pipeline-coverage-selection: positions are extracted for the whole pool,
+    # so every bound follows the pool size (60 here), not the Questionnaire's.
+    pool = [f"Afirmación {n} del conjunto amplio." for n in range(1, 61)]
+    fake = provider(position_findings=_findings(_finding(statement=60), _finding(statement=1)))
+
+    results = extract(fake, [doc(1, 1, "Uno.")], statements=pool)
+
+    assert [len(r) for r in results.values()] == [60]
+    assert results[1][59].value is not None
+    findings, reduce = fake.calls
+    listed = "\n".join(f"[{n}] {text}" for n, text in enumerate(pool, start=1))
+    assert listed in findings.prompt and listed in reduce.prompt
+    finding = findings.schema.model_json_schema()["$defs"]["Finding"]["properties"]
+    assert finding["statement"]["maximum"] == 60
+    positions = reduce.schema.model_json_schema()
+    assert positions["$defs"]["PositionChoice"]["properties"]["statement"]["maximum"] == 60
+    assert positions["properties"]["positions"]["maxItems"] == 60
