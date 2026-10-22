@@ -363,3 +363,32 @@ def test_report_is_json_and_complete() -> None:
         assert (entry["position"] is not None) == (entry["status"] == "selected")
     assert report["pool"][9]["status"] == "duplicate"
     assert report["pool"][9]["duplicate_of"] == 1
+
+
+# pipeline-balanced-statements: the default coverage target is 60 %.
+
+
+def _party2_on_first(count: int, covered: int) -> Values:
+    return {
+        1: [1] * count,
+        2: [-1] * covered + [None] * (count - covered),
+        3: [-1] * count,
+    }
+
+
+def test_default_coverage_target_is_60_percent() -> None:
+    assert DEFAULTS.min_party_coverage_percent == 60
+    values = _party2_on_first(50, 21)
+    selection = select_statements(pool(50), positions(values), [1, 2, 3], DEFAULTS)
+    report = selection.report
+    # 21 of 35 is exactly 60 %: the largest Questionnaire meets the target.
+    assert (report["selected_count"], report["count_rule"]) == (35, "coverage_met")
+    party2 = next(p for p in report["parties"] if p["party_id"] == 2)
+    assert party2["selected_stances"] == 21
+    assert check_party_coverage(as_input(selection, DEFAULTS, [1, 2, 3])) == []
+
+    # The same pool at an explicit 70 % stops at 30 (21 of 30).
+    strict = dataclasses.replace(DEFAULTS, min_party_coverage_percent=70)
+    assert select_statements(pool(50), positions(values), [1, 2, 3], strict).report[
+        "selected_count"
+    ] == 30

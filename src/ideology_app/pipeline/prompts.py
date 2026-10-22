@@ -157,17 +157,31 @@ STATEMENT_CANDIDATES = PromptSpec(
 
 GENERATE_STATEMENTS = PromptSpec(
     task="generate_statements",
-    version="v3",
+    version="v4",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Recibes afirmaciones candidatas "
-        "extraídas de varios programas electorales y eliges y redactas una lista amplia "
-        "de afirmaciones; después, un procedimiento automático elegirá entre ellas las "
-        "del cuestionario.\n\n"
+        "extraídas, en igual número, de los programas electorales de varias "
+        "candidaturas, y redactas a partir de ellas una lista amplia de afirmaciones; "
+        "después, un procedimiento automático elegirá entre ellas las del "
+        "cuestionario.\n\n"
         f"{_COMMON_RULES}\n"
         "Reglas para la lista:\n"
-        "- Prefiere propuestas sobre las que se pronuncien varios programas, no medidas "
-        "de detalle que solo aparecen en uno.\n"
+        "- Cada afirmación expresa una orientación política con una dirección clara "
+        "(por ejemplo, subir o bajar un impuesto, ampliar o reducir un servicio "
+        "público, más o menos peso de una fuente de energía), no una medida de "
+        "detalle: sin cifras, porcentajes, plazos ni nombres de leyes o planes "
+        "concretos.\n"
+        "- Agrupa en una misma orientación las candidatas de programas distintos que "
+        "van en esa dirección o en la contraria, para que el mayor número posible de "
+        "programas se pueda situar en ella.\n"
+        "- Elige orientaciones en las que los programas discrepen; evita las que casi "
+        "cualquier programa suscribiría.\n"
+        "- Varía el sentido de las afirmaciones: no todas deben proponer aumentar o "
+        "ampliar algo; usa también reducir, limitar o suprimir cuando así lo planteen "
+        "las candidatas.\n"
+        "- Basa cada afirmación solo en las candidatas: no añadas temas ni propuestas "
+        "que no aparezcan en ellas.\n"
         "- Cubre los temas de forma amplia: ningún tema debe superar aproximadamente "
         "una cuarta parte de la lista.\n"
         "- Sin afirmaciones casi duplicadas."
@@ -271,7 +285,7 @@ _SCALE = (
 
 POSITION_FINDINGS = PromptSpec(
     task="position_findings",
-    version="v2",
+    version="v3",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Lees un fragmento de un programa "
@@ -281,6 +295,12 @@ POSITION_FINDINGS = PromptSpec(
         "Reglas:\n"
         "- Informa solo de las afirmaciones que el fragmento trata de forma explícita. "
         "Nunca deduzcas una posición de la ideología general.\n"
+        "- Una propuesta concreta del fragmento que va claramente en la dirección de "
+        "una afirmación, o en la contraria, cuenta como tratarla de forma explícita: "
+        "la posición es de acuerdo si va en esa dirección y en desacuerdo si va en la "
+        "contraria, y la cita debe contener esa propuesta.\n"
+        "- Que el fragmento no mencione un asunto no es una posición: no informes de "
+        "esa afirmación.\n"
         "- La cita se copia literalmente de una sola página: sin parafrasear, sin "
         "puntos suspensivos y sin añadir texto.\n"
         "- `page` es el número del marcador [página N] de la página de la cita.\n"

@@ -50,7 +50,7 @@ SEPARATION_ROW_1 = (
 POOL_HEADER = "pool\tposition\ttopic\tstances\tdistinct\tspread\ttier\tstatus\ttext"
 DEFAULT_SETTINGS = (
     "validation_settings: max_statements=35, max_topic_share_percent=30, "
-    "min_party_coverage_percent=70, min_statements=25"
+    "min_party_coverage_percent=60, min_statements=25"
 )
 PROMPTS_LINE = "prompt_versions: " + ", ".join(
     f"{task}={PROMPT_VERSIONS[task]}" for task in sorted(PROMPT_VERSIONS)
@@ -79,6 +79,7 @@ KEYS = [
     "dataset_version",
     "dataset_version_status",
     "statements",
+    "statement_agenda",
     "statement_selection",
     "selection_coverage",
     "publication",
@@ -293,6 +294,8 @@ def test_report_of_a_passed_and_published_run(run, report, seeded, use_fake, db_
         "dataset_version: 1",
         "dataset_version_status: published",
         "statements: 35",
+        "statement_agenda: v1, quota 30, lines 3; party 1 3/3 (1 chunks); "
+        "party 2 3/3 (1 chunks)",
         "statement_selection: v1, pool 50, selected 35, rule coverage_met, topic_cap 7, "
         "projected_failures none",
         "selection_coverage: party 1 35/35 (pool 50/50); party 2 35/35 (pool 50/50)",
@@ -706,7 +709,65 @@ def test_report_old_run_selection_not_recorded(run, report, seeded, use_fake, db
 
     assert result.exit_code == 0, result.output
     got = fields(result)
+    assert got["statement_agenda"] == "not recorded"
     assert got["statement_selection"] == "not recorded"
     assert got["selection_coverage"] == "not recorded"
     assert pool_table(result) is None
     assert table(result) == PASSED_ROWS
+
+
+# pipeline-balanced-statements: the Party-balanced Agenda in the report
+
+
+def test_report_shows_the_statement_agenda(run, report, seeded, use_fake, db_url) -> None:
+    use_fake(fake_provider())
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    engine = _engine(db_url)
+    try:
+        with engine.connect() as conn:
+            stored = conn.execute(
+                select(PipelineRun.statement_selection).where(PipelineRun.id == 1)
+            ).scalar_one()
+    finally:
+        engine.dispose()
+    assert stored["agenda"] == {
+        "version": "v1",
+        "pool_max": 60,
+        "floor": 30,
+        "quota_max": 24,
+        "quota": 30,
+        "lines": 3,
+        "parties": [
+            {"party_id": 1, "chunks": 1, "candidates": 3, "unique": 3, "picked": 3},
+            {"party_id": 2, "chunks": 1, "candidates": 3, "unique": 3, "picked": 3},
+        ],
+    }
+
+    got = fields(report(1))
+    assert got["statement_agenda"] == (
+        "v1, quota 30, lines 3; party 1 3/3 (1 chunks); party 2 3/3 (1 chunks)"
+    )
+
+
+def test_report_selection_without_agenda_shows_not_recorded(
+    run, report, seeded, use_fake, db_url
+) -> None:
+    # A run selected before pipeline-balanced-statements has no "agenda" key.
+    use_fake(fake_provider())
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    engine = _engine(db_url)
+    try:
+        with engine.begin() as conn:
+            stored = conn.execute(
+                select(PipelineRun.statement_selection).where(PipelineRun.id == 1)
+            ).scalar_one()
+            old = {k: v for k, v in stored.items() if k != "agenda"}
+            conn.execute(
+                update(PipelineRun).where(PipelineRun.id == 1).values(statement_selection=old)
+            )
+    finally:
+        engine.dispose()
+
+    got = fields(report(1))
+    assert got["statement_agenda"] == "not recorded"
+    assert got["statement_selection"].startswith("v1, pool 50, selected 35")

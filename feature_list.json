@@ -710,12 +710,34 @@
     "notes": "From the diagnosis of e2e-real-2023-election run 2 (shared DB, 2026-10-22): all 9 Parties below 70% coverage and 8 Statements not separating; the loss is in position_findings, not in the party_positions reduce. Validation thresholds stay unchanged (user decision). Selection is deterministic code, never an LLM call and never a hand edit."
   },
   {
+    "id": "pipeline-balanced-statements",
+    "area": "pipeline",
+    "title": "Orientation-level Statements from a Party-balanced agenda; coverage threshold 60%",
+    "user_visible_behavior": "A Pipeline Run builds its Statement pool from a Party-balanced agenda (every Party contributes equally, whatever the length of its manifesto) and words each Statement as a policy orientation with a clear direction that most Parties can be placed on, instead of a single concrete measure taken from one manifesto. Positions still require an explicit verbatim quote (no inferred stances). The default minimum Party coverage in Validation is 60% (was 70%), and the methodology page says so.",
+    "depends_on": [],
+    "status": "accepted",
+    "verification": [
+      "pytest with FakeProvider: the candidates fed to pool generation are balanced per Party (deterministic, documented rule) whatever the manifesto lengths; the generation prompt asks for orientation-level, directional, single-proposition Statements; the explicit-evidence rule of position_findings is unchanged in substance; LLM call count not increased; prompt versions bumped only where the request changed",
+      "pytest: VALIDATION_MIN_PARTY_COVERAGE_PERCENT defaults to 60 and the selection's coverage target follows it",
+      "Browser check of the methodology page (60%) at 375px and desktop"
+    ],
+    "evidence": [
+      "2026-10-22 implementer (Session 057): CI=true ./init.sh exit 0, pytest 1418 passed (main 1388), Vitest 350 passed (main 349), typecheck and vite build ok.",
+      "statement_candidates request byte-identical: CANDIDATE_REQUEST_HASH and the (statement_candidates, v1) fingerprint lines untouched; all 79 recorded run-1 statement_candidates request hashes (read-only scratch copy of origin/feature/e2e-real-2023-election-main:data/ideology.db) recomputed equal. PROMPT_VERSIONS: statement_candidates v1, generate_statements v4, position_findings v3, party_positions v2; only v4/v3 re-pinned.",
+      "Agenda (tests/test_pipeline_agenda.py): run-1 shape quota 12 / 108 lines / 12 per Party; 2x100 -> 30; 36/24/12 -> 20/20/12; zero-candidate Party picked 0; all empty raises before the reduce; round-robin spread order; Party-permutation symmetry of request hash and report; call count chunks + 1 (80). Offline on run-1 outputs: quota 12, 108 lines, 18 topics.",
+      "Threshold: DEFAULT_MIN_PARTY_COVERAGE_PERCENT 60; 18/30 passes, 17/30 fails; default selection coverage_met at 35 (30 at explicit 70); pipeline report prints statement_agenda (or not recorded).",
+      "Browser: Claude desktop built-in browser (Chromium), worktree build on port 8071 with scratch DB; /metodologia at 375px and desktop 1024px shows the new statements and positions copy and both 60 %, no horizontal overflow, console empty, all requests 200. Temporary launch entry and scratch DB removed.",
+      "2026-10-22 independent validator accept: CI=true ./init.sh exit 0 (pytest 1418, Vitest 350, typecheck + vite build ok); prompts.py diff only touches GENERATE_STATEMENTS/POSITION_FINDINGS, CANDIDATE_REQUEST_HASH and statement_candidates v1 pin unedited; 79/79 run-1 statement_candidates request hashes recomputed equal on a read-only scratch copy of origin/feature/e2e-real-2023-election-main:data/ideology.db, agenda on run-1 outputs quota 12 / 108 lines / 12 per Party / 18 topics; randomised relabelling property check (500 trials) symmetric and nothing invented; call count unchanged; position_findings v3 keeps no-ideology and verbatim-quote rules; default coverage 60 in config, selection, docs and /metodologia; risks doc updated; data/ideology.db unchanged, no docs/validations. Browser: Claude desktop built-in browser (Chromium), worktree build on port 8071 with scratch DB, /metodologia at 375x812 and 1280x900, new copy and both 60 % present, no 70 %, no horizontal overflow, console empty, all requests 200. Status accepted."
+    ],
+    "notes": "From the real e2e run on feature/e2e-real-2023-election-main (pool 58, 26 selected, only ERC >= 70%; 42% of Statement x Party pairs with a stance; PSOE+SUMAR 47% of candidates, EH Bildu 1%). User decisions 2026-10-22: direction A; threshold 60%; the committed manifestos are the only knowledge source (no extra documents); direction B (inferred stances) deferred. Ignore that run's evidence_quotes failure (a model slip, user decision)."
+  },
+  {
     "id": "e2e-real-2023-election",
     "area": "validation",
     "title": "End-to-end run on the real 2023 general election",
     "user_visible_behavior": "The 2023 manifestos of the parties with seats go through a real-provider run, which is published only if it passes Validation, and a Voter completes the flow and shares a link.",
-    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code", "pipeline-run-checkpoint", "source-text-bundle", "shared-database", "pipeline-output-bounds", "pipeline-coverage-selection"],
-    "status": "blocked",
+    "depends_on": ["share-link-open", "methodology-page", "pipeline-run-report", "llm-provider-claude-code", "pipeline-run-checkpoint", "source-text-bundle", "shared-database", "pipeline-output-bounds", "pipeline-coverage-selection", "pipeline-balanced-statements"],
+    "status": "in_progress",
     "verification": [
       "A recorded Pipeline Run report with status passed",
       "A manual walkthrough on mobile and desktop, recorded in PROGRESS.md",

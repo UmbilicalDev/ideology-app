@@ -495,7 +495,7 @@ PASSED_CHECKS = (
 )
 PARTY2_ZERO = (
     "party_coverage\tfailed\t\t2\t"
-    "party 2 has positions on 0 of 25 statements (0%); minimum is 70%"
+    "party 2 has positions on 0 of 25 statements (0%); minimum is 60%"
 )
 # Party 2 without stances: no Statement separates the two Parties, so the
 # selection keeps min_statements (25) of them.
@@ -634,9 +634,9 @@ def test_checks_list_one_row_per_entry(run, seeded, use_fake) -> None:
         "evidence_quotes\tfailed\t2\t1\tquote not found in source document 1",
         "evidence_quotes\tfailed\t2\t2\tquote not found in source document 2",
         "party_coverage\tfailed\t\t1\t"
-        "party 1 has positions on 2 of 25 statements (8%); minimum is 70%",
+        "party 1 has positions on 2 of 25 statements (8%); minimum is 60%",
         "party_coverage\tfailed\t\t2\t"
-        "party 2 has positions on 2 of 25 statements (8%); minimum is 70%",
+        "party 2 has positions on 2 of 25 statements (8%); minimum is 60%",
         "statement_separation\tfailed\t1\t\t"
         "statement 1 does not separate parties: all 2 parties with a stance have value -1",
         "statement_separation\tfailed\t2\t\t"

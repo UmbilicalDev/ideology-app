@@ -145,8 +145,8 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
     assert run.generation_mode is GenerationMode.PRECOMPUTED
     assert run.prompt_versions == {
         "statement_candidates": "v1",
-        "generate_statements": "v3",
-        "position_findings": "v2",
+        "generate_statements": "v4",
+        "position_findings": "v3",
         "party_positions": "v2",
     }
     assert run.llm_calls == 7
@@ -523,8 +523,8 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
     run = read_run(seeded, run_id)
     assert run.prompt_versions == {
         "statement_candidates": "v1",
-        "generate_statements": "v3",
-        "position_findings": "v2",
+        "generate_statements": "v4",
+        "position_findings": "v3",
         "party_positions": "v2",
     }
     assert [c.task for c in provider.calls] == [
@@ -687,7 +687,7 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
             (
                 "party_coverage",
                 False,
-                [(None, 2, "party 2 has positions on 0 of 25 statements (0%); minimum is 70%")],
+                [(None, 2, "party 2 has positions on 0 of 25 statements (0%); minimum is 60%")],
             ),
             (
                 "statement_separation",

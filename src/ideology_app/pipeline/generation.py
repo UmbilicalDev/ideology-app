@@ -1,8 +1,10 @@
 """Statement generation: chunk the manifesto pages, map to candidates, reduce.
 
 Pure of the database. Depends only on ``llm.base`` (never on a concrete
-provider) and on the prompts module. Party names never enter a prompt: the
-input holds only ids and page text.
+provider), the prompts module and ``pipeline.agenda``. Party names never enter
+a prompt: the input holds only ids and page text, and the candidates of the
+reduce are the Party-balanced Agenda (``agenda.balance_candidates``), which
+carries no Party id either.
 """
 
 from collections.abc import Iterable, Sequence
@@ -12,6 +14,7 @@ from typing import Any
 from ideology_app.config import ValidationSettings
 from ideology_app.llm.base import LLMProvider, LLMRequest, LLMResult
 from ideology_app.models import SourceDocumentRole
+from ideology_app.pipeline.agenda import Agenda, balance_candidates
 from ideology_app.pipeline.prompts import (
     GENERATE_STATEMENTS,
     POOL_MAX_STATEMENTS,
@@ -53,6 +56,14 @@ class Chunk:
     party_id: int
     document_id: int
     text: str
+
+
+@dataclass(frozen=True)
+class StatementPool:
+    """The Statement Pool of a run and the Party-balanced Agenda it came from."""
+
+    statements: tuple[StatementDraft, ...]
+    agenda: Agenda
 
 
 @dataclass
@@ -183,37 +194,41 @@ def reduce_request(
 
 def generate_statements(
     provider: LLMProvider,
-    chunks: Sequence[str],
+    chunks: Sequence[Chunk],
     usage: Usage,
     settings: ValidationSettings | None = None,
-) -> list[StatementDraft]:
-    """Map each chunk to candidates, then reduce them to the Statement Pool.
+) -> StatementPool:
+    """Map each chunk to candidates, balance them per Party, reduce them to the pool.
 
-    The final Statements are chosen from the pool later
+    The candidates of every chunk go through ``agenda.balance_candidates``
+    (with the pool's ``high`` bound as ``pool_max``), so every Party weighs the
+    same in the reduce whatever its manifesto length. The final Statements are
+    chosen from the pool later
     (``pipeline.selection``). ``settings`` (a ``config.ValidationSettings``;
     ``None``: its defaults) gives the pool bounds of the reduce schema
     (``pool_bounds``), so an out-of-range list fails that call with
     ``LLMOutputError``. Raises ``GenerationError`` before
-    any call when there are too many chunks, or when no chunk yields a
-    candidate. ``LLMError`` from the provider propagates; ``usage`` keeps the
+    any call when there are too many chunks, and before the reduce call when
+    no chunk yields a candidate. ``LLMError`` from the provider propagates; ``usage`` keeps the
     counts of the calls that succeeded.
     """
     if len(chunks) + 1 > MAX_LLM_CALLS_PER_RUN:
         raise GenerationError(
             f"too many chunks: {len(chunks)} (limit {MAX_LLM_CALLS_PER_RUN - 1})"
         )
-    candidates: list[StatementDraft] = []
+    per_chunk: list[tuple[int, Sequence[StatementDraft]]] = []
     for chunk in chunks:
-        result = provider.generate(candidate_request(chunk))
+        result = provider.generate(candidate_request(chunk.text))
         usage.record(result)
         output: CandidateList = result.output
-        candidates.extend(output.candidates)
-    if not candidates:
+        per_chunk.append((chunk.party_id, output.candidates))
+    agenda = balance_candidates(per_chunk, pool_max=pool_bounds(settings)[1])
+    if not agenda.candidates:
         raise GenerationError(NO_CANDIDATES_REASON)
-    result = provider.generate(reduce_request(candidates, settings))
+    result = provider.generate(reduce_request(agenda.candidates, settings))
     usage.record(result)
     final: StatementSet = result.output
-    return list(final.statements)
+    return StatementPool(statements=tuple(final.statements), agenda=agenda)
 
 
 __all__ = [
@@ -223,6 +238,7 @@ __all__ = [
     "Chunk",
     "DocumentPages",
     "GenerationError",
+    "StatementPool",
     "Usage",
     "build_chunks",
     "build_document_chunks",
