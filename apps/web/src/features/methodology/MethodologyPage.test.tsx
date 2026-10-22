@@ -48,17 +48,29 @@ const DISCLAIMER_TEXT =
   "partidos han hecho o votado. Contrasta las citas con los programas originales antes de " +
   "sacar conclusiones.";
 
-const STATEMENTS_TEXT =
-  "Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones: " +
-  "propuestas políticas concretas con las que se puede estar de acuerdo o en desacuerdo. " +
-  "Después elige y redacta una lista más amplia, de unas 55 afirmaciones candidatas, y asigna " +
-  "a cada una un tema.";
-
-const STATEMENTS_RULES_TEXT =
+const STATEMENTS_TEXTS = [
+  "Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones " +
+    "candidatas: propuestas políticas con las que se puede estar de acuerdo o en desacuerdo. " +
+    "Después, un procedimiento automático, sin inteligencia artificial y sin azar, toma el " +
+    "mismo número de candidatas de cada partido, sea cual sea la extensión de su programa, " +
+    "repartidas entre los temas que más trata cada programa. Un partido con menos candidatas " +
+    "aporta todas las que tiene.",
+  "Con esas candidatas, la inteligencia artificial redacta una lista más amplia, de unas 55 " +
+    "afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación " +
+    "política con una dirección clara, como subir o bajar un impuesto, y no una medida de " +
+    "detalle, para que el mayor número posible de partidos se pueda situar en ella.",
   "Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres de " +
-  "partidos o de políticos, una sola propuesta por afirmación, temas variados y, " +
-  "preferiblemente, propuestas en las que los partidos discrepen y propuestas que traten " +
-  "varios programas. Nadie modifica a mano el resultado.";
+    "partidos o de políticos, una sola propuesta por afirmación, temas variados, orientaciones " +
+    "en las que los partidos discrepen y no añadir nada que no esté en las candidatas. Nadie " +
+    "modifica a mano el resultado.",
+];
+
+const POSITIONS_NO_STANCE_TEXT =
+  "Si el programa no trata una afirmación, el partido queda sin posición en ella: sus " +
+  "instrucciones le prohíben deducir la posición de la ideología general del partido o de " +
+  "que el programa no mencione el asunto. Sí cuenta como tratarla una propuesta concreta del " +
+  "programa que va claramente en la dirección de la afirmación o en la contraria, y la cita " +
+  "debe contener esa propuesta.";
 
 const SELECTION_TEXTS = [
   "La inteligencia artificial propone más afirmaciones de las que tendrá el cuestionario, " +
@@ -71,7 +83,7 @@ const SELECTION_TEXTS = [
     "tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas y, " +
     "después, las que se propusieron antes. Todos los partidos cuentan igual.",
   "El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos tienen " +
-    `posición en al menos el 70${NBSP}% de ellas. Si no es posible cumplir estas condiciones, ` +
+    `posición en al menos el 60${NBSP}% de ellas. Si no es posible cumplir estas condiciones, ` +
     "el procedimiento se acerca todo lo que puede y las comprobaciones posteriores impiden " +
     "publicar el resultado. Las afirmaciones conservan el texto y el orden con que se " +
     "propusieron.",
@@ -108,12 +120,21 @@ describe("MethodologyPage", () => {
     expect(screen.getAllByRole("region")).toHaveLength(8);
   });
 
-  test("describes the candidate pool when the statements are written", () => {
+  test("describes the Party-balanced agenda and orientation-level statements", () => {
     renderMethodology();
     const region = screen.getByRole("region", { name: "Cómo se redactan las afirmaciones" });
-    expect(within(region).getByText(STATEMENTS_TEXT)).toBeTruthy();
-    expect(within(region).getByText(STATEMENTS_RULES_TEXT)).toBeTruthy();
+    const paragraphs = within(region)
+      .getAllByText((_, element) => element?.tagName === "P")
+      .map((p) => p.textContent);
+    expect(paragraphs).toEqual(STATEMENTS_TEXTS);
     expect(screen.queryByText(/unas 30 afirmaciones/)).toBeNull();
+    expect(screen.queryByText(/propuestas que traten varios programas/)).toBeNull();
+  });
+
+  test("says silence is no stance and a concrete proposal in either direction counts", () => {
+    renderMethodology();
+    const region = screen.getByRole("region", { name: "Cómo se sitúa a cada partido" });
+    expect(within(region).getByText(POSITIONS_NO_STANCE_TEXT)).toBeTruthy();
   });
 
   test("explains the deterministic selection of the questionnaire", () => {
@@ -151,7 +172,7 @@ describe("MethodologyPage", () => {
     const items = within(region).getAllByRole("listitem");
     expect(items).toHaveLength(6);
     expect(items[1]?.textContent).toBe(
-      `cada partido tiene posición en al menos el 70${NBSP}% de las afirmaciones;`,
+      `cada partido tiene posición en al menos el 60${NBSP}% de las afirmaciones;`,
     );
     expect(items[4]?.textContent).toBe("el cuestionario tiene entre 25 y 35 afirmaciones;");
     expect(items[5]?.textContent).toBe(

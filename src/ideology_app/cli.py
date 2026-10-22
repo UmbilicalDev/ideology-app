@@ -1081,10 +1081,26 @@ SELECTION_POOL_HEADER = [
 ]
 
 
+def _agenda_line(agenda: dict[str, Any] | None) -> str:
+    """The ``statement_agenda`` summary: quota and picks per Party."""
+    if agenda is None:
+        return NOT_RECORDED
+    parties = "; ".join(
+        f"party {p['party_id']} {p['picked']}/{p['unique']} ({p['chunks']} chunks)"
+        for p in agenda["parties"]
+    )
+    summary = f"{agenda['version']}, quota {agenda['quota']}, lines {agenda['lines']}"
+    return f"{summary}; {parties}" if parties else summary
+
+
 def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object]]:
-    """The ``statement_selection`` summary lines of ``pipeline report``."""
+    """The ``statement_agenda`` and ``statement_selection`` lines of ``pipeline report``."""
     if selection is None:
-        return [("statement_selection", NOT_RECORDED), ("selection_coverage", NOT_RECORDED)]
+        return [
+            ("statement_agenda", NOT_RECORDED),
+            ("statement_selection", NOT_RECORDED),
+            ("selection_coverage", NOT_RECORDED),
+        ]
     failures = selection["projected_failures"]
     summary = (
         f"{selection['version']}, pool {selection['pool_size']}, "
@@ -1099,6 +1115,7 @@ def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object
         for p in selection["parties"]
     )
     return [
+        ("statement_agenda", _agenda_line(selection.get("agenda"))),
         ("statement_selection", summary),
         ("selection_coverage", coverage or "none"),
     ]

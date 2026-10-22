@@ -7,7 +7,8 @@ Validation keeps its ``candidate`` Dataset Version, which is never published.
 A ``passed`` run publishes its version (``publishing.publish_dataset_version``)
 in the commit that stores its Validation results, unless a newer run's version
 is already Published.
-Statement generation returns a Statement Pool; Party Positions are extracted
+Statement generation returns a Statement Pool (built from the Party-balanced
+Agenda, ``agenda.balance_candidates``); Party Positions are extracted
 for the whole pool, and ``selection.select_statements`` (deterministic, no LLM)
 chooses the Questionnaire's Statements before anything is written.
 Dataset Versions, Statements and Party Positions are only ever inserted here,
@@ -50,7 +51,7 @@ from ideology_app.pipeline.generation import (
     DocumentPages,
     GenerationError,
     Usage,
-    build_chunks,
+    build_document_chunks,
     generate_statements,
 )
 from ideology_app.pipeline import publishing
@@ -388,19 +389,19 @@ def execute_run(
         check_position_budget(run_input.documents)
         pool = generate_statements(
             provider,
-            build_chunks(run_input.documents),
+            build_document_chunks(run_input.documents),
             usage,
             settings=validation_settings,
         )
         pool_positions = extract_positions(
             provider,
-            [s.text for s in pool],
+            [s.text for s in pool.statements],
             run_input.documents,
             run_input.party_ids,
             usage,
         )
         selection = select_statements(
-            pool, pool_positions, run_input.party_ids, validation_settings
+            pool.statements, pool_positions, run_input.party_ids, validation_settings
         )
         outcome = _finish(
             engine,
@@ -409,7 +410,7 @@ def execute_run(
             selection.statements,
             selection.positions,
             None,
-            selection=selection.report,
+            selection={**selection.report, "agenda": pool.agenda.report},
         )
     except (LLMError, GenerationError) as exc:
         return _fail(engine, run_id, usage, str(exc))

@@ -32,13 +32,14 @@ from ideology_app.pipeline import (
     statement_set_schema,
 )
 from ideology_app.pipeline.generation import candidate_request
+from ideology_app.pipeline.prompts import _COMMON_RULES
 
 # To change a prompt: bump its version, then replace its entry here with the new
 # (task, version) and the fingerprint printed by the failing test.
 FINGERPRINTS = {
     ("statement_candidates", "v1"): "a2073f8c4dcc630a08056db3bef2f59f3e412532693fd2b364af902bbfbe1177",
-    ("generate_statements", "v3"): "b63a0e50a53bad3d90ce06c34ceaf618b6dac4aedb2b5656651ffdf36eee37b8",
-    ("position_findings", "v2"): "d64cc4a53bbf4ca79f7088b4a85dad6464521074b8bcdff8c5ce5c782fcbc8bb",
+    ("generate_statements", "v4"): "37c758121e4e71c1fc73630dd619e12d08c448fb9f1786cb3613d92b18a42aac",
+    ("position_findings", "v3"): "823b5984643e6724fee0d9764f27cd56a8639af0c5759790c17abeec2fe22efa",
     ("party_positions", "v2"): "cd473fcb60cd0ad4c7cbbd0e30c4d5c1d2bfeb37340bcd4aa7801277f1eee9e3",
 }
 
@@ -124,8 +125,8 @@ def test_statement_candidates_request_is_byte_identical() -> None:
 def test_prompt_versions_and_constants() -> None:
     assert PROMPT_VERSIONS == {
         "statement_candidates": "v1",
-        "generate_statements": "v3",
-        "position_findings": "v2",
+        "generate_statements": "v4",
+        "position_findings": "v3",
         "party_positions": "v2",
     }
     assert POSITION_FINDINGS.schema is FindingList
@@ -154,10 +155,10 @@ def test_system_prompt_states_the_rules(spec: PromptSpec) -> None:
 def test_reduce_prompt_adds_list_rules() -> None:
     assert "cuarta parte" in GENERATE_STATEMENTS.system
     assert "casi duplicadas" in GENERATE_STATEMENTS.system
-    # The pool (v3): broad proposals several manifestos address, chosen from later.
+    # The pool (v4): orientation-level Statements from the Party-balanced agenda.
     assert "lista amplia" in GENERATE_STATEMENTS.system
     assert "procedimiento automático" in GENERATE_STATEMENTS.system
-    assert "se pronuncien varios programas" in GENERATE_STATEMENTS.system
+    assert "se pronuncien varios programas" not in GENERATE_STATEMENTS.system
     # The count lives only in the template, so it cannot contradict the range.
     assert str(POOL_TARGET_STATEMENTS) not in GENERATE_STATEMENTS.system
     assert "afirmaciones en total" not in GENERATE_STATEMENTS.system
@@ -165,6 +166,66 @@ def test_reduce_prompt_adds_list_rules() -> None:
         assert field in GENERATE_STATEMENTS.template
     assert "{candidates}" in GENERATE_STATEMENTS.template
     assert "{chunk}" in STATEMENT_CANDIDATES.template
+
+
+# The exact v4 system text of the spec (pipeline-balanced-statements, Technical
+# Approach section 3); ``_COMMON_RULES`` is shared with statement_candidates.
+GENERATE_STATEMENTS_V4_SYSTEM = (
+    "Eres un analista político que prepara un cuestionario de orientación de voto para "
+    "unas elecciones generales en España. Recibes afirmaciones candidatas extraídas, en "
+    "igual número, de los programas electorales de varias candidaturas, y redactas a partir "
+    "de ellas una lista amplia de afirmaciones; después, un procedimiento automático "
+    "elegirá entre ellas las del cuestionario.\n\n"
+    f"{_COMMON_RULES}\n"
+    "Reglas para la lista:\n"
+    "- Cada afirmación expresa una orientación política con una dirección clara (por "
+    "ejemplo, subir o bajar un impuesto, ampliar o reducir un servicio público, más o menos "
+    "peso de una fuente de energía), no una medida de detalle: sin cifras, porcentajes, "
+    "plazos ni nombres de leyes o planes concretos.\n"
+    "- Agrupa en una misma orientación las candidatas de programas distintos que van en esa "
+    "dirección o en la contraria, para que el mayor número posible de programas se pueda "
+    "situar en ella.\n"
+    "- Elige orientaciones en las que los programas discrepen; evita las que casi cualquier "
+    "programa suscribiría.\n"
+    "- Varía el sentido de las afirmaciones: no todas deben proponer aumentar o ampliar "
+    "algo; usa también reducir, limitar o suprimir cuando así lo planteen las candidatas.\n"
+    "- Basa cada afirmación solo en las candidatas: no añadas temas ni propuestas que no "
+    "aparezcan en ellas.\n"
+    "- Cubre los temas de forma amplia: ningún tema debe superar aproximadamente una cuarta "
+    "parte de la lista.\n"
+    "- Sin afirmaciones casi duplicadas."
+)
+
+FINDINGS_V3_NEW_RULES = (
+    "- Una propuesta concreta del fragmento que va claramente en la dirección de una "
+    "afirmación, o en la contraria, cuenta como tratarla de forma explícita: la posición es "
+    "de acuerdo si va en esa dirección y en desacuerdo si va en la contraria, y la cita debe "
+    "contener esa propuesta.\n"
+    "- Que el fragmento no mencione un asunto no es una posición: no informes de esa "
+    "afirmación."
+)
+
+
+def test_reduce_prompt_v4_asks_for_orientation_level_statements() -> None:
+    assert GENERATE_STATEMENTS.system == GENERATE_STATEMENTS_V4_SYSTEM
+    assert GENERATE_STATEMENTS.max_tokens == 16384
+    # The common rules are unchanged and still shared with statement_candidates.
+    assert _COMMON_RULES in STATEMENT_CANDIDATES.system
+
+
+def test_findings_prompt_v3_counts_concrete_proposals_and_not_silence() -> None:
+    system = POSITION_FINDINGS.system
+    first = (
+        "Reglas:\n- Informa solo de las afirmaciones que el fragmento trata de forma "
+        "explícita. Nunca deduzcas una posición de la ideología general.\n"
+    )
+    # The two new lines come right after the unchanged first rule.
+    assert first + FINDINGS_V3_NEW_RULES + "\n- La cita se copia literalmente" in system
+    assert "Nunca deduzcas una posición de la ideología general." in system
+    assert (
+        "- La cita se copia literalmente de una sola página: sin parafrasear, sin "
+        "puntos suspensivos y sin añadir texto." in system
+    )
 
 
 @pytest.mark.parametrize(

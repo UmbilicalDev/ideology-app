@@ -13,10 +13,13 @@ from ideology_app.pipeline import (
     MAX_LLM_CALLS_PER_RUN,
     NO_CANDIDATES_REASON,
     STATEMENT_CANDIDATES,
+    Chunk,
     DocumentPages,
     GenerationError,
+    StatementPool,
     Usage,
     build_chunks,
+    build_document_chunks,
     generate_statements,
 )
 from ideology_app.pipeline.generation import candidate_request, pool_bounds, reduce_request
@@ -26,6 +29,11 @@ from ideology_app.pipeline.prompts import StatementDraft, StatementSet
 @pytest.fixture(autouse=True)
 def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     offline_guard(monkeypatch)
+
+
+def chunks_of(*texts: str, party_id: int = 1) -> list[Chunk]:
+    """Chunks of one Party's document, one per text."""
+    return [Chunk(party_id=party_id, document_id=party_id, text=t) for t in texts]
 
 
 def doc(party_id: int, document_id: int, *texts: str) -> DocumentPages:
@@ -101,12 +109,16 @@ def test_page_exactly_at_the_limit_is_not_cut() -> None:
 
 
 def test_one_candidates_call_per_chunk() -> None:
-    chunks = build_chunks([doc(1, 1, "a" * 30_000, "b" * 30_000), doc(2, 2, "c")])
+    documents = [doc(1, 1, "a" * 30_000, "b" * 30_000), doc(2, 2, "c")]
+    chunks = build_document_chunks(documents)
+    assert [c.text for c in chunks] == build_chunks(documents)
     provider = fake_provider()
     generate_statements(provider, chunks, Usage())
     tasks = [c.task for c in provider.calls]
     assert tasks == ["statement_candidates"] * 3 + ["generate_statements"]
-    assert [c.prompt for c in provider.calls[:3]] == [candidate_request(c).prompt for c in chunks]
+    assert [c.prompt for c in provider.calls[:3]] == [
+        candidate_request(c.text).prompt for c in chunks
+    ]
 
 
 # Scenario 3: deterministic, party-blind requests
@@ -144,7 +156,9 @@ def test_reduce_request_dedupes_and_sorts_candidates() -> None:
 def test_generation_returns_statements_as_given_and_counts_usage() -> None:
     provider = fake_provider()
     usage = Usage()
-    statements = generate_statements(provider, ["[página 1]\nA", "[página 1]\nB"], usage)
+    pool = generate_statements(provider, chunks_of("[página 1]\nA", "[página 1]\nB"), usage)
+    statements = pool.statements
+    assert isinstance(pool, StatementPool)
 
     expected = statements_payload()["statements"]
     assert [(s.text, s.topic) for s in statements] == [(e["text"], e["topic"]) for e in expected]
@@ -157,7 +171,7 @@ def test_generation_returns_statements_as_given_and_counts_usage() -> None:
 
 
 def test_same_input_gives_identical_requests() -> None:
-    chunks = build_chunks([doc(1, 1, "Uno", "Dos"), doc(2, 2, "Tres")])
+    chunks = build_document_chunks([doc(1, 1, "Uno", "Dos"), doc(2, 2, "Tres")])
     first, second = fake_provider(), fake_provider()
     generate_statements(first, chunks, Usage())
     generate_statements(second, list(chunks), Usage())
@@ -171,7 +185,7 @@ def test_no_candidates_raises_generation_error() -> None:
     provider = fake_provider(statement_candidates={"candidates": []})
     usage = Usage()
     with pytest.raises(GenerationError) as excinfo:
-        generate_statements(provider, ["a", "b"], usage)
+        generate_statements(provider, chunks_of("a", "b"), usage)
     assert str(excinfo.value) == NO_CANDIDATES_REASON
     assert usage.calls == 2
     assert [c.task for c in provider.calls] == ["statement_candidates"] * 2
@@ -187,7 +201,7 @@ def test_no_chunks_raises_generation_error_without_calls() -> None:
 def test_too_many_chunks_fails_before_any_call() -> None:
     provider = fake_provider()
     with pytest.raises(GenerationError) as excinfo:
-        generate_statements(provider, ["x"] * MAX_LLM_CALLS_PER_RUN, Usage())
+        generate_statements(provider, chunks_of(*["x"] * MAX_LLM_CALLS_PER_RUN), Usage())
     assert str(excinfo.value) == "too many chunks: 200 (limit 199)"
     assert provider.calls == []
 
@@ -195,7 +209,7 @@ def test_too_many_chunks_fails_before_any_call() -> None:
 def test_chunk_count_at_the_limit_is_allowed() -> None:
     provider = fake_provider()
     usage = Usage()
-    generate_statements(provider, ["x"] * (MAX_LLM_CALLS_PER_RUN - 1), usage)
+    generate_statements(provider, chunks_of(*["x"] * (MAX_LLM_CALLS_PER_RUN - 1)), usage)
     assert usage.calls == MAX_LLM_CALLS_PER_RUN
 
 
@@ -208,7 +222,7 @@ def test_llm_error_propagates_and_keeps_partial_usage() -> None:
     provider = FakeProvider({"statement_candidates": _fail_second})
     usage = Usage()
     with pytest.raises(LLMProviderError):
-        generate_statements(provider, ["primero", "segundo", "tercero"], usage)
+        generate_statements(provider, chunks_of("primero", "segundo", "tercero"), usage)
     assert usage.calls == 1
     assert usage.input_tokens > 0
 
@@ -217,7 +231,7 @@ def test_schema_mismatch_is_an_output_error() -> None:
     provider = fake_provider(generate_statements={"statements": [{"text": "x", "topic": "?"}]})
     usage = Usage()
     with pytest.raises(LLMOutputError):
-        generate_statements(provider, ["a"], usage)
+        generate_statements(provider, chunks_of("a"), usage)
     assert usage.calls == 1
 
 
@@ -230,7 +244,7 @@ def test_out_of_range_pool_fails_the_call(count: int) -> None:
     provider = fake_provider(generate_statements=statements_payload(count))
     usage = Usage()
     with pytest.raises(LLMOutputError) as excinfo:
-        generate_statements(provider, ["a"], usage)
+        generate_statements(provider, chunks_of("a"), usage)
     assert str(excinfo.value).startswith(
         "FakeProvider response for task 'generate_statements' does not match StatementSet: "
     )
@@ -240,7 +254,7 @@ def test_out_of_range_pool_fails_the_call(count: int) -> None:
 @pytest.mark.parametrize("count", [45, 55, 60])
 def test_pool_size_at_the_default_limits_passes(count: int) -> None:
     provider = fake_provider(generate_statements=statements_payload(count))
-    assert len(generate_statements(provider, ["a"], Usage())) == count
+    assert len(generate_statements(provider, chunks_of("a"), Usage()).statements) == count
 
 
 @pytest.mark.parametrize(
@@ -270,8 +284,8 @@ def test_pool_schema_bounds_follow_settings(
 def test_configured_range_drives_the_pool_schema() -> None:
     settings = ValidationSettings(min_statements=1, max_statements=70)
     provider = fake_provider(generate_statements=statements_payload(70))
-    statements = generate_statements(provider, ["a"], Usage(), settings=settings)
-    assert len(statements) == 70
+    pool = generate_statements(provider, chunks_of("a"), Usage(), settings=settings)
+    assert len(pool.statements) == 70
     request = provider.calls[-1]
     bounds = request.schema.model_json_schema()["properties"]["statements"]
     assert (bounds["minItems"], bounds["maxItems"]) == (70, 70)
@@ -279,7 +293,7 @@ def test_configured_range_drives_the_pool_schema() -> None:
 
     narrow = fake_provider(generate_statements=statements_payload(60))
     with pytest.raises(LLMOutputError, match="does not match StatementSet"):
-        generate_statements(narrow, ["a"], Usage(), settings=settings)
+        generate_statements(narrow, chunks_of("a"), Usage(), settings=settings)
 
 
 def test_default_settings_bound_the_reduce_request() -> None:
