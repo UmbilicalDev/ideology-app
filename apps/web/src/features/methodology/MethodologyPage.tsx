@@ -50,16 +50,24 @@ export function MethodologyPage() {
       <section aria-labelledby="methodology-statements-title">
         <h2 id="methodology-statements-title">Cómo se redactan las afirmaciones</h2>
         <p>
-          Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones:
-          propuestas políticas concretas con las que se puede estar de acuerdo o en desacuerdo.
-          Después elige y redacta una lista más amplia, de unas 55 afirmaciones candidatas, y
-          asigna a cada una un tema.
+          Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones
+          candidatas: propuestas políticas con las que se puede estar de acuerdo o en desacuerdo.
+          Después, un procedimiento automático, sin inteligencia artificial y sin azar, toma el
+          mismo número de candidatas de cada partido, sea cual sea la extensión de su programa,
+          repartidas entre los temas que más trata cada programa. Un partido con menos candidatas
+          aporta todas las que tiene.
+        </p>
+        <p>
+          Con esas candidatas, la inteligencia artificial redacta una lista más amplia, de unas 55
+          afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación
+          política con una dirección clara, como subir o bajar un impuesto, y no una medida de
+          detalle, para que el mayor número posible de partidos se pueda situar en ella.
         </p>
         <p>
           Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres de
-          partidos o de políticos, una sola propuesta por afirmación, temas variados y,
-          preferiblemente, propuestas en las que los partidos discrepen y propuestas que traten
-          varios programas. Nadie modifica a mano el resultado.
+          partidos o de políticos, una sola propuesta por afirmación, temas variados, orientaciones
+          en las que los partidos discrepen y no añadir nada que no esté en las candidatas. Nadie
+          modifica a mano el resultado.
         </p>
       </section>
 
@@ -73,7 +81,10 @@ export function MethodologyPage() {
         </p>
         <p>
           Si el programa no trata una afirmación, el partido queda sin posición en ella: sus
-          instrucciones le prohíben deducir la posición de la ideología general del partido.
+          instrucciones le prohíben deducir la posición de la ideología general del partido o de
+          que el programa no mencione el asunto. Sí cuenta como tratarla una propuesta concreta del
+          programa que va claramente en la dirección de la afirmación o en la contraria, y la cita
+          debe contener esa propuesta.
         </p>
         <p>
           En los resultados puedes abrir la posición de cada partido en cada afirmación para
@@ -100,7 +111,7 @@ export function MethodologyPage() {
         </p>
         <p>
           El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos
-          tienen posición en al menos el 70&nbsp;% de ellas. Si no es posible cumplir estas
+          tienen posición en al menos el 60&nbsp;% de ellas. Si no es posible cumplir estas
           condiciones, el procedimiento se acerca todo lo que puede y las comprobaciones
           posteriores impiden publicar el resultado. Las afirmaciones conservan el texto y el orden
           con que se propusieron.
@@ -115,7 +126,7 @@ export function MethodologyPage() {
             cada cita aparece literalmente en el programa del partido, empezando en la página
             indicada, sin tener en cuenta mayúsculas, tildes, espacios ni signos de puntuación;
           </li>
-          <li>cada partido tiene posición en al menos el 70&nbsp;% de las afirmaciones;</li>
+          <li>cada partido tiene posición en al menos el 60&nbsp;% de las afirmaciones;</li>
           <li>
             en cada afirmación hay al menos dos posiciones distintas entre los partidos que tienen
             posición;

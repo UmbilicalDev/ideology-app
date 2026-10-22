@@ -4,6 +4,12 @@ Depends on ``models``, ``elections`` (errors), ``llm.base`` and ``validation``
 only; a provider is always injected, never built here.
 """
 
+from ideology_app.pipeline.agenda import (
+    AGENDA_VERSION,
+    PARTY_QUOTA_MAX,
+    Agenda,
+    balance_candidates,
+)
 from ideology_app.pipeline.checkpoint import (
     CheckpointProvider,
     count_recorded_calls,
@@ -16,6 +22,7 @@ from ideology_app.pipeline.generation import (
     Chunk,
     DocumentPages,
     GenerationError,
+    StatementPool,
     Usage,
     build_chunks,
     build_document_chunks,
@@ -85,6 +92,8 @@ from ideology_app.pipeline.triggers import (
 )
 
 __all__ = [
+    "AGENDA_VERSION",
+    "Agenda",
     "CheckpointProvider",
     "CHUNK_MAX_CHARS",
     "GENERATE_STATEMENTS",
@@ -93,6 +102,7 @@ __all__ = [
     "MAX_POSITION_CALLS_PER_RUN",
     "NO_CANDIDATES_REASON",
     "PARTY_POSITIONS",
+    "PARTY_QUOTA_MAX",
     "POOL_MAX_STATEMENTS",
     "POOL_MIN_STATEMENTS",
     "POOL_TARGET_STATEMENTS",
@@ -120,8 +130,10 @@ __all__ = [
     "SourceChangeOutcome",
     "UnfinishedRun",
     "StatementDraft",
+    "StatementPool",
     "StatementSet",
     "Usage",
+    "balance_candidates",
     "build_chunks",
     "build_document_chunks",
     "count_recorded_calls",

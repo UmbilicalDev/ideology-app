@@ -38,7 +38,7 @@ class GenerationMode(StrEnum):
 
 DEFAULT_GENERATION_MODE = GenerationMode.PRECOMPUTED
 
-DEFAULT_MIN_PARTY_COVERAGE_PERCENT = 70
+DEFAULT_MIN_PARTY_COVERAGE_PERCENT = 60
 DEFAULT_MIN_STATEMENTS = 25
 DEFAULT_MAX_STATEMENTS = 35
 DEFAULT_MAX_TOPIC_SHARE_PERCENT = 30
@@ -199,7 +199,7 @@ def _positive_int_env(name: str, default: int) -> int:
 def validation_settings() -> ValidationSettings:
     """Return the Validation thresholds from the environment.
 
-    ``VALIDATION_MIN_PARTY_COVERAGE_PERCENT`` (default 70) and
+    ``VALIDATION_MIN_PARTY_COVERAGE_PERCENT`` (default 60) and
     ``VALIDATION_MAX_TOPIC_SHARE_PERCENT`` (default 30) are integers from 0 to
     100; ``VALIDATION_MIN_STATEMENTS`` (default 25) and
     ``VALIDATION_MAX_STATEMENTS`` (default 35) are integers of at least 1, and

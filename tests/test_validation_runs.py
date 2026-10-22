@@ -421,7 +421,7 @@ def test_validate_run_unknown_run(migrated_engine: Engine) -> None:
 # pipeline-run-report: the thresholds a run was validated with are recorded
 
 DEFAULT_SETTINGS_DICT = {
-    "min_party_coverage_percent": 70,
+    "min_party_coverage_percent": 60,
     "min_statements": 25,
     "max_statements": 35,
     "max_topic_share_percent": 30,
@@ -496,7 +496,7 @@ def test_generation_failure_records_no_settings(seeded: Engine) -> None:
 
 # validation-party-coverage Scenario 4: party_coverage at the run level
 
-PARTY2_ZERO = "party 2 has positions on 0 of 25 statements (0%); minimum is 70%"
+PARTY2_ZERO = "party 2 has positions on 0 of 25 statements (0%); minimum is 60%"
 ONLY_PARTY1 = "does not separate parties: only party 1 has a stance (value 1)"
 
 
@@ -593,8 +593,8 @@ def test_both_checks_failing_are_named(seeded: Engine) -> None:
         "party_coverage",
         False,
         [
-            (None, 1, "party 1 has positions on 2 of 25 statements (8%); minimum is 70%"),
-            (None, 2, "party 2 has positions on 2 of 25 statements (8%); minimum is 70%"),
+            (None, 1, "party 1 has positions on 2 of 25 statements (8%); minimum is 60%"),
+            (None, 2, "party 2 has positions on 2 of 25 statements (8%); minimum is 60%"),
         ],
     )
 

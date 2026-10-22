@@ -41,8 +41,11 @@ An immutable snapshot of one Election's Questionnaire and Party Positions produc
 ### Pipeline Run
 One execution of the AI process that generates a Statement Pool and Party Positions from Source Documents, chooses the Questionnaire by Statement Selection, and is followed by Validation.
 
+### Party-balanced Agenda
+The candidates given to Statement generation, the same number from every Party whatever its manifesto length. A Party with fewer candidates gives all it has; nothing is invented for it. It is chosen by deterministic code and recorded on the Pipeline Run.
+
 ### Statement Pool
-The larger list of candidate Statements (45 to 60 by default) that a Pipeline Run generates and positions every Party on, before the Questionnaire is chosen from it.
+The larger list of candidate Statements (45 to 60 by default) that a Pipeline Run generates from the Party-balanced Agenda and positions every Party on, before the Questionnaire is chosen from it.
 
 ### Statement Selection
 The deterministic choice (no AI, no randomness, every Party weighted the same) of the Questionnaire's Statements from the Statement Pool: duplicates and Statements that do not separate the Parties are left out, no topic exceeds its share, the Parties' coverage is maximised starting with the worst-covered one, and the count is the largest in the configured range that meets the coverage threshold. It is recorded on the Pipeline Run and shown by `ideology pipeline report`. Selected Statements are never edited.

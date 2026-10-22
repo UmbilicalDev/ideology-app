@@ -40,7 +40,7 @@
 
 1. Every Statement is unique (same text after normalisation: case, accents, whitespace and punctuation ignored); otherwise the whole run fails. Single-proposition detection (no "and/or" compounds) is not automated yet; only the prompts require it.
 2. Every non-`no stance` Position has Evidence whose quote, normalised, starts on the cited page (or runs onto the next) of a Source Document the run read for that Party. Normalisation folds case, accents and ligatures and drops whitespace and punctuation; otherwise the match is exact.
-3. Each Party has positions (not `no stance`) on at least the configured share of Statements (default 70%); otherwise the whole run fails.
+3. Each Party has positions (not `no stance`) on at least the configured share of Statements (default 60%); otherwise the whole run fails.
 4. Each Statement separates the parties: at least two different Position values among them, ignoring `no stance` (so a Statement with fewer than two stances fails; an Election with fewer than two Parties fails); otherwise the whole run fails.
 5. The Statement count is within the configured range (default 25–35); otherwise the whole run fails.
 6. Topics are spread out: no single topic accounts for more than a configured share of the Statements (default 30%; a topic fails when strictly above it); otherwise the whole run fails.
