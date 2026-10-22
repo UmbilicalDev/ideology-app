@@ -5,7 +5,8 @@
 - `id`: e2e-real-2023-election
 - `area`: validation
 - `depends_on`: share-link-open, methodology-page, pipeline-run-report, llm-provider-claude-code, pipeline-run-checkpoint, source-text-bundle, shared-database, pipeline-output-bounds (all `accepted`)
-- `status`: in_progress (re-planned 2026-10-22 onto the shared database)
+- `status`: accepted 2026-10-22 by the independent validator (re-planned 2026-10-22 onto the shared database; run 3 passed and published, see "Run History (as executed)")
+- Later dependencies (added while the feature was blocked): pipeline-coverage-selection, pipeline-balanced-statements, pipeline-verified-findings (all `accepted`)
 - `source`: `feature_list.json` (verification: "A recorded Pipeline Run report with status passed"; "A manual walkthrough on mobile and desktop, recorded in PROGRESS.md"; "A sample of 10 positions read against their Evidence (an observation, not editing)")
 
 ## Goal
@@ -14,9 +15,9 @@ The MVP success criterion, run once for real. The 2023 manifestos of the seat-wi
 
 ## Fixed User Decisions (not open to the implementer)
 
-- Provider `claude_code` (the user's local Claude Code CLI with their Claude subscription: no API key, no API spend), `LLM_MODEL=claude-sonnet-5-5` (not the provider's `claude-sonnet-4-6` default), `GENERATION_MODE=precomputed`, default Validation thresholds (coverage 70, Statements 25–35, topic share 30).
+- Provider `claude_code` (the user's local Claude Code CLI with their Claude subscription: no API key, no API spend), `LLM_MODEL=claude-sonnet-5-5` (not the provider's `claude-sonnet-4-6` default), `GENERATION_MODE=precomputed`, default Validation thresholds (coverage 70, Statements 25–35, topic share 30). As run: the coverage default was later lowered by user decision, in code and for every run, to 60 (`pipeline-balanced-statements`, used by run 2) and 50 (`pipeline-verified-findings`, used by run 3); the runs never set a threshold themselves.
 - **Run 1 on the old local e2e DB is discarded** (user decision 2026-10-22). It ran outside the repo, stopped after generating 38 Statements, before `pipeline-output-bounds` existed. It is history only, not an attempt and not resumable (its calls are not in the shared DB). The next real run is a **fresh run on `data/ideology.db`**, following the "Shared database" runbook in `docs/technical-discovery.md`.
-- **At most 2 fresh attempts that fail Validation.** Only a fresh run (no `--resume-from`) whose result ends in failed Validation counts, or another non-resumable failure the user decides to restart from scratch. **Resuming with `--resume-from R` is not a new attempt**: a run that stops halfway (usage limit beyond `LLM_CLAUDE_CODE_MAX_WAIT_HOURS`, crash, Ctrl-C, a killed process, a provider or output error) is resumed, not restarted. `--fresh` (which overrides the unfinished-run guard) is used only if the user decides so. If both attempts fail Validation, stop and report. There is no third attempt.
+- **At most 2 fresh attempts that fail Validation.** Only a fresh run (no `--resume-from`) whose result ends in failed Validation counts, or another non-resumable failure the user decides to restart from scratch. **Resuming with `--resume-from R` is not a new attempt**: a run that stops halfway (usage limit beyond `LLM_CLAUDE_CODE_MAX_WAIT_HOURS`, crash, Ctrl-C, a killed process, a provider or output error) is resumed, not restarted. `--fresh` (which overrides the unfinished-run guard) is used only if the user decides so. If both attempts fail Validation, stop and report. There is no third attempt. As run (user decisions 2026-10-22): runs 1 and 2 used both attempts (run 2 was `--reuse-from 1` after `pipeline-balanced-statements`); run 3 is a zero-call replay of run 2 (`--reuse-from 2`, 168/168 calls reused) authorized by the user after the `pipeline-verified-findings` code fix, not a new LLM attempt.
 - **Coalición Canaria (CCa, 1 seat) is excluded** (user decision 2026-10-21, Phase A): its only 2023 general-election document is a joint manifesto of about 11 Canarian forces ("Un objetivo común, la defensa de Canarias"), not a CC programme.
 - **Unión del Pueblo Navarro (UPN, 1 seat) is excluded** (user decision 2026-10-21, after the smoke run): its 6-page programme alone took positions on 11 of 30 Statements (36%, minimum 70%), so it would very likely fail `party_coverage` and the whole multi-hour run. A decision about the Party set, not a threshold change. The Election has 9 Parties (348 of 350 seats); "one Party per seat-winning ticket" reads "every seat-winning ticket except CCa and UPN".
 - Documents (Phase A, user-confirmed): the full programmes for PP and BNG (not their summaries), EH Bildu's 16-page "Compromiso de Euskal Herria Bildu". One document per Party, the ticket-wide 23J manifesto.
@@ -107,7 +108,7 @@ After the run ends or stops (every time):
 
 ### Phase B: Read the result (implementer, after the user says the run ended)
 
-1. `P pipeline list --election 1` to find the run, then `P pipeline report --run R` and `P pipeline checks --run R`. Confirm `provider: claude_code`, `model: claude-sonnet-5-5`, `generation_mode: precomputed`, `prompt_versions: generate_statements=v2, party_positions=v2, position_findings=v2, statement_candidates=v1` and `validation_settings: max_statements=35, max_topic_share_percent=30, min_party_coverage_percent=70, min_statements=25`. Record them, plus `resumed_from`/`reused_calls` for resumed runs.
+1. `P pipeline list --election 1` to find the run, then `P pipeline report --run R` and `P pipeline checks --run R`. Confirm `provider: claude_code`, `model: claude-sonnet-5-5`, `generation_mode: precomputed`, `prompt_versions: generate_statements=v2, party_positions=v2, position_findings=v2, statement_candidates=v1` and `validation_settings: max_statements=35, max_topic_share_percent=30, min_party_coverage_percent=70, min_statements=25`. Record them, plus `resumed_from`/`reused_calls` for resumed runs. (As run: these are run 1's values except `generate_statements=v3`; runs 2 and 3 show `generate_statements=v4, position_findings=v3` and `min_party_coverage_percent` 60 and 50, the code defaults of their revisions.)
 2. **Passed** (`status: passed`, `publication: published: live for election 1`): go to Phase C.
 3. **Stopped halfway** (`failed: interrupted`, a provider or `LLMOutputError` failure, a usage-limit wait beyond the maximum, or stuck `running` after a kill): not judged. Hand back the resume command with that R. A run that failed before any LLM call (preflight: CLI missing or not logged in, a cap) is reported; whether it counts is the user's call.
 4. **Failed Validation**: summarise the failure reason and every failed check entry, grouped by check, with counts:
@@ -138,6 +139,7 @@ After the run ends or stops (every time):
      - open it in a new tab: `/resultados` shows the same order, percentages and `Baja cobertura` badges (compare 3 breakdown rows too).
    - Console has no errors. Every request is a `GET` to `/api/v1/…` or a static asset, with no query string, body or answer data. Record browser, widths and results.
    - Stop the server, remove the entry. `shasum data/ideology.db` is unchanged by the walk and `git status` is clean apart from the intended doc edits.
+   - As run (implementer, 2026-10-22): the worktree is `…/e2e-real-2023-election-main`, port 8091, and the server read a scratch copy of `data/ideology.db` outside the repo (orchestrator instruction), so no server ever opened the committed file. The validator may use 8051 or another free port, with the same scratch-copy pattern.
 4. Risks doc (`docs/risks-and-open-questions.md`): settle or explicitly defer every entry naming this feature, with run ids and counts:
    - **Real-LLM behaviour unverified**: model id; structured output (any `LLMOutputError`, how often bounds were broken); wording neutrality; topic list; chunking and caps (actual calls vs caps).
    - **Usage limits and multi-hour runs**: number of stops/resumes, waits observed, total wall time.
@@ -148,6 +150,16 @@ After the run ends or stops (every time):
    - **PostgreSQL publish lock**: defer explicitly to the first deployment feature (SQLite only here).
    - **Subscription terms** open question: leave to the user (no agent judgement).
    - **Perceived bias**: add the reading observation. Mark the Research Task "Collect the 2023 manifestos…" and the "text-based manifesto" Assumption settled with the Phase A/bundle results.
+
+## Run History (as executed)
+
+All on `data/ideology.db`, Election 1, `claude_code` / `claude-sonnet-5-5` / `precomputed`, default thresholds of the code revision. Details and the Phase C evidence are in `PROGRESS.md` Session 059–060 and `feature_list.json`.
+
+- **Run 1** (fresh, attempt 1, main `4a280d5`, commit `455abde`): 168 calls, 901.9 s; failed Validation: `party_coverage` (only ERC ≥ 70%) and one quote slip (VOX).
+- **User decision**: feature blocked; follow-up feature `pipeline-balanced-statements` (balanced agenda, prompt v4/v3, default coverage 60).
+- **Run 2** (attempt 2, `--reuse-from 1`, commit `e73c2de`): 89 calls made, 79 reused, 9,390 s with one in-process usage-limit wait; failed Validation: `party_coverage` (6 Parties at 50–58%) and two quote slips (EAJ-PNV, BNG).
+- **User decision**: follow-up feature `pipeline-verified-findings` (unverifiable findings never become Positions, default coverage 50, no prompt change).
+- **Run 3** (user-authorized replay, `--reuse-from 2`, commit `9c13392`): 0 calls (168/168 reused), 1.6 s; findings checked 312, discarded 3, cleared 2; pool 55 → 26, `coverage_met`; every check passed; Dataset Version 3 published, Election 1 active. PP, EH Bildu and EAJ-PNV exactly at 50%.
 
 ## Acceptance Scenarios
 
@@ -161,13 +173,13 @@ Then `Safe to commit: yes`; the DB matches the bundle (9 documents); one Electio
 
 Given the run id recorded in evidence
 When the validator runs `P pipeline report --run R` on the committed DB
-Then it shows `status: passed`, `provider: claude_code`, `model: claude-sonnet-5-5`, `generation_mode: precomputed`, the v2/v1 `prompt_versions` above, the default `validation_settings`, `publication: published: live for election 1`, and every check `passed`. Across the runs in `P pipeline list --election 1`, at most 2 are fresh attempts (`pipeline report` shows `resumed_from: none`) that reached Validation; resumed runs (`resumed_from: R`) continue an attempt. `git log -- data/ideology.db` shows the DB commits named in evidence, and the pushed HEAD's DB passes `db check`.
+Then it shows `status: passed`, `provider: claude_code`, `model: claude-sonnet-5-5`, `generation_mode: precomputed`, the `prompt_versions` of its code revision (run 3: `generate_statements=v4, party_positions=v2, position_findings=v3, statement_candidates=v1`), the default `validation_settings` of that revision (run 3: coverage 50, Statements 25–35, topic share 30), `publication: published: live for election 1`, and every check `passed`. Across the runs in `P pipeline list --election 1`, at most 2 are fresh attempts (`pipeline report` shows `resumed_from: none`) that reached Validation; resumed runs (`resumed_from: R`) continue an attempt. (As run: run 1 `resumed_from: none`; run 2 `resumed_from: 1` with `--reuse-from`, counted by the user as attempt 2; run 3 `resumed_from: 2`, `reused_calls: 168`, 0 tokens, the user-authorized replay.) `git log -- data/ideology.db` shows the DB commits named in evidence, and the pushed HEAD's DB passes `db check`.
 
 ### Scenario 3: No hand editing and no threshold change
 
 Given the diff of the branch against `main`
 When the validator inspects it
-Then only docs (`docs/specs/…`, `docs/risks-and-open-questions.md`, `docs/technical-discovery.md`, `PROGRESS.md`, `feature_list.json`) and `data/ideology.db` changed: no change to `src/`, `apps/`, `packages/`, tests, prompts, caps, `ValidationSettings` defaults or the bundle, and no leftover `.claude/launch.json` entry. The DB changed only through the runs: `data check` still matches, the Parties are the same 9, every run in `pipeline list` is `claude_code`/`claude-sonnet-5-5`, and `validation_settings` equals the defaults.
+Then only docs (`docs/specs/…`, `docs/risks-and-open-questions.md`, `docs/technical-discovery.md`, `PROGRESS.md`, `feature_list.json`) and `data/ideology.db` changed: no change to `src/`, `apps/`, `packages/`, tests, prompts, caps, `ValidationSettings` defaults or the bundle, and no leftover `.claude/launch.json` entry. The DB changed only through the runs: `data check` still matches, the Parties are the same 9, every run in `pipeline list` is `claude_code`/`claude-sonnet-5-5`, and `validation_settings` equals the defaults of the run's code revision (coverage 70 / 60 / 50 for runs 1 / 2 / 3).
 
 ### Scenario 4: Evidence sample is recorded and checkable
 
