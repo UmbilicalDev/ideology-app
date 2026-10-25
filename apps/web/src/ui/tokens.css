@@ -85,6 +85,7 @@
   --page-title-tracking: var(--md-sys-typescale-headline-lg-mobile-tracking);
   --election-columns: 1;
   --card-padding: var(--space-md);
+  --brand-logo-size: 40px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -131,6 +132,7 @@
     --page-title-tracking: var(--md-sys-typescale-headline-lg-tracking);
     --election-columns: 2;
     --card-padding: var(--space-lg);
+    --brand-logo-size: 48px;
   }
 }
 

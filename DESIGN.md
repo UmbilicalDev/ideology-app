@@ -109,7 +109,11 @@ components:
   important-toggle:
     off: { backgroundColor: transparent, border: "1px outline", textColor: on-surface, star: "outline, stroke secondary", rounded: full }
     on: { backgroundColor: secondary-container, border: "1px secondary", textColor: on-secondary-container, star: "filled secondary", fontWeight: 600 }
-  coverage-badge: { backgroundColor: info-container, textColor: on-info-container, rounded: full, typography: label-md }
+  coverage-badge: { backgroundColor: info-container, textColor: on-info-container, rounded: full, typography: label-md, icon: info, focusable: true }
+  coverage-tooltip: { backgroundColor: on-surface, textColor: surface, rounded: small, typography: body-md, maxWidth: "min(24rem, 100%)", shows: "hover, focus, tap; Escape closes" }
+  notice-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, icon: "info on info-container, rounded medium" }
+  election-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, hover: "border primary, elevation-2", cta: "button-primary pill: Realizar cuestionario" }
+  brand-title: { logo: "apps/web/src/assets/ideologiapp-logo.svg, 40px (48px from 600px), decorative", name: IdeologiApp, typography: page title }
   important-mark: { backgroundColor: secondary-container, textColor: on-secondary-container, rounded: full, typography: label-md }
   evidence-quote: { backgroundColor: surface-container-high, textColor: on-surface, borderLeft: "4px outline", typography: body-lg, fontStyle: normal }
   progress: { track: surface-container-highest, value: primary, height: 8px, rounded: full }
@@ -124,6 +128,7 @@ A calm, civic tool built on Material Design 3 with the Civic Horizon palette (`d
 
 ## Existing Design Assets
 
+- `apps/web/src/assets/ideologiapp-logo.svg`: the product logo (user-provided). It is an image with its own fixed colours (sky blue, white, gold); it is the product's mark, never a party's, and it is never recoloured or used next to a party.
 - `docs/design/civic-horizon.md`: the source palette, type scale, shapes, elevation and grid. This file picks the parts the app uses; `apps/web/src/ui/tokens.css` mirrors this file.
 
 ## Generated Concept Images
@@ -162,9 +167,9 @@ Exactly two themes, chosen by the operating system through `prefers-color-scheme
 
 **Public Sans** is the only typeface, self-hosted from the app's own `/assets/` (no third-party font request). Evidence quotes also use it; they are told apart by layout (a tinted block with a 4px left border), not by a serif or italics. No italic face is loaded.
 
-- `h1` (page title): headline-lg (headline-lg-mobile below 600px).
+- `h1` (page title): headline-lg (headline-lg-mobile below 600px). On the Landing and the Questionnaire the `h1` is the brand title: the decorative logo (40px, 48px from 600px) and the name **IdeologiApp**.
 - Statement text (`h2` on the Questionnaire): headline-sm, at most about 65 characters per line (`max-inline-size: 30em`; `65ch` measures the wide "0" glyph and would fit about 80 Public Sans characters).
-- Other `h2`: title-lg. `h3`, `h4`: title-md.
+- Other `h2`: title-lg. `h3`, `h4`: title-md, except the `Detalle por afirmación` title, which uses title-lg like an `h2`.
 - Body: body-lg. Notes, hints, legends, dates and the breakdown number: body-md in `on-surface-variant` (14px rather than the source's 12px body-sm, which is too small for long privacy notes).
 - Buttons: title-md. Badges: label-md. Progress and Election labels: label-lg.
 - Running text is capped at 75 characters per line.
@@ -184,7 +189,7 @@ One Statement per screen in the Questionnaire. The Results breakdown stays stack
 Tonal elevation, as in the source. Only levels 0–2 are used (there are no sticky bars or dialogs).
 
 - **Level 0:** the `surface` page.
-- **Level 1:** cards (`card` surface, 1px `outline-variant`, no shadow): the Landing AI card, election links, ranking rows, breakdown rows, the share card, the superseded notice.
+- **Level 1:** cards (`card` surface, 1px `outline-variant`, no shadow): the Landing AI card, election cards, ranking rows, breakdown rows, the share card, the superseded notice. An election card gets the `elevation-2` shadow and a `primary` border on hover.
 - **Level 2:** the Questionnaire's Statement card, with the soft ambient `elevation-2` shadow.
 
 ## Shapes
@@ -197,20 +202,25 @@ Tonal elevation, as in the source. Only levels 0–2 are used (there are no stic
 
 ## Components
 
-- **Buttons.** Filled (`button-primary`): Siguiente, Revisar mis respuestas, Reintentar, shared-result CTAs. Outlined (`button-secondary`): Saltar esta afirmación, Anterior, Volver a la última afirmación. Tonal (`button-tonal`): only `Copiar enlace`. Hover adds an 8% state layer. Disabled filled buttons use the M3 12% `on-surface` container with a 38% label. DOM order stays the reading and focus order (Siguiente first).
+- **Buttons.** Filled (`button-primary`): Siguiente, Revisar mis respuestas, Reintentar, shared-result CTAs, the `Realizar cuestionario` pill inside an election card. Outlined (`button-secondary`): Saltar esta afirmación, Anterior, Volver a la última afirmación, and `Volver al inicio` (a link styled as a button) on every screen that offers it; the end screen shows it before `Detalle por afirmación` and again at the end. Tonal (`button-tonal`): only `Copiar enlace`. Hover adds an 8% state layer. Disabled filled buttons use the M3 12% `on-surface` container with a 38% label. DOM order stays the reading and focus order (Siguiente first).
 - **Statement card** (Level 2): the progress label and bar, the Statement, the Important row (toggle and hint), the 5-option scale, the skipped note and the controls.
 - **Scale option**: a full-width radio row with its label. A custom circle radio (filled dot when checked; the native radio returns under forced colours). Checked states: agree → `primary-container` with a 2px `primary` border and `on-primary-container` text; neutral → `surface-container-high` with `on-surface-variant`; disagree → slate `outline-variant` with `on-surface` text and a 2px `outline` border. All checked states use weight 600.
 - **Important toggle**: an outlined pill with an outline star in `secondary`; pressed, it becomes a `secondary-container` pill with a filled star and weight 600. The star shape and `aria-pressed` carry the state.
 - **Disclosure card** (Questionnaire only, below the Statement card): a decorative shield (`aria-hidden`) in a 40px info tile, the title `Transparencia algorítmica y privacidad garantizada` and the unchanged AI/privacy note.
-- **Ranking row**: party name + short name, percentage, a `primary` bar on a `surface-container-highest` track, and a `Baja cobertura` badge (info pair) when it applies. Every row looks the same.
+- **Election card** (Landing): one link per Election holding its name, date and a filled `Realizar cuestionario` pill with an arrow, so the whole card is the target and reads as actionable.
+- **Ranking row**: party name + short name, percentage, a `primary` bar on a `surface-container-highest` track, and a `Baja cobertura` chip (info pair) when it applies. Every row looks the same.
+- **Coverage chip and tooltip**: the `Baja cobertura` chip is a focusable button with an info icon. Its explanation appears in a tooltip (`inverse` pair: `on-surface` background with `surface` text) on hover, keyboard focus or tap, stays while hovered, and closes with Escape; the chip is described by the tooltip. There is no legend under the ranking.
+- **Notice card**: the "not a voting recommendation" text on the end screen and the shared result, in a Level 1 card with a decorative info icon in a 40px info tile (same layout as the disclosure card).
+- **External link**: the methodology link opening in a new tab ends in an external-link icon; `(se abre en una pestaña nueva)` stays in its accessible name as visually hidden text.
 - **Breakdown row**: the Statement, the Voter's answer (Saltada / `Importante (cuenta el doble)` mark on `secondary-container`), and each party's position in ranking order as a native disclosure revealing the Evidence quote and its locator: a link to `url#page=N`, or the page alone for uploaded documents; `Sin posición en el programa` for no stance.
 - **Evidence quote**: Public Sans body-lg on `surface-container-high` with a 4px `outline` left border; never serif, never italic.
-- **Share card**: `Copiar enlace` (tonal) copies the Share Link to the clipboard; if copying fails, the link is shown in a read-only field, focused and selected, to copy by hand. A short note says that nothing is stored on any server and that anyone with the link can see the answers.
+- **Share card**: a decorative share icon before the `Comparte tu resultado` title; `Copiar enlace` (tonal, with a link icon) copies the Share Link to the clipboard; if copying fails, the link is shown in a read-only field, focused and selected, to copy by hand. A short note says that nothing is stored on any server and that anyone with the link can see the answers.
+- **Icons**: inline SVG drawn for this app, 24px (20px inside buttons and chips), `currentColor`, `aria-hidden`; meaning always lives in the adjacent text.
 - **Focus**: a 3px solid `secondary` ring with a 2px offset on every link, button, summary and scale option.
 
 ## Core Screens
 
-1. Landing: choose an Election, a short methodology summary, and an "AI-generated" disclosure card.
+1. Landing: brand title, choose an Election (election cards with a call to action), a short methodology summary, and an "AI-generated" disclosure card.
 2. Questionnaire: Statement card plus disclosure card.
 3. Results: ranking + per-Statement breakdown + share.
 4. Methodology: how Statements and Positions are generated and validated.
@@ -235,6 +245,7 @@ WCAG 2.1 AA contrast for every text pair in both themes, and at least 3:1 for bo
 | on-surface on surface-container-high (quote) | 14.0 | 11.1 |
 | outline border on card / surface (≥ 3) | 4.5 / 4.3 | 5.4 / 5.8 |
 | focus ring secondary on surface / card (≥ 3) | 6.1 / 6.4 | 10.9 / 10.0 |
+| surface on on-surface (coverage tooltip) | 16.4 | 14.4 |
 
 The scale is a native radio group usable by keyboard and screen reader.
 
@@ -249,5 +260,4 @@ The scale is a native radio group usable by keyboard and screen reader.
 
 ## Open Design Questions
 
-- Logo and product name.
 - Whether to show party logos at all (licensing and neutrality).

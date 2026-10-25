@@ -82,7 +82,9 @@ describe("QuestionnairePage", () => {
   test("Scenario 1: loading, then the first Statement with five unchecked radios", async () => {
     const fetch = happyFetch();
     renderAt("/elecciones/1/cuestionario", fetch);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Cuestionario");
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.textContent).toBe("IdeologiApp");
+    expect(h1.querySelector("img")?.getAttribute("alt")).toBe("");
     expect(screen.getByRole("status").textContent).toBe("Cargando cuestionario…");
 
     const group = await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" });
@@ -159,7 +161,9 @@ describe("QuestionnairePage", () => {
     expect(screen.getByText("Has respondido 2 de 3 afirmaciones y has saltado 1.")).toBeTruthy();
     expect(screen.queryByText(/muy pronto/)).toBeNull();
     expect(screen.queryByRole("radiogroup")).toBeNull();
-    expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+    expect(
+      screen.getAllByRole("link", { name: "Volver al inicio" }).map((link) => link.getAttribute("href")),
+    ).toEqual(["/", "/"]);
 
     fireEvent.click(button("Volver a la última afirmación"));
     expect(heading2().textContent).toBe("Afirmación de prueba 3");
@@ -449,8 +453,8 @@ describe("QuestionnairePage", () => {
   describe("results", () => {
     const NBSP = " ";
     const LEGEND =
-      "Baja cobertura: compartes menos de 5 afirmaciones con ese partido, así que su afinidad " +
-      "se basa en pocos datos.";
+      "Compartes menos de 5 afirmaciones con este partido, así que su afinidad se basa en pocos " +
+      "datos.";
     const PROMPT =
       "Todavía no se puede calcular tu afinidad: no has respondido ninguna afirmación en la que " +
       "los partidos tengan posición. Responde al menos una para ver los resultados.";
@@ -543,10 +547,14 @@ describe("QuestionnairePage", () => {
       ).toBeTruthy();
       expect(rowTexts()).toEqual([
         `Partido Uno P1 100${NBSP}%5 afirmaciones en común`,
-        `Partido Dos P2 50${NBSP}%4 afirmaciones en común Baja cobertura`,
+        `Partido Dos P2 50${NBSP}%4 afirmaciones en común Baja cobertura${LEGEND}`,
       ]);
-      expect(within(rankingRows()[1]!).getByText("Baja cobertura").className).toBe("coverage-badge");
-      expect(screen.getByText(LEGEND)).toBeTruthy();
+      const chip = within(rankingRows()[1]!).getByRole("button", { name: "Baja cobertura" });
+      expect(chip.className).toBe("coverage-badge");
+      // The explanation is the chip's tooltip, not a legend under the ranking.
+      expect(document.getElementById(chip.getAttribute("aria-describedby")!)?.textContent).toBe(LEGEND);
+      expect(screen.getAllByText(LEGEND)).toHaveLength(1);
+      expect(screen.getAllByText(LEGEND)[0]!.getAttribute("role")).toBe("tooltip");
       for (const li of rankingRows()) {
         expect(li.querySelector(".ranking-bar")?.getAttribute("aria-hidden")).toBe("true");
       }
@@ -566,7 +574,15 @@ describe("QuestionnairePage", () => {
       expect(screen.getByText(`${LOSS_NOTE} ${LOSS_NOTE_SHARE}`).className).toBe(
         "questionnaire__note",
       );
-      expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+      // Volver al inicio is a button-styled link before the breakdown and at the end.
+      const home = screen.getAllByRole("link", { name: "Volver al inicio" });
+      expect(home.map((link) => [link.getAttribute("href"), link.className])).toEqual([
+        ["/", "button-secondary"],
+        ["/", "button-secondary"],
+      ]);
+      const breakdown = screen.getByRole("region", { name: "Detalle por afirmación" });
+      expect(home[0]!.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(home[1]!.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     });
 
     test("Scenario 2: a tie on the displayed percentage is ordered by name", async () => {
@@ -623,8 +639,8 @@ describe("QuestionnairePage", () => {
       expect(screen.queryByText(PROMPT)).toBeNull();
       // Statement 1: Uno +1 (agreement 0.75); Dos has no stance there, so no score.
       expect(rowTexts()).toEqual([
-        `Partido Uno P1 75${NBSP}%1 afirmación en común Baja cobertura`,
-        "Partido Dos P2 Sin afirmaciones en común0 afirmaciones en común Baja cobertura",
+        `Partido Uno P1 75${NBSP}%1 afirmación en común Baja cobertura${LEGEND}`,
+        `Partido Dos P2 Sin afirmaciones en común0 afirmaciones en común Baja cobertura${LEGEND}`,
       ]);
     });
 

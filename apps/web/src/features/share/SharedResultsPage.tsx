@@ -3,7 +3,9 @@ import { Link, useLocation } from "react-router";
 
 import { summarize, type OpenShareLinkResult, type PublicApi } from "@ideology-app/core";
 
-import { HOME_PATH, METHODOLOGY_PATH, questionnairePath } from "../paths";
+import { HomeButton } from "../common/HomeButton";
+import { NoticeCard } from "../common/NoticeCard";
+import { METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { useSharedResult } from "./useSharedResult";
@@ -46,16 +48,6 @@ export function SharedResultsPage({ api }: { readonly api: PublicApi }) {
   return <SharedResultLoader key={hash} api={api} fragment={fragment} />;
 }
 
-function BackHome() {
-  return (
-    <p>
-      <Link className="back-link" to={HOME_PATH}>
-        Volver al inicio
-      </Link>
-    </p>
-  );
-}
-
 function SharedResultLoader({ api, fragment }: { readonly api: PublicApi; readonly fragment: string }) {
   const { state, retry } = useSharedResult(api, fragment);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -93,7 +85,7 @@ function SharedResultLoader({ api, fragment }: { readonly api: PublicApi; readon
                     Reintentar
                   </button>
                 </div>
-                <BackHome />
+                <HomeButton />
               </>
             );
           case "ready":
@@ -108,7 +100,7 @@ function Message({ text }: { readonly text: string }) {
   return (
     <>
       <p>{text}</p>
-      <BackHome />
+      <HomeButton />
     </>
   );
 }
@@ -144,7 +136,7 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
       ) : (
         <p>{NO_SCORES}</p>
       )}
-      <p>{DISCLAIMER}</p>
+      <NoticeCard text={DISCLAIMER} />
       <p>
         <Link className="text-link" to={METHODOLOGY_PATH}>
           Cómo se calcula la afinidad
@@ -159,7 +151,7 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
       ) : null}
       <ResultsBreakdown rows={results.breakdown} answerOwner="link" />
       <p className="questionnaire__note">{NOTE}</p>
-      <BackHome />
+      <HomeButton />
     </>
   );
 }

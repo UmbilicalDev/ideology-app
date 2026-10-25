@@ -18,7 +18,10 @@ import {
   type Statement,
 } from "@ideology-app/core";
 
-import { HOME_PATH, METHODOLOGY_PATH } from "../paths";
+import { ExternalLinkIcon } from "../../ui/icons";
+import { HomeButton } from "../common/HomeButton";
+import { NoticeCard } from "../common/NoticeCard";
+import { METHODOLOGY_PATH } from "../paths";
 import { ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { SCALE_LABELS } from "../scale-labels";
@@ -271,21 +274,20 @@ function EndScreen({
           Volver a la última afirmación
         </button>
       </div>
-      <p>{DISCLAIMER}</p>
+      <NoticeCard text={DISCLAIMER} />
       <p>
         <Link className="text-link" to={METHODOLOGY_PATH} target="_blank" rel="noopener">
-          Cómo se calcula la afinidad (se abre en una pestaña nueva)
+          Cómo se calcula la afinidad{" "}
+          <span className="visually-hidden">(se abre en una pestaña nueva)</span>
+          <ExternalLinkIcon />
         </Link>
       </p>
+      <HomeButton />
       <ResultsBreakdown rows={breakdown} />
       <p className="questionnaire__note">
         {hasScores ? `${RESULTS_NOTE} ${RESULTS_NOTE_SHARE}` : RESULTS_NOTE}
       </p>
-      <p>
-        <Link className="back-link" to={HOME_PATH}>
-          Volver al inicio
-        </Link>
-      </p>
+      <HomeButton />
     </>
   );
 }

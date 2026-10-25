@@ -1,14 +1,13 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
 
 import type { RankedParty } from "@ideology-app/core";
 
 import { ResultsRanking } from "./ResultsRanking";
 
 const NBSP = " ";
-const LEGEND =
-  "Baja cobertura: compartes menos de 5 afirmaciones con ese partido, así que su afinidad se " +
-  "basa en pocos datos.";
+const EXPLANATION =
+  "Compartes menos de 5 afirmaciones con este partido, así que su afinidad se basa en pocos datos.";
 
 function ranked(overrides: Partial<RankedParty> & Pick<RankedParty, "partyId" | "name">): RankedParty {
   return {
@@ -43,7 +42,7 @@ describe("ResultsRanking", () => {
     const items = rows();
     expect(items.map((li) => li.textContent)).toEqual([
       `Ñandú Unido ÑU 81${NBSP}%7 afirmaciones en común`,
-      `Álava Común ÁC 56${NBSP}%1 afirmación en común Baja cobertura`,
+      `Álava Común ÁC 56${NBSP}%1 afirmación en común Baja cobertura${EXPLANATION}`,
     ]);
     expect(items[0]!.querySelector(".ranking-bar__fill")?.getAttribute("style")).toBe("width: 81%;");
     expect(items[1]!.querySelector(".ranking-bar__fill")?.getAttribute("style")).toBe("width: 56%;");
@@ -58,28 +57,71 @@ describe("ResultsRanking", () => {
     expect(row!.querySelector(".ranking-row__percent")?.textContent).toBe("Sin afirmaciones en común");
     expect(row!.textContent).not.toContain("%");
     expect(row!.querySelector(".ranking-bar__fill")?.getAttribute("style")).toBe("width: 0%;");
-    expect(within(row!).getByText("Baja cobertura").className).toBe("coverage-badge");
-    expect(screen.getByText(LEGEND).className).toBe("ranking-legend");
+    const chip = within(row!).getByRole("button", { name: "Baja cobertura" });
+    expect(chip.className).toBe("coverage-badge");
+    expect(within(row!).getByRole("tooltip", { hidden: true }).textContent).toBe(EXPLANATION);
   });
 
-  test("the badge and the legend show only with low coverage", () => {
+  test("the chip and its tooltip show only with low coverage", () => {
     renderRanking([
       ranked({ partyId: 1, name: "Uno", percent: 90 }),
       ranked({ partyId: 2, name: "Dos", percent: 10 }),
     ]);
     expect(screen.queryByText("Baja cobertura")).toBeNull();
-    expect(screen.queryByText(LEGEND)).toBeNull();
+    expect(screen.queryByText(EXPLANATION)).toBeNull();
+    expect(screen.queryByText(/se basa en pocos datos/)).toBeNull();
   });
 
-  test("the legend shows once, with one badge per low-coverage row", () => {
+  test("one chip per low-coverage row, and no legend under the ranking", () => {
     renderRanking([
       ranked({ partyId: 1, name: "Uno", percent: 90 }),
       ranked({ partyId: 2, name: "Dos", percent: 40, sharedStatementCount: 4, lowCoverage: true }),
       ranked({ partyId: 3, name: "Tres", percent: 20, sharedStatementCount: 2, lowCoverage: true }),
     ]);
-    expect(screen.getAllByText("Baja cobertura")).toHaveLength(2);
-    expect(screen.getAllByText(LEGEND)).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Baja cobertura" })).toHaveLength(2);
+    expect(screen.getAllByRole("tooltip", { hidden: true })).toHaveLength(2);
     expect(within(rows()[0]!).queryByText("Baja cobertura")).toBeNull();
+    expect(screen.getByRole("list").nextElementSibling).toBeNull();
+  });
+
+  test("the chip is described by its tooltip, which opens on hover, focus and tap and closes with Escape", () => {
+    vi.useFakeTimers();
+    try {
+      renderRanking([ranked({ partyId: 2, name: "Dos", sharedStatementCount: 4, lowCoverage: true })]);
+      const chip = screen.getByRole("button", { name: "Baja cobertura" });
+      const tooltip = screen.getByRole("tooltip", { hidden: true });
+      expect(chip.getAttribute("aria-describedby")).toBe(tooltip.id);
+      expect(tooltip.hidden).toBe(true);
+      expect(chip.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+
+      fireEvent.mouseEnter(chip.parentElement!);
+      expect(tooltip.hidden).toBe(false);
+      fireEvent.mouseLeave(chip.parentElement!);
+      expect(tooltip.hidden).toBe(false);
+      act(() => vi.advanceTimersByTime(200));
+      expect(tooltip.hidden).toBe(true);
+
+      // Escape anywhere closes a tooltip opened by hover (WCAG 1.4.13).
+      fireEvent.mouseEnter(chip.parentElement!);
+      expect(tooltip.hidden).toBe(false);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(tooltip.hidden).toBe(true);
+
+      act(() => chip.focus());
+      expect(tooltip.hidden).toBe(false);
+      fireEvent.mouseEnter(chip.parentElement!);
+      fireEvent.mouseLeave(chip.parentElement!);
+      act(() => vi.advanceTimersByTime(200));
+      expect(tooltip.hidden).toBe(false);
+      fireEvent.keyDown(chip, { key: "Escape" });
+      expect(tooltip.hidden).toBe(true);
+      fireEvent.click(chip);
+      expect(tooltip.hidden).toBe(false);
+      fireEvent.blur(chip);
+      expect(tooltip.hidden).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("every row has the same markup: no per-Party colour, style or highlight; bars are decorative", () => {

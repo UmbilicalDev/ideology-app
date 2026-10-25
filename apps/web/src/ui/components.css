@@ -7,6 +7,46 @@ section {
   margin: 0 0 var(--space-lg);
 }
 
+/* Text kept for screen readers only. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Decorative line icons (ui/icons.tsx): 24px, 20px inside buttons. */
+.icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+
+/* Brand page title (DESIGN.md "brand-title"): logo and product name. */
+.brand-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-xs);
+}
+
+.brand-title__logo {
+  flex: none;
+  width: var(--brand-logo-size);
+  height: var(--brand-logo-size);
+}
+
+.brand-subtitle {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-title-lg);
+  letter-spacing: var(--md-sys-typescale-title-lg-tracking);
+}
+
 h2 {
   margin: 0 0 var(--space-sm);
 }
@@ -55,8 +95,11 @@ h2[tabindex="-1"]:focus {
   display: grid;
 }
 
+/* The whole card is the link; the filled pill says what it does. */
 .election-link {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   min-height: 48px;
   padding: var(--space-md);
   background: var(--color-card);
@@ -68,6 +111,7 @@ h2[tabindex="-1"]:focus {
 
 .election-link:hover {
   border-color: var(--md-sys-color-primary);
+  box-shadow: var(--elevation-2);
 }
 
 .election-link__name {
@@ -83,10 +127,37 @@ h2[tabindex="-1"]:focus {
   letter-spacing: var(--md-sys-typescale-body-md-tracking);
 }
 
+.election-link__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 40px;
+  margin-top: var(--space-md);
+  padding: 0 var(--space-lg);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
+}
+
+.election-link:hover .election-link__cta {
+  background: color-mix(in srgb, var(--md-sys-color-on-primary) 8%, var(--md-sys-color-primary));
+}
+
+.election-link__cta .icon {
+  width: 20px;
+  height: 20px;
+}
+
 /* Buttons: filled, outlined and tonal pills (48px minimum). */
 .button-primary,
 .button-secondary,
 .button-tonal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
   min-height: 48px;
   padding: 0 var(--space-lg);
   border-radius: var(--md-sys-shape-corner-full);
@@ -112,10 +183,16 @@ h2[tabindex="-1"]:focus {
   cursor: not-allowed;
 }
 
-/* A link styled as the primary button (shared result CTAs). */
-a.button-primary {
-  display: inline-flex;
-  align-items: center;
+.button-primary .icon,
+.button-secondary .icon,
+.button-tonal .icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* Links styled as buttons (shared result CTAs, Volver al inicio). */
+a.button-primary,
+a.button-secondary {
   text-decoration: none;
 }
 
@@ -144,11 +221,16 @@ a.button-primary {
 }
 
 /* Text links that still meet the 48px minimum tap target. */
-.back-link,
 .text-link {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-xs);
   min-height: 48px;
+}
+
+.text-link .icon {
+  width: 18px;
+  height: 18px;
 }
 
 /* Bulleted lists in page copy; the election list keeps its own reset. */
@@ -401,8 +483,10 @@ main h1[tabindex="-1"]:focus {
   margin: 0 0 var(--space-lg);
 }
 
-/* AI and privacy disclosure below the Statement card. */
-.disclosure-card {
+/* AI and privacy disclosure below the Statement card, and the notice card
+   ("not a voting recommendation") on the results: an info tile and text. */
+.disclosure-card,
+.notice-card {
   display: flex;
   align-items: flex-start;
   gap: var(--space-md);
@@ -412,7 +496,18 @@ main h1[tabindex="-1"]:focus {
   padding: var(--space-md);
 }
 
-.disclosure-card__icon {
+.notice-card {
+  align-items: center;
+  background: var(--color-card);
+  margin: 0 0 var(--space-md);
+}
+
+.notice-card p {
+  margin: 0;
+}
+
+.disclosure-card__icon,
+.notice-card__icon {
   flex: none;
   display: flex;
   align-items: center;
@@ -424,7 +519,8 @@ main h1[tabindex="-1"]:focus {
   color: var(--color-on-info-container);
 }
 
-.disclosure-card__icon svg {
+.disclosure-card__icon svg,
+.notice-card__icon svg {
   width: 24px;
   height: 24px;
 }
@@ -500,6 +596,7 @@ main h1[tabindex="-1"]:focus {
 }
 
 .ranking-row__meta {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -529,20 +626,57 @@ main h1[tabindex="-1"]:focus {
   color: var(--color-on-info-container);
 }
 
+/* The coverage chip is a button that opens its tooltip. The ::after layer
+   grows the tap target to 48px without changing the chip's look. */
+.coverage-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding-left: 6px;
+  cursor: pointer;
+}
+
+.coverage-badge::after {
+  content: "";
+  position: absolute;
+  inset: -12px -4px;
+}
+
+.coverage-badge .icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* Anchored to the meta line, so it never runs past the row at 375px. */
+.coverage-tooltip {
+  position: absolute;
+  top: calc(100% + var(--space-xs));
+  left: 0;
+  z-index: 1;
+  max-width: min(24rem, 100%);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-on-surface);
+  color: var(--md-sys-color-surface);
+  box-shadow: var(--elevation-2);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+}
+
 .important-mark {
   background: var(--md-sys-color-secondary-container);
   color: var(--md-sys-color-on-secondary-container);
 }
 
-.ranking-legend {
-  color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-body-md);
-  letter-spacing: var(--md-sys-typescale-body-md-tracking);
-}
-
 /* Results breakdown (DESIGN.md "Breakdown row"). Stacked at every width.
    Every Party item is identical in every state: no party colour, logo or
    highlight. */
+.breakdown-section__title {
+  font: var(--md-sys-typescale-title-lg);
+  letter-spacing: var(--md-sys-typescale-title-lg-tracking);
+}
+
 .breakdown {
   list-style: none;
   margin: 0 0 var(--space-md);
@@ -670,6 +804,16 @@ main h1[tabindex="-1"]:focus {
 
 .share h3 {
   margin: 0 0 var(--space-sm);
+}
+
+.share__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.share__title .icon {
+  color: var(--md-sys-color-primary);
 }
 
 .share .button-tonal {

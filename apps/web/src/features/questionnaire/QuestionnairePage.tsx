@@ -1,9 +1,11 @@
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 
 import type { PublicApi } from "@ideology-app/core";
 
+import { BrandTitle } from "../common/BrandTitle";
+import { HomeButton } from "../common/HomeButton";
 import { NotFoundPage } from "../not-found/NotFoundPage";
-import { HOME_PATH, parseElectionId } from "../paths";
+import { parseElectionId } from "../paths";
 import { QuestionnaireFlow } from "./QuestionnaireFlow";
 import { useQuestionnaireData } from "./useQuestionnaireData";
 
@@ -16,16 +18,6 @@ export function QuestionnairePage({ api }: { readonly api: PublicApi }) {
     return <NotFoundPage />;
   }
   return <QuestionnaireLoader key={electionId} api={api} electionId={electionId} />;
-}
-
-function BackHome() {
-  return (
-    <p>
-      <Link className="back-link" to={HOME_PATH}>
-        Volver al inicio
-      </Link>
-    </p>
-  );
 }
 
 function QuestionnaireLoader({
@@ -41,7 +33,7 @@ function QuestionnaireLoader({
   }
   return (
     <main>
-      <h1>Cuestionario</h1>
+      <BrandTitle />
       {(() => {
         switch (state.kind) {
           case "loading":
@@ -53,7 +45,7 @@ function QuestionnaireLoader({
                   El cuestionario de estas elecciones todavía no está disponible. Vuelve a
                   consultarlo más adelante.
                 </p>
-                <BackHome />
+                <HomeButton />
               </>
             );
           case "error":
@@ -68,7 +60,7 @@ function QuestionnaireLoader({
                     Reintentar
                   </button>
                 </div>
-                <BackHome />
+                <HomeButton />
               </>
             );
           case "ready":
