@@ -1,10 +1,14 @@
+import { useEffect, useId, useRef, useState } from "react";
+
 import { LOW_COVERAGE_THRESHOLD, type RankedParty } from "@ideology-app/core";
+
+import { InfoIcon } from "../../ui/icons";
 
 export const LOW_COVERAGE_LABEL = "Baja cobertura";
 
-const LEGEND =
-  `${LOW_COVERAGE_LABEL}: compartes menos de ${LOW_COVERAGE_THRESHOLD} afirmaciones con ese ` +
-  "partido, así que su afinidad se basa en pocos datos.";
+export const LOW_COVERAGE_EXPLANATION =
+  `Compartes menos de ${LOW_COVERAGE_THRESHOLD} afirmaciones con este partido, así que su ` +
+  "afinidad se basa en pocos datos.";
 
 /**
  * The party ranking (DESIGN.md "Ranking row"). Renders `ranking` in the order
@@ -13,16 +17,12 @@ const LEGEND =
  * text; the bar is decorative. Expects a heading with id `results-title`.
  */
 export function ResultsRanking({ ranking }: { readonly ranking: readonly RankedParty[] }) {
-  const anyLowCoverage = ranking.some((party) => party.lowCoverage);
   return (
-    <>
-      <ol className="ranking" role="list" aria-labelledby="results-title">
-        {ranking.map((party) => (
-          <RankingRow key={party.partyId} party={party} />
-        ))}
-      </ol>
-      {anyLowCoverage ? <p className="ranking-legend">{LEGEND}</p> : null}
-    </>
+    <ol className="ranking" role="list" aria-labelledby="results-title">
+      {ranking.map((party) => (
+        <RankingRow key={party.partyId} party={party} />
+      ))}
+    </ol>
   );
 }
 
@@ -45,7 +45,7 @@ function RankingRow({ party }: { readonly party: RankedParty }) {
         {party.lowCoverage ? (
           <>
             {" "}
-            <span className="coverage-badge">{LOW_COVERAGE_LABEL}</span>
+            <CoverageChip />
           </>
         ) : null}
       </p>
@@ -55,4 +55,67 @@ function RankingRow({ party }: { readonly party: RankedParty }) {
 
 function sharedSentence(count: number): string {
   return count === 1 ? "1 afirmación en común" : `${count} afirmaciones en común`;
+}
+
+// Grace period so the pointer can move from the chip onto the tooltip.
+const HOVER_CLOSE_DELAY_MS = 150;
+
+/**
+ * The `Baja cobertura` chip (DESIGN.md "Coverage chip and tooltip"). Its
+ * explanation opens on hover, focus or tap, stays while hovered and closes
+ * with Escape, on blur or when the pointer leaves. The tooltip stays in the
+ * DOM, hidden when closed, so the chip is always described by it.
+ */
+function CoverageChip() {
+  const tooltipId = useId();
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<number | undefined>(undefined);
+  const chipRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+
+  // Escape closes it however it was opened, wherever focus is (WCAG 1.4.13).
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        window.clearTimeout(closeTimer.current);
+        setOpen(false);
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
+  function show() {
+    window.clearTimeout(closeTimer.current);
+    setOpen(true);
+  }
+
+  function hideSoon() {
+    window.clearTimeout(closeTimer.current);
+    // A focused chip keeps its tooltip until blur or Escape.
+    if (document.activeElement === chipRef.current) return;
+    closeTimer.current = window.setTimeout(() => setOpen(false), HOVER_CLOSE_DELAY_MS);
+  }
+
+  return (
+    <span className="coverage-chip" onMouseEnter={show} onMouseLeave={hideSoon}>
+      <button
+        ref={chipRef}
+        type="button"
+        className="coverage-badge"
+        aria-describedby={tooltipId}
+        onFocus={show}
+        onClick={show}
+        onBlur={() => setOpen(false)}
+      >
+        <InfoIcon />
+        <span>{LOW_COVERAGE_LABEL}</span>
+      </button>
+      <span id={tooltipId} role="tooltip" className="coverage-tooltip" hidden={!open}>
+        {LOW_COVERAGE_EXPLANATION}
+      </span>
+    </span>
+  );
 }

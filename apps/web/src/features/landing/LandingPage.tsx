@@ -2,6 +2,8 @@ import { Link } from "react-router";
 
 import type { Election, PublicApi } from "@ideology-app/core";
 
+import { ArrowForwardIcon } from "../../ui/icons";
+import { BrandTitle } from "../common/BrandTitle";
 import { METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { formatElectionDate } from "./format-date";
 import { useElections, type ElectionsState } from "./useElections";
@@ -12,7 +14,8 @@ export function LandingPage({ api }: { readonly api: PublicApi }) {
   const { state, retry } = useElections(api);
   return (
     <main>
-      <h1>Comparador de programas electorales</h1>
+      <BrandTitle />
+      <p className="brand-subtitle">Comparador de programas electorales</p>
       <p>
         Responde a una serie de afirmaciones y descubre qué partidos se acercan más a tus
         respuestas, según sus programas electorales.
@@ -95,7 +98,11 @@ function ElectionItem({ election }: { readonly election: Election }) {
     <li>
       <Link className="election-link" to={questionnairePath(election.id)}>
         <span className="election-link__name">{election.name}</span>{" "}
-        <span className="election-link__date">{formatElectionDate(election.date)}</span>
+        <span className="election-link__date">{formatElectionDate(election.date)}</span>{" "}
+        <span className="election-link__cta">
+          <span>Realizar cuestionario</span>
+          <ArrowForwardIcon />
+        </span>
       </Link>
     </li>
   );

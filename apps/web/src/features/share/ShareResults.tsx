@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { encodeShareLink, type QuestionnaireState } from "@ideology-app/core";
 
+import { LinkIcon, ShareIcon } from "../../ui/icons";
 import { sharedResultsUrl } from "../paths";
 
 const COPIED = "Enlace copiado.";
@@ -64,10 +65,14 @@ export function ShareResults({
 
   return (
     <section className="share" aria-labelledby="share-title">
-      <h3 id="share-title">Comparte tu resultado</h3>
+      <h3 id="share-title" className="share__title">
+        <ShareIcon />
+        <span>Comparte tu resultado</span>
+      </h3>
       <p>Copia un enlace que lleva tus respuestas para compartir este resultado.</p>
-      <button type="button" className="button-secondary" onClick={() => void handleCopy()}>
-        Copiar enlace
+      <button type="button" className="button-tonal" onClick={() => void handleCopy()}>
+        <LinkIcon />
+        <span>Copiar enlace</span>
       </button>
       <p role="status" className="share__status">
         {copy.kind === "copied" ? COPIED : copy.kind === "fallback" ? FALLBACK : ""}

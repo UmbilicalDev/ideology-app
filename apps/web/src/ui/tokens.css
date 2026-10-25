@@ -1,29 +1,148 @@
-/* Design tokens from DESIGN.md. Change DESIGN.md first, then mirror it here. */
+/* Mirrors DESIGN.md. Change DESIGN.md first.
+   Civic Horizon (docs/design/civic-horizon.md) on Material Design 3.
+   Light = the unprefixed roles; dark = the dark-* roles. The light-* roles are
+   not used. Every width media query of the app lives here and only switches
+   layout tokens; global.css and components.css have none. */
 :root {
-  --color-primary: #2f4b7c;
-  --color-secondary: #5b6b82;
-  --color-accent: #e0a526;
-  --color-background: #f7f7f5;
-  --color-surface: #ffffff;
-  --color-text: #1d2330;
-  --color-muted: #6b7280;
-  --color-border: #e3e3de;
-  --color-scale-disagree-strong: #8a8f98;
-  --color-scale-agree-strong: #2f4b7c;
+  color-scheme: light dark;
 
-  --font-ui: Inter, system-ui, sans-serif;
-  --font-quote: Georgia, serif;
-  --font-size-h1: 28px;
-  --font-size-h2: 20px;
-  --font-size-body: 16px;
-  --font-size-quote: 15px;
+  --md-ref-typeface-plain: "Public Sans Variable", "Public Sans", system-ui, sans-serif;
 
-  --radius-sm: 6px;
-  --radius-md: 12px;
+  /* Colour roles: light theme. */
+  --md-sys-color-primary: #004d64;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #006684;
+  --md-sys-color-on-primary-container: #a2e1ff;
+  --md-sys-color-secondary: #715d02;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #fade7d;
+  --md-sys-color-on-secondary-container: #756107;
+  --md-sys-color-tertiary-container: #006874;
+  --md-sys-color-on-tertiary-container: #97e4f2;
+  --md-sys-color-tertiary-fixed: #a2effd;
+  --md-sys-color-on-tertiary-fixed-variant: #004f58;
+  --md-sys-color-surface: #f5faff;
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #eef4fa;
+  --md-sys-color-surface-container: #e8eff4;
+  --md-sys-color-surface-container-high: #e2e9ef;
+  --md-sys-color-surface-container-highest: #dde3e9;
+  --md-sys-color-on-surface: #161c21;
+  --md-sys-color-on-surface-variant: #3f484d;
+  --md-sys-color-outline: #70787e;
+  --md-sys-color-outline-variant: #bfc8cd;
 
-  --space-sm: 8px;
-  --space-md: 16px;
-  --space-lg: 24px;
+  /* Semantic aliases: light theme. */
+  --color-card: var(--md-sys-color-surface-container-lowest);
+  --color-card-nested: var(--md-sys-color-surface-container-low);
+  --color-info-container: var(--md-sys-color-tertiary-fixed);
+  --color-on-info-container: var(--md-sys-color-on-tertiary-fixed-variant);
+  --color-focus-ring: var(--md-sys-color-secondary);
+  --elevation-2: 0 2px 8px -2px rgba(0, 31, 42, 0.08);
 
-  --reading-width: 720px;
+  /* Type scale: <weight> <size>/<line-height> <family>, plus tracking. */
+  --md-sys-typescale-headline-lg: 600 2rem/2.5rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-headline-lg-tracking: 0;
+  --md-sys-typescale-headline-lg-mobile: 600 1.625rem/2.125rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-headline-lg-mobile-tracking: 0;
+  --md-sys-typescale-headline-sm: 500 1.5rem/2rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-headline-sm-tracking: 0;
+  --md-sys-typescale-title-lg: 500 1.375rem/1.75rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-title-lg-tracking: 0;
+  --md-sys-typescale-title-md: 600 1rem/1.5rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-title-md-tracking: 0.009375rem;
+  --md-sys-typescale-body-lg: 400 1rem/1.5rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-body-lg-tracking: 0.03125rem;
+  --md-sys-typescale-body-md: 400 0.875rem/1.25rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-body-md-tracking: 0.015625rem;
+  --md-sys-typescale-label-lg: 600 0.875rem/1.25rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-label-lg-tracking: 0.00625rem;
+  --md-sys-typescale-label-md: 500 0.75rem/1rem var(--md-ref-typeface-plain);
+  --md-sys-typescale-label-md-tracking: 0.03125rem;
+
+  /* Shapes. */
+  --md-sys-shape-corner-small: 0.25rem;
+  --md-sys-shape-corner-default: 0.5rem;
+  --md-sys-shape-corner-medium: 0.75rem;
+  --md-sys-shape-corner-large: 1rem;
+  --md-sys-shape-corner-extra-large: 1.5rem;
+  --md-sys-shape-corner-full: 9999px;
+
+  /* Spacing. */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+
+  /* Layout: M3 compact window class (0-599px). */
+  --layout-max-width: 1200px;
+  --layout-columns: 4;
+  --layout-margin: 1rem;
+  --layout-gutter: 1rem;
+  --layout-content-column: 1 / -1;
+  --page-title-font: var(--md-sys-typescale-headline-lg-mobile);
+  --page-title-tracking: var(--md-sys-typescale-headline-lg-mobile-tracking);
+  --election-columns: 1;
+  --card-padding: var(--space-md);
+  --brand-logo-size: 40px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Colour roles: dark theme (the dark-* roles). */
+    --md-sys-color-primary: #65d3ff;
+    --md-sys-color-on-primary: #003546;
+    --md-sys-color-primary-container: #004d64;
+    --md-sys-color-on-primary-container: #bfe9ff;
+    --md-sys-color-secondary: #e9c336;
+    --md-sys-color-on-secondary: #3a2f00;
+    --md-sys-color-secondary-container: #534400;
+    --md-sys-color-on-secondary-container: #ffe082;
+    --md-sys-color-tertiary-container: #004f58;
+    --md-sys-color-on-tertiary-container: #9eeffd;
+    --md-sys-color-surface: #0f1416;
+    --md-sys-color-surface-container-lowest: #0a0f11;
+    --md-sys-color-surface-container-low: #171d1e;
+    --md-sys-color-surface-container: #1b2122;
+    --md-sys-color-surface-container-high: #262b2d;
+    --md-sys-color-surface-container-highest: #303638;
+    --md-sys-color-on-surface: #dee4e5;
+    --md-sys-color-on-surface-variant: #bfc8cc;
+    --md-sys-color-outline: #899296;
+    --md-sys-color-outline-variant: #40484c;
+
+    /* Semantic aliases: dark theme. The dark set has no fixed roles, and a
+       bright chip on a dark page would shout, so info uses the container. */
+    --color-card: var(--md-sys-color-surface-container-low);
+    --color-card-nested: var(--md-sys-color-surface-container);
+    --color-info-container: var(--md-sys-color-tertiary-container);
+    --color-on-info-container: var(--md-sys-color-on-tertiary-container);
+    --elevation-2: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* M3 medium window class (600-839px). */
+@media (min-width: 600px) {
+  :root {
+    --layout-columns: 8;
+    --layout-margin: 2rem;
+    --layout-gutter: 1.5rem;
+    --page-title-font: var(--md-sys-typescale-headline-lg);
+    --page-title-tracking: var(--md-sys-typescale-headline-lg-tracking);
+    --election-columns: 2;
+    --card-padding: var(--space-lg);
+    --brand-logo-size: 48px;
+  }
+}
+
+/* M3 expanded window class (840px and up, max 1200px). */
+@media (min-width: 840px) {
+  :root {
+    --layout-columns: 12;
+    --layout-margin: 3rem;
+    --layout-gutter: 2rem;
+    --layout-content-column: 2 / span 10;
+    --card-padding: var(--space-xl);
+  }
 }

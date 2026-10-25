@@ -1,8 +1,7 @@
 // Provisional copy: pending legal review before a public launch (docs/risks-and-open-questions.md, "Electoral and legal exposure").
 import { useEffect, useRef } from "react";
-import { Link } from "react-router";
 
-import { HOME_PATH } from "../paths";
+import { HomeButton } from "../common/HomeButton";
 
 export const METHODOLOGY_TITLE = "Metodología · Comparador de programas electorales";
 
@@ -191,11 +190,7 @@ export function MethodologyPage() {
         </p>
       </section>
 
-      <p>
-        <Link className="back-link" to={HOME_PATH}>
-          Volver al inicio
-        </Link>
-      </p>
+      <HomeButton />
     </main>
   );
 }

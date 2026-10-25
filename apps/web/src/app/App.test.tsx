@@ -25,18 +25,20 @@ describe("App routes", () => {
     });
     renderAt("/", fetch);
 
-    fireEvent.click(await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" }));
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Cuestionario");
+    fireEvent.click(await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("IdeologiApp");
     expect(
       await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" }),
     ).toBeTruthy();
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Saltar esta afirmación" }));
-    expect(screen.getByText("Has respondido 0 de 1 afirmaciones y has saltado 1.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("link", { name: "Volver al inicio" }));
+    expect(screen.getByText("Muestra evaluada: 0/1 afirmaciones contestadas")).toBeTruthy();
+    const homeLinks = screen.getAllByRole("link", { name: "Volver al inicio" });
+    expect(homeLinks).toHaveLength(2);
+    fireEvent.click(homeLinks[1]!);
     expect(
-      await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" }),
+      await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }),
     ).toBeTruthy();
     expect(fetch.mock.calls.map((call) => call[0])).toEqual([
       "/api/v1/elections",
@@ -73,7 +75,7 @@ describe("App routes", () => {
     document.title = "Comparador de programas electorales";
     const fetch = vi.fn<FetchLike>(async () => jsonResponse({ elections: [electionJson()] }));
     renderAt("/", fetch);
-    await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" });
+    await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" });
 
     fireEvent.click(screen.getByRole("link", { name: "Lee la metodología completa" }));
     const h1 = screen.getByRole("heading", { level: 1 });
@@ -84,7 +86,7 @@ describe("App routes", () => {
 
     fireEvent.click(screen.getByRole("link", { name: "Volver al inicio" }));
     expect(
-      await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" }),
+      await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }),
     ).toBeTruthy();
     expect(document.title).toBe("Comparador de programas electorales");
   });

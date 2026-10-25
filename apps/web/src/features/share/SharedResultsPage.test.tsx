@@ -122,7 +122,7 @@ describe("SharedResultsPage", () => {
     expect(rankingTexts()).toEqual(endRanking);
     expect(breakdownTexts()).toEqual(endBreakdown);
     expect(screen.getByText("Generales 2023").className).toBe("questionnaire__election");
-    expect(screen.getByText("Se respondieron 6 de 6 afirmaciones y se saltaron 0.")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 6/6 afirmaciones contestadas")).toBeTruthy();
     expect(screen.getByText("Se marcó 1 afirmación como importante.")).toBeTruthy();
     expect(
       screen.getByText(
@@ -208,7 +208,13 @@ describe("SharedResultsPage", () => {
   test("all skipped: counts, the no-scores sentence and the breakdown", async () => {
     renderAt("/resultados#v1-1-ssssSs", sixStatements());
     await ready();
-    expect(screen.getByText("Se respondieron 0 de 6 afirmaciones y se saltaron 6.")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 0/6 afirmaciones contestadas")).toBeTruthy();
+    const summary = screen.getByRole("region", { name: "Muestra evaluada: 0/6 afirmaciones contestadas" });
+    expect(within(summary).getByText("Se saltaron 6 afirmaciones.")).toBeTruthy();
+    expect(summary.querySelector(".summary-donut")?.textContent).toBe("0\u00a0%");
+    // No arc at 0 %, only the track.
+    expect(summary.querySelector(".summary-donut__value")).toBeNull();
+    expect(summary.querySelector(".summary-donut__track")).not.toBeNull();
     expect(screen.getByText("No se marcó ninguna afirmación como importante.")).toBeTruthy();
     expect(
       screen.getByText(

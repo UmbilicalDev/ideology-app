@@ -18,9 +18,13 @@ import {
   type Statement,
 } from "@ideology-app/core";
 
-import { HOME_PATH, METHODOLOGY_PATH } from "../paths";
+import { ExternalLinkIcon, StarIcon } from "../../ui/icons";
+import { HomeButton } from "../common/HomeButton";
+import { NoticeCard } from "../common/NoticeCard";
+import { METHODOLOGY_PATH } from "../paths";
 import { ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
+import { ResultsSummary } from "../results/ResultsSummary";
 import { SCALE_LABELS } from "../scale-labels";
 import { ShareResults } from "../share/ShareResults";
 
@@ -34,6 +38,8 @@ const NOTE =
   "Las afirmaciones las ha generado una inteligencia artificial a partir de los programas " +
   "electorales. Tus respuestas se quedan en este navegador: no se envían a ningún servidor y " +
   "se pierden si recargas o sales de la página.";
+
+const DISCLOSURE_TITLE = "Transparencia algorítmica y privacidad garantizada";
 
 function init(datasetVersion: DatasetVersion): QuestionnaireState {
   return startQuestionnaire(datasetVersion.statements.map((statement) => statement.id));
@@ -148,65 +154,79 @@ function StatementStep({
   const n = index + 1;
   return (
     <>
-      <p id="questionnaire-progress" className="questionnaire__progress-label">
-        {`Afirmación ${n} de ${total}`}
-      </p>
-      <progress
-        className="questionnaire__progress"
-        max={total}
-        value={n}
-        aria-labelledby="questionnaire-progress"
-      />
-      <h2 id="statement-text" className="questionnaire__statement" tabIndex={-1} ref={headingRef}>
-        {statement.text}
-      </h2>
-      <button
-        type="button"
-        className="important-toggle"
-        aria-pressed={important}
-        aria-describedby="important-hint"
-        onClick={onToggleImportant}
-      >
-        <StarIcon />
-        <span>Importante para mí</span>
-      </button>
-      <p id="important-hint" className="questionnaire__hint">
-        {IMPORTANT_HINT}
-      </p>
-      <div role="radiogroup" aria-labelledby="statement-text" className="scale">
-        {SCALE_OPTIONS.map((option) => (
-          <label key={option.value} className="scale-option">
-            <input
-              type="radio"
-              name={`answer-${statement.id}`}
-              value={option.value}
-              checked={answer === option.value}
-              onChange={() => onSelect(option.value)}
-            />{" "}
-            <span>{option.label}</span>
-          </label>
-        ))}
-      </div>
-      {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
-      <div className="questionnaire__controls">
-        <button
-          type="button"
-          className="button-primary"
-          disabled={answer === undefined}
-          onClick={() => onMove({ type: "next" })}
-        >
-          Siguiente
-        </button>
-        <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
-          Saltar esta afirmación
-        </button>
-        {index > 0 ? (
-          <button type="button" className="button-secondary" onClick={() => onMove({ type: "back" })}>
-            Anterior
+      <div className="statement-card">
+        <p id="questionnaire-progress" className="questionnaire__progress-label">
+          {`Afirmación ${n} de ${total}`}
+        </p>
+        <progress
+          className="questionnaire__progress"
+          max={total}
+          value={n}
+          aria-labelledby="questionnaire-progress"
+        />
+        <h2 id="statement-text" className="questionnaire__statement" tabIndex={-1} ref={headingRef}>
+          {statement.text}
+        </h2>
+        <div className="important-row">
+          <button
+            type="button"
+            className="important-toggle"
+            aria-pressed={important}
+            aria-describedby="important-hint"
+            onClick={onToggleImportant}
+          >
+            <StarIcon className="important-toggle__star" />
+            <span>Importante para mí</span>
           </button>
-        ) : null}
+          <p id="important-hint" className="questionnaire__hint">
+            {IMPORTANT_HINT}
+          </p>
+        </div>
+        <div role="radiogroup" aria-labelledby="statement-text" className="scale">
+          {SCALE_OPTIONS.map((option) => (
+            <label key={option.value} className="scale-option">
+              <input
+                type="radio"
+                name={`answer-${statement.id}`}
+                value={option.value}
+                checked={answer === option.value}
+                onChange={() => onSelect(option.value)}
+              />{" "}
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+        {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
+        <div className="questionnaire__controls">
+          <button
+            type="button"
+            className="button-primary"
+            disabled={answer === undefined}
+            onClick={() => onMove({ type: "next" })}
+          >
+            Siguiente
+          </button>
+          <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
+            Saltar esta afirmación
+          </button>
+          {index > 0 ? (
+            <button type="button" className="button-secondary" onClick={() => onMove({ type: "back" })}>
+              Anterior
+            </button>
+          ) : null}
+        </div>
       </div>
-      <p className="questionnaire__note">{NOTE}</p>
+      <section className="disclosure-card" aria-labelledby="ai-privacy-title">
+        <span className="disclosure-card__icon">
+          <ShieldIcon />
+        </span>
+        <div>
+          <h3 id="ai-privacy-title" className="disclosure-card__title">
+            {DISCLOSURE_TITLE}
+          </h3>
+          <p className="questionnaire__note">{NOTE}</p>
+        </div>
+      </section>
     </>
   );
 }
@@ -234,10 +254,13 @@ function EndScreen({
       <h2 id="results-title" tabIndex={-1} ref={headingRef}>
         Tus resultados
       </h2>
-      <p>
-        {`Has respondido ${answered} de ${total} afirmaciones y has saltado ${skipped}.`}
-      </p>
-      <p>{importantSentence(important)}</p>
+      <ResultsSummary
+        answered={answered}
+        skipped={skipped}
+        important={important}
+        total={total}
+        voice="voter"
+      />
       {hasScores ? (
         <>
           <p>{RESULTS_INTRO}</p>
@@ -255,52 +278,41 @@ function EndScreen({
           Volver a la última afirmación
         </button>
       </div>
-      <p>{DISCLAIMER}</p>
+      <NoticeCard text={DISCLAIMER} />
       <p>
         <Link className="text-link" to={METHODOLOGY_PATH} target="_blank" rel="noopener">
-          Cómo se calcula la afinidad (se abre en una pestaña nueva)
+          Cómo se calcula la afinidad{" "}
+          <span className="visually-hidden">(se abre en una pestaña nueva)</span>
+          <ExternalLinkIcon />
         </Link>
       </p>
+      <HomeButton />
       <ResultsBreakdown rows={breakdown} />
       <p className="questionnaire__note">
         {hasScores ? `${RESULTS_NOTE} ${RESULTS_NOTE_SHARE}` : RESULTS_NOTE}
       </p>
-      <p>
-        <Link className="back-link" to={HOME_PATH}>
-          Volver al inicio
-        </Link>
-      </p>
+      <HomeButton />
     </>
   );
 }
 
-// Outline when not pressed, filled amber when pressed (components.css): the
-// shape carries the state, not only the colour.
-function StarIcon() {
+// Decorative shield on the disclosure card (an original drawing).
+function ShieldIcon() {
   return (
     <svg
-      className="important-toggle__star"
       aria-hidden="true"
       focusable="false"
       width="24"
       height="24"
       viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinejoin="round"
+      strokeLinecap="round"
     >
-      <path
-        d="M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.54L12 17.5l-5.87 3.08 1.12-6.54L2.5 9.41l6.56-.95z"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
+      <path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.5-4-1.2-7-5-7-9.5V6z" />
+      <path d="M9 12l2 2 4-4" />
     </svg>
   );
-}
-
-function importantSentence(count: number): string {
-  if (count === 0) {
-    return "No has marcado ninguna afirmación como importante.";
-  }
-  if (count === 1) {
-    return "Has marcado 1 afirmación como importante.";
-  }
-  return `Has marcado ${count} afirmaciones como importantes.`;
 }

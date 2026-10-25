@@ -440,3 +440,12 @@ Rules: never put `outline` or `outline-variant` under text. The secondary star o
 - [ ] The disclosure card has the shield (aria-hidden), the exact title and the unchanged text. No other copy changed. Topic pill, progress labels, compass and chip are absent.
 - [ ] Party rows and positions are identical, with no winner emphasis. Existing tests are unmodified. Only the listed files changed.
 - [ ] The browser walk ran in both themes at all three widths: console clean, same-origin only, no Answers in any request. Docs and evidence are updated.
+
+## As Implemented (implementer, 2026-10-25)
+
+Deviations found during implementation, each narrow and needed to meet the spec's own acceptance criteria:
+
+- **Statement measure `30em`, not `65ch`.** In the browser, `65ch` (the width of a "0" at 24px, about 968px) let the 26 real Statements reach 78 characters per line at 1280px. `30em` (720px) gives at most 66, meeting Scenario 4's "about 65 characters or fewer". Running text keeps `75ch` as specified (recorded as a Low finding).
+- **`apps/web/vite.config.ts`** gets `test.css.include: [/[?&]raw(?:&|$)/]`. Vitest replaces every CSS import with an empty string by default, so the `?raw` glob in `design-tokens.test.tsx` read `""` and its assertions passed vacuously. Only `?raw` CSS imports are let through; component CSS imports stay empty in tests.
+- **`global.css`: `main > * > :last-child { margin-bottom: 0 }`.** `main` is now a grid, and a grid item does not collapse its last child's bottom margin with its own, so sections gained an extra 16px gap (for example on `/metodologia`).
+- **`.scale-option input { font: inherit }`.** The radio inputs computed `Arial` (the UA default for form controls); now every element computes Public Sans.

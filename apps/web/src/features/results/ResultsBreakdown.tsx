@@ -43,7 +43,7 @@ export function ResultsBreakdown({
   const copy = OWNER_COPY[answerOwner];
   return (
     <section className="breakdown-section" aria-labelledby="breakdown-title">
-      <h3 id="breakdown-title">Detalle por afirmación</h3>
+      <h3 id="breakdown-title" className="breakdown-section__title">Detalle por afirmación</h3>
       <p>{copy.intro}</p>
       <ol className="breakdown" role="list" aria-labelledby="breakdown-title">
         {rows.map((row) => (

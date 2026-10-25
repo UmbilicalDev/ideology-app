@@ -103,6 +103,11 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - New server routes MUST be registered in `create_app` before `web_router`, and the SPA fallback MUST NOT serve `/api/` or `/health` paths. Reason: the catch-all `GET /{path:path}` matches every path, so anything included after it is unreachable, and unknown API paths must keep their JSON `404`.
 - Client route segments MUST NOT contain a `.`. Reason: the SPA fallback answers a missing path whose last segment has a `.` with `404`, so such a route would break on deep links and reloads.
 
+## Web Client Styling
+
+- Component CSS MUST take colours, font families and shadows only from `apps/web/src/ui/tokens.css` (enforced by `apps/web/src/ui/design-tokens.test.tsx`). Reason: two themes (light and dark) and one auditable neutral palette that mirrors `DESIGN.md`.
+- The web client MUST NOT load fonts, styles, scripts or images from another origin. Reason: privacy (no third party sees Voters) and the invariant that only same-origin requests, carrying ids only, leave the page.
+
 ## Public Copy
 
 - `apps/web/src/features/methodology/MethodologyPage.tsx` and its test MUST be updated in the same change whenever a Validation check, a `ValidationSettings` default, the matching rule (`match-score.ts` constants or formula), the prompt rules it describes, or the privacy model changes. Reason: the page is static copy and the public description of the method; stale copy is a legal and trust risk.

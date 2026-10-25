@@ -82,7 +82,9 @@ describe("QuestionnairePage", () => {
   test("Scenario 1: loading, then the first Statement with five unchecked radios", async () => {
     const fetch = happyFetch();
     renderAt("/elecciones/1/cuestionario", fetch);
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Cuestionario");
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.textContent).toBe("IdeologiApp");
+    expect(h1.querySelector("img")?.getAttribute("alt")).toBe("");
     expect(screen.getByRole("status").textContent).toBe("Cargando cuestionario…");
 
     const group = await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" });
@@ -156,10 +158,12 @@ describe("QuestionnairePage", () => {
     fireEvent.click(button("Saltar esta afirmación"));
     expect(heading2().textContent).toBe("Tus resultados");
     expect(document.activeElement).toBe(heading2());
-    expect(screen.getByText("Has respondido 2 de 3 afirmaciones y has saltado 1.")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 2/3 afirmaciones contestadas")).toBeTruthy();
     expect(screen.queryByText(/muy pronto/)).toBeNull();
     expect(screen.queryByRole("radiogroup")).toBeNull();
-    expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+    expect(
+      screen.getAllByRole("link", { name: "Volver al inicio" }).map((link) => link.getAttribute("href")),
+    ).toEqual(["/", "/"]);
 
     fireEvent.click(button("Volver a la última afirmación"));
     expect(heading2().textContent).toBe("Afirmación de prueba 3");
@@ -185,7 +189,7 @@ describe("QuestionnairePage", () => {
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
     fireEvent.click(radio("Ni de acuerdo ni en desacuerdo"));
     fireEvent.click(button("Siguiente"));
-    expect(screen.getByText("Has respondido 1 de 1 afirmaciones y has saltado 0.")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 1/1 afirmaciones contestadas")).toBeTruthy();
     fireEvent.click(button("Volver a la última afirmación"));
     expect(radio("Ni de acuerdo ni en desacuerdo").checked).toBe(true);
   });
@@ -198,6 +202,36 @@ describe("QuestionnairePage", () => {
     fireEvent.click(button("Siguiente"));
     expect(radio("De acuerdo").name).toBe("answer-102");
     expect(screen.getAllByRole("radio").every((r) => r.getAttribute("name") === "answer-102")).toBe(true);
+  });
+
+  test("the AI/privacy disclosure card follows the scale and is absent on the end screen", async () => {
+    await openQuestionnaire();
+    const disclosure = screen.getByRole("region", {
+      name: "Transparencia algorítmica y privacidad garantizada",
+    });
+    const title = within(disclosure).getByRole("heading", { level: 3 });
+    expect(title.textContent).toBe("Transparencia algorítmica y privacidad garantizada");
+    const note = within(disclosure).getByText(/Tus respuestas se quedan en este navegador/);
+    expect(note.tagName).toBe("P");
+    expect(note.className).toBe("questionnaire__note");
+    expect(note.textContent).toBe(
+      "Las afirmaciones las ha generado una inteligencia artificial a partir de los programas " +
+        "electorales. Tus respuestas se quedan en este navegador: no se envían a ningún servidor y " +
+        "se pierden si recargas o sales de la página.",
+    );
+    const icons = disclosure.querySelectorAll("svg");
+    expect(icons).toHaveLength(1);
+    expect(icons[0]?.getAttribute("aria-hidden")).toBe("true");
+    const group = screen.getByRole("radiogroup");
+    expect(group.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    for (let i = 0; i < 3; i += 1) {
+      fireEvent.click(button("Saltar esta afirmación"));
+    }
+    expect(heading2().textContent).toBe("Tus resultados");
+    expect(
+      screen.queryByRole("region", { name: "Transparencia algorítmica y privacidad garantizada" }),
+    ).toBeNull();
   });
 
   describe("Important flag", () => {
@@ -281,7 +315,7 @@ describe("QuestionnairePage", () => {
     test("Scenario 5: the end screen counts rated Important Statements; Scenario 7 in jsdom", async () => {
       const fetch = happyFetch();
       await openQuestionnaire(fetch);
-      const answered = "Has respondido 2 de 3 afirmaciones y has saltado 1.";
+      const answered = "Muestra evaluada: 2/3 afirmaciones contestadas";
 
       // 1: rated + Important. 2: rated + Important. 3: skipped + Important.
       fireEvent.click(toggle());
@@ -292,9 +326,15 @@ describe("QuestionnairePage", () => {
       fireEvent.click(button("Siguiente"));
       fireEvent.click(toggle());
       fireEvent.click(button("Saltar esta afirmación"));
-      const summary = screen.getByText(answered);
-      const sentence = screen.getByText("Has marcado 2 afirmaciones como importantes.");
-      expect(summary.nextElementSibling).toBe(sentence);
+      const summary = screen.getByRole("region", { name: answered });
+      expect(within(summary).getByText("Has saltado 1 afirmación.")).toBeTruthy();
+      const sentence = within(summary).getByText("Has marcado 2 afirmaciones como importantes.");
+      expect(sentence.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      expect(sentence.getAttribute("data-marked")).toBe("true");
+      // The donut shows the answered share, 2 of 3; the text carries the numbers.
+      const donut = summary.querySelector(".summary-donut")!;
+      expect(donut.getAttribute("aria-hidden")).toBe("true");
+      expect(donut.textContent).toBe("67\u00a0%");
 
       fireEvent.click(button("Volver a la última afirmación"));
       expect(heading2().textContent).toBe("Afirmación de prueba 3");
@@ -316,7 +356,8 @@ describe("QuestionnairePage", () => {
       fireEvent.click(button("Siguiente"));
       fireEvent.click(button("Siguiente"));
       expect(screen.getByText(answered)).toBeTruthy();
-      expect(screen.getByText("No has marcado ninguna afirmación como importante.")).toBeTruthy();
+      const none = screen.getByText("No has marcado ninguna afirmación como importante.");
+      expect(none.getAttribute("data-marked")).toBe("false");
 
       expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
       expect(localStorage.length).toBe(0);
@@ -419,8 +460,8 @@ describe("QuestionnairePage", () => {
   describe("results", () => {
     const NBSP = " ";
     const LEGEND =
-      "Baja cobertura: compartes menos de 5 afirmaciones con ese partido, así que su afinidad " +
-      "se basa en pocos datos.";
+      "Compartes menos de 5 afirmaciones con este partido, así que su afinidad se basa en pocos " +
+      "datos.";
     const PROMPT =
       "Todavía no se puede calcular tu afinidad: no has respondido ninguna afirmación en la que " +
       "los partidos tengan posición. Responde al menos una para ver los resultados.";
@@ -507,16 +548,20 @@ describe("QuestionnairePage", () => {
 
       expect(heading2().textContent).toBe("Tus resultados");
       expect(document.activeElement).toBe(heading2());
-      expect(screen.getByText("Has respondido 5 de 6 afirmaciones y has saltado 1.")).toBeTruthy();
+      expect(screen.getByText("Muestra evaluada: 5/6 afirmaciones contestadas")).toBeTruthy();
       expect(
         screen.getByText("Afinidad entre tus respuestas y el programa de cada partido, de mayor a menor."),
       ).toBeTruthy();
       expect(rowTexts()).toEqual([
         `Partido Uno P1 100${NBSP}%5 afirmaciones en común`,
-        `Partido Dos P2 50${NBSP}%4 afirmaciones en común Baja cobertura`,
+        `Partido Dos P2 50${NBSP}%4 afirmaciones en común Baja cobertura${LEGEND}`,
       ]);
-      expect(within(rankingRows()[1]!).getByText("Baja cobertura").className).toBe("coverage-badge");
-      expect(screen.getByText(LEGEND)).toBeTruthy();
+      const chip = within(rankingRows()[1]!).getByRole("button", { name: "Baja cobertura" });
+      expect(chip.className).toBe("coverage-badge");
+      // The explanation is the chip's tooltip, not a legend under the ranking.
+      expect(document.getElementById(chip.getAttribute("aria-describedby")!)?.textContent).toBe(LEGEND);
+      expect(screen.getAllByText(LEGEND)).toHaveLength(1);
+      expect(screen.getAllByText(LEGEND)[0]!.getAttribute("role")).toBe("tooltip");
       for (const li of rankingRows()) {
         expect(li.querySelector(".ranking-bar")?.getAttribute("aria-hidden")).toBe("true");
       }
@@ -536,7 +581,15 @@ describe("QuestionnairePage", () => {
       expect(screen.getByText(`${LOSS_NOTE} ${LOSS_NOTE_SHARE}`).className).toBe(
         "questionnaire__note",
       );
-      expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+      // Volver al inicio is a button-styled link before the breakdown and at the end.
+      const home = screen.getAllByRole("link", { name: "Volver al inicio" });
+      expect(home.map((link) => [link.getAttribute("href"), link.className])).toEqual([
+        ["/", "button-secondary"],
+        ["/", "button-secondary"],
+      ]);
+      const breakdown = screen.getByRole("region", { name: "Detalle por afirmación" });
+      expect(home[0]!.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(home[1]!.compareDocumentPosition(breakdown) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     });
 
     test("Scenario 2: a tie on the displayed percentage is ordered by name", async () => {
@@ -574,7 +627,10 @@ describe("QuestionnairePage", () => {
       expect(heading2().textContent).toBe("Tus resultados");
       expect(screen.getByText(PROMPT)).toBeTruthy();
       expect(screen.queryByRole("list", { name: "Tus resultados" })).toBeNull();
-      expect(screen.queryByText(/%/)).toBeNull();
+      // Only the summary donut shows a percentage.
+      expect(screen.getAllByText(/%/).map((element) => element.className)).toEqual([
+        "summary-donut__label",
+      ]);
       expect(screen.queryByText(LEGEND)).toBeNull();
       expect(
         screen.getByRole("link", { name: "Cómo se calcula la afinidad (se abre en una pestaña nueva)" }),
@@ -593,8 +649,8 @@ describe("QuestionnairePage", () => {
       expect(screen.queryByText(PROMPT)).toBeNull();
       // Statement 1: Uno +1 (agreement 0.75); Dos has no stance there, so no score.
       expect(rowTexts()).toEqual([
-        `Partido Uno P1 75${NBSP}%1 afirmación en común Baja cobertura`,
-        "Partido Dos P2 Sin afirmaciones en común0 afirmaciones en común Baja cobertura",
+        `Partido Uno P1 75${NBSP}%1 afirmación en común Baja cobertura${LEGEND}`,
+        `Partido Dos P2 Sin afirmaciones en común0 afirmaciones en común Baja cobertura${LEGEND}`,
       ]);
     });
 

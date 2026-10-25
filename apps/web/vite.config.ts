@@ -16,5 +16,8 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/**/*.test.tsx"],
     setupFiles: ["src/test/setup.ts"],
+    // Vitest empties every CSS import by default; let `?raw` imports through so
+    // src/ui/design-tokens.test.tsx can read the real stylesheets.
+    css: { include: [/[?&]raw(?:&|$)/] },
   },
 });

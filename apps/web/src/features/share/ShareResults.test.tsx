@@ -122,6 +122,22 @@ describe("ShareResults", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  test("the share title and Copiar enlace carry decorative icons; the names are unchanged", async () => {
+    await finish(SCENARIO_1);
+    const section = shareSection();
+    const title = within(section).getByRole("heading", { level: 3, name: "Comparte tu resultado" });
+    const copyButton = within(section).getByRole("button", { name: "Copiar enlace" });
+    for (const element of [title, copyButton]) {
+      const icons = element.querySelectorAll("svg");
+      expect(icons).toHaveLength(1);
+      expect(icons[0]!.getAttribute("aria-hidden")).toBe("true");
+    }
+    const notice = screen
+      .getByText(/^Esto no es una recomendación de voto/)
+      .closest(".notice-card");
+    expect(notice?.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   test("Scenario 2: a skip and a flagged skip are encoded with their flags", async () => {
     const writeText = vi.fn(async (_text: string) => undefined);
     defineClipboard({ writeText });

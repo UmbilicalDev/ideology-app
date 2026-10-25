@@ -55,15 +55,19 @@ describe("LandingPage", () => {
     renderLanding(fetch);
 
     expect(screen.getByRole("status").textContent).toBe("Cargando elecciones…");
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
-      "Comparador de programas electorales",
-    );
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.textContent).toBe("IdeologiApp");
+    expect(h1.querySelector("img")?.getAttribute("alt")).toBe("");
+    expect(screen.getByText("Comparador de programas electorales").tagName).toBe("P");
     expectDisclosureAndMethodology();
 
     resolve(jsonResponse({ elections: [electionJson()] }));
-    const link = await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" });
+    const link = await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" });
     expect(link.getAttribute("href")).toBe("/elecciones/1/cuestionario");
     expect(within(link).getByText("23 de julio de 2023")).toBeTruthy();
+    expect(within(link).getByText("Realizar cuestionario").parentElement?.className).toBe(
+      "election-link__cta",
+    );
     expect(screen.queryByRole("status")).toBeNull();
     expectDisclosureAndMethodology();
     expect(
@@ -86,7 +90,7 @@ describe("LandingPage", () => {
     const main = screen.getByRole("main");
     const order = Array.from(main.querySelectorAll("h1, h2")).map((h) => h.textContent);
     expect(order).toEqual([
-      "Comparador de programas electorales",
+      "IdeologiApp",
       "Contenido generado con IA",
       "Elecciones disponibles",
       "Cómo funciona",
@@ -154,7 +158,7 @@ describe("LandingPage", () => {
 
     resolve(jsonResponse({ elections: [electionJson()] }));
     expect(
-      await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023" }),
+      await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }),
     ).toBeTruthy();
     expect(fetch).toHaveBeenCalledTimes(2);
   });
@@ -173,8 +177,8 @@ describe("LandingPage", () => {
     await screen.findByRole("link", { name: /Generales 2027/ });
     const links = electionLinks();
     expect(links.map((link) => link.textContent)).toEqual([
-      "Generales 2027 1 de julio de 2027",
-      "Generales 2023 23 de julio de 2023",
+      "Generales 2027 1 de julio de 2027 Realizar cuestionario",
+      "Generales 2023 23 de julio de 2023 Realizar cuestionario",
     ]);
     expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "/elecciones/3/cuestionario",
