@@ -60,6 +60,16 @@ export function ExternalLinkIcon() {
   );
 }
 
+// Outline by default; CSS fills it to show a pressed or non-zero state, so
+// the shape carries the state, not only the colour.
+export function StarIcon({ className }: { readonly className: string }) {
+  return (
+    <Icon className={className}>
+      <path d="M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.54L12 17.5l-5.87 3.08 1.12-6.54L2.5 9.41l6.56-.95z" />
+    </Icon>
+  );
+}
+
 export function ArrowForwardIcon() {
   return (
     <Icon>

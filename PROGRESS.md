@@ -771,3 +771,15 @@
 - Next best step: publish the branch (product name `IdeologiApp` confirmed by the user).
 - Repair (same session): validator `revise` (Medium: Escape did not close a tooltip opened by hover). Fixed with a document-level Escape listener while open; focused chips keep the tooltip on mouseleave; DESIGN.md tooltip width aligned; open questions recorded. `CI=true ./init.sh` exit 0 (pytest 1454, Vitest 362); browser recheck of hover+Escape and focus+Escape at 1280.
 - Validation: independent validator re-ran the gate and the browser walks after the repair; verdict accept. Status `accepted`.
+
+### Session 065
+
+- Date: 2026-10-25
+- Goal: `results-summary-card` (user request after reviewing PR #73): replace the answered/skipped/Important sentences on the results with a summary card.
+- Completed: `DESIGN.md` first (Summary card). `features/results/ResultsSummary.tsx` (voter and link voice): title `Muestra evaluada: N/T afirmaciones contestadas`, decorative 64px donut with the rounded answered share, skipped sentence, Important sentence led by the Important star (filled when > 0). Used on the end screen and the shared result; `StarIcon` moved to `ui/icons.tsx`.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 1454, Vitest 362, build). Browser walk at 1280 light/dark, 700 light, 375 dark; contrast AA; console empty; no Answers in any request. Details in `feature_list.json`.
+- Evidence captured: `feature_list.json` → `results-summary-card.evidence` (status `passing`).
+- Known risk or unresolved issue: none new.
+- Next best step: push to PR #73.
+- Repair (same session): validator `revise` (0 % donut dot, 100 % label touching the ring). Fixed; `CI=true ./init.sh` exit 0; browser recheck of 0 % and 100 % at 375 dark and 1280 light.
+- Validation: independent validator re-ran the gate and the browser walks after the repair; verdict accept. Status `accepted`.

@@ -536,6 +536,94 @@ main h1[tabindex="-1"]:focus {
   margin: 0;
 }
 
+/* Results summary card (DESIGN.md "Summary card"): a decorative donut of
+   the answered share next to the text, which carries every number. */
+.summary-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md) var(--space-lg);
+  margin: 0 0 var(--space-lg);
+  padding: var(--card-padding);
+  background: var(--color-card);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
+}
+
+.summary-donut {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 64px;
+}
+
+.summary-donut svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  fill: none;
+  stroke-width: 3.5;
+}
+
+.summary-donut__track {
+  stroke: var(--md-sys-color-surface-container-highest);
+}
+
+.summary-donut__value {
+  stroke: var(--md-sys-color-primary);
+  stroke-linecap: round;
+}
+
+.summary-donut__label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--md-sys-color-on-surface);
+  /* label-md at weight 600: "100 %" keeps clear of the ring. */
+  font: var(--md-sys-typescale-label-md);
+  font-weight: 600;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-card__text {
+  min-width: 0;
+}
+
+.summary-card__text h3 {
+  margin: 0 0 var(--space-xs);
+}
+
+.summary-card__text p {
+  margin: 0 0 var(--space-xs);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+}
+
+.summary-card__text p:last-child {
+  margin-bottom: 0;
+}
+
+.summary-card__important {
+  display: flex;
+  align-items: flex-start; /* the 20px star sits on the first 20px line */
+  gap: var(--space-xs);
+}
+
+.summary-card__star {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: var(--md-sys-color-secondary);
+}
+
+.summary-card__important[data-marked="true"] .summary-card__star {
+  fill: var(--md-sys-color-secondary);
+}
+
 /* Results ranking (DESIGN.md "Ranking row"). Every row is identical: no
    party colour, logo, highlight or winner styling. The bar is decorative;
    the percentage, count and badge text carry the meaning. */

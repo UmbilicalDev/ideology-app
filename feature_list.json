@@ -869,5 +869,27 @@
       "2026-10-25 independent validator: revise (Medium: Escape did not close a hover-opened tooltip; Lows: tooltip width doc mismatch, mouseleave on focused chip, Evidence-link new-tab text, spelling filed as settled), then accept after the repair: CI=true ./init.sh exit 0 (pytest 1454, Vitest 362); own browser walks at 1280 light/dark, 700 light, 375 dark: hover+Escape and focus+Escape close the tooltip, tap opens it inside the row, brand h1, election card CTA, share icons, notice card, methodology link name unchanged, two Volver al inicio buttons, 22px breakdown title; ranking rows identical; contrast AA in both themes; console empty, same-origin GETs only, no Answers in any request; data/ideology.db unchanged. Status accepted."
     ],
     "notes": "Requested by the user on 2026-10-25 after reviewing material3-civic-horizon-theme. Logo: the user-provided SVG (ideologiapp_icon.svg). Name written by the user as 'IdiologiApp'; implemented as 'IdeologiApp' (matching the logo file name), confirmed by the user on 2026-10-25. Not a voting recommendation copy unchanged."
+  },
+  {
+    "id": "results-summary-card",
+    "area": "web",
+    "title": "Results summary card with answered-share donut",
+    "user_visible_behavior": "On the end screen and the shared result, the answered/skipped/Important sentences become a summary card titled 'Muestra evaluada: N/T afirmaciones contestadas' with a small donut chart of the answered share (percentage in its centre), the skipped count, and the Important sentence with a star icon (filled when at least one is marked).",
+    "depends_on": ["brand-and-results-polish"],
+    "status": "accepted",
+    "verification": [
+      "DESIGN.md is updated first (Summary card, donut colours and contrast)",
+      "The card is a region named by its title 'Muestra evaluada: N/T afirmaciones contestadas'; the donut and star are decorative (aria-hidden), the text carries the numbers; no hard-coded colours outside tokens.css",
+      "Donut percentage = round(answered / total * 100); skipped sentence and Important sentence keep their meaning (voter voice on the end screen, link voice on the shared result)",
+      "./init.sh passes; tests updated where copy changed",
+      "Browser check at 375px, about 700px and 1280px, light and dark: end screen and shared result; no console errors, no failed requests, no request carries voter answers"
+    ],
+    "evidence": [
+      "2026-10-25 CI=true ./init.sh exit 0: pytest 1454 passed, Vitest 18 files / 362 tests passed (end-screen and shared-result tests now assert the summary card: region named 'Muestra evaluada: N/T afirmaciones contestadas', skipped sentence, Important sentence with an aria-hidden star and data-marked, donut aria-hidden with the rounded percentage; only the donut shows a % when there is no ranking), typecheck ok, vite build ok.",
+      "2026-10-25 browser walk (Claude desktop built-in browser, Chromium; temporary launch entry on port 8097 with a scratch copy of data/ideology.db): end screen at 1280 light (23/26, 88 %, 3 skipped, 2 Important, filled star) and 375 dark (card wraps, no horizontal scroll), 700 light (20/26, 77 %, 6 skipped, 1 Important); shared result from the copied link at 700 light and 1280 dark shows the same card in link voice ('Se saltaron 6 afirmaciones.', 'Se marcó 1 afirmación como importante.'). Contrast on the card: light title 17.18, body 9.35, donut label 17.18, arc 9.35, star 6.42; dark title 13.27, body 10.03, label 13.27, arc 10.0, star 10.01. Console empty; only same-origin GETs; /resultados requested without fragment, no request carries Answers. data/ideology.db shasum b7a1dd5a738e62e9edf28a0ba6a1757cd2c81bd3 unchanged; launch.json restored, scratch DB deleted.",
+      "2026-10-25 repair after validator revise (Medium: a 0 % donut drew a round-cap dot; Low: '100 %' touched the ring): the value arc is not rendered at 0 %; label in label-md weight 600 and stroke 3.5 (label 39px in a ~49px hole); DESIGN.md notes no arc at 0 % and the arc contrast. CI=true ./init.sh exit 0 (pytest 1454, Vitest 362; the all-skipped shared test asserts no value arc). Built-in browser: /resultados with 26 answered at 375 dark (100 %, clear of the ring) and 1280 light; 26 skipped at 1280 light (0 %, no arc); console empty; data/ideology.db unchanged.",
+      "2026-10-25 independent validator: revise (Medium: 0 % donut dot; Low: 100 % label touching the ring), then accept after the repair: CI=true ./init.sh exit 0 (pytest 1454, Vitest 362); own browser walks (chrome-devtools, Chromium) at 375 and 1280, light and dark, end screen and shared result: 0 % shows only the track, 100 % label 39.1px in a 48.9px hole, voter and link voice correct, star filled only when Important > 0; contrast AA; console empty; same-origin GETs only, no Answers in any request; data/ideology.db unchanged. Status accepted."
+    ],
+    "notes": "Requested by the user on 2026-10-25 after reviewing brand-and-results-polish (PR #73). 'icono de fav' read as the Important star used by the Questionnaire toggle."
   }
 ]

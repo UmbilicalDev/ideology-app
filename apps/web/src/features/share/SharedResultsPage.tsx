@@ -8,6 +8,7 @@ import { NoticeCard } from "../common/NoticeCard";
 import { METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
+import { ResultsSummary } from "../results/ResultsSummary";
 import { useSharedResult } from "./useSharedResult";
 
 export const SHARED_RESULTS_TITLE = "Resultado compartido · Comparador de programas electorales";
@@ -126,8 +127,13 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
         </section>
       ) : null}
       <h2 id="results-title">Afinidad con cada partido</h2>
-      <p>{`Se respondieron ${answered} de ${total} afirmaciones y se saltaron ${skipped}.`}</p>
-      <p>{importantSentence(important)}</p>
+      <ResultsSummary
+        answered={answered}
+        skipped={skipped}
+        important={important}
+        total={total}
+        voice="link"
+      />
       {results.hasScores ? (
         <>
           <p>{RESULTS_INTRO}</p>
@@ -154,14 +160,4 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
       <HomeButton />
     </>
   );
-}
-
-function importantSentence(count: number): string {
-  if (count === 0) {
-    return "No se marcó ninguna afirmación como importante.";
-  }
-  if (count === 1) {
-    return "Se marcó 1 afirmación como importante.";
-  }
-  return `Se marcaron ${count} afirmaciones como importantes.`;
 }

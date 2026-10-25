@@ -33,7 +33,7 @@ describe("App routes", () => {
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Saltar esta afirmación" }));
-    expect(screen.getByText("Has respondido 0 de 1 afirmaciones y has saltado 1.")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 0/1 afirmaciones contestadas")).toBeTruthy();
     const homeLinks = screen.getAllByRole("link", { name: "Volver al inicio" });
     expect(homeLinks).toHaveLength(2);
     fireEvent.click(homeLinks[1]!);

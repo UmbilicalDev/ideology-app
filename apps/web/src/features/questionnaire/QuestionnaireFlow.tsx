@@ -18,12 +18,13 @@ import {
   type Statement,
 } from "@ideology-app/core";
 
-import { ExternalLinkIcon } from "../../ui/icons";
+import { ExternalLinkIcon, StarIcon } from "../../ui/icons";
 import { HomeButton } from "../common/HomeButton";
 import { NoticeCard } from "../common/NoticeCard";
 import { METHODOLOGY_PATH } from "../paths";
 import { ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
+import { ResultsSummary } from "../results/ResultsSummary";
 import { SCALE_LABELS } from "../scale-labels";
 import { ShareResults } from "../share/ShareResults";
 
@@ -174,7 +175,7 @@ function StatementStep({
             aria-describedby="important-hint"
             onClick={onToggleImportant}
           >
-            <StarIcon />
+            <StarIcon className="important-toggle__star" />
             <span>Importante para mí</span>
           </button>
           <p id="important-hint" className="questionnaire__hint">
@@ -253,10 +254,13 @@ function EndScreen({
       <h2 id="results-title" tabIndex={-1} ref={headingRef}>
         Tus resultados
       </h2>
-      <p>
-        {`Has respondido ${answered} de ${total} afirmaciones y has saltado ${skipped}.`}
-      </p>
-      <p>{importantSentence(important)}</p>
+      <ResultsSummary
+        answered={answered}
+        skipped={skipped}
+        important={important}
+        total={total}
+        voice="voter"
+      />
       {hasScores ? (
         <>
           <p>{RESULTS_INTRO}</p>
@@ -292,27 +296,6 @@ function EndScreen({
   );
 }
 
-// Outline when not pressed, filled gold when pressed (components.css): the
-// shape carries the state, not only the colour.
-function StarIcon() {
-  return (
-    <svg
-      className="important-toggle__star"
-      aria-hidden="true"
-      focusable="false"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-    >
-      <path
-        d="M12 2.5l2.94 5.96 6.56.95-4.75 4.63 1.12 6.54L12 17.5l-5.87 3.08 1.12-6.54L2.5 9.41l6.56-.95z"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 // Decorative shield on the disclosure card (an original drawing).
 function ShieldIcon() {
   return (
@@ -332,14 +315,4 @@ function ShieldIcon() {
       <path d="M9 12l2 2 4-4" />
     </svg>
   );
-}
-
-function importantSentence(count: number): string {
-  if (count === 0) {
-    return "No has marcado ninguna afirmación como importante.";
-  }
-  if (count === 1) {
-    return "Has marcado 1 afirmación como importante.";
-  }
-  return `Has marcado ${count} afirmaciones como importantes.`;
 }

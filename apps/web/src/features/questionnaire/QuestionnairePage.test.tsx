@@ -158,7 +158,7 @@ describe("QuestionnairePage", () => {
     fireEvent.click(button("Saltar esta afirmación"));
     expect(heading2().textContent).toBe("Tus resultados");
     expect(document.activeElement).toBe(heading2());
-    expect(screen.getByText("Has respondido 2 de 3 afirmaciones y has saltado 1.")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 2/3 afirmaciones contestadas")).toBeTruthy();
     expect(screen.queryByText(/muy pronto/)).toBeNull();
     expect(screen.queryByRole("radiogroup")).toBeNull();
     expect(
@@ -189,7 +189,7 @@ describe("QuestionnairePage", () => {
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
     fireEvent.click(radio("Ni de acuerdo ni en desacuerdo"));
     fireEvent.click(button("Siguiente"));
-    expect(screen.getByText("Has respondido 1 de 1 afirmaciones y has saltado 0.")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 1/1 afirmaciones contestadas")).toBeTruthy();
     fireEvent.click(button("Volver a la última afirmación"));
     expect(radio("Ni de acuerdo ni en desacuerdo").checked).toBe(true);
   });
@@ -315,7 +315,7 @@ describe("QuestionnairePage", () => {
     test("Scenario 5: the end screen counts rated Important Statements; Scenario 7 in jsdom", async () => {
       const fetch = happyFetch();
       await openQuestionnaire(fetch);
-      const answered = "Has respondido 2 de 3 afirmaciones y has saltado 1.";
+      const answered = "Muestra evaluada: 2/3 afirmaciones contestadas";
 
       // 1: rated + Important. 2: rated + Important. 3: skipped + Important.
       fireEvent.click(toggle());
@@ -326,9 +326,15 @@ describe("QuestionnairePage", () => {
       fireEvent.click(button("Siguiente"));
       fireEvent.click(toggle());
       fireEvent.click(button("Saltar esta afirmación"));
-      const summary = screen.getByText(answered);
-      const sentence = screen.getByText("Has marcado 2 afirmaciones como importantes.");
-      expect(summary.nextElementSibling).toBe(sentence);
+      const summary = screen.getByRole("region", { name: answered });
+      expect(within(summary).getByText("Has saltado 1 afirmación.")).toBeTruthy();
+      const sentence = within(summary).getByText("Has marcado 2 afirmaciones como importantes.");
+      expect(sentence.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      expect(sentence.getAttribute("data-marked")).toBe("true");
+      // The donut shows the answered share, 2 of 3; the text carries the numbers.
+      const donut = summary.querySelector(".summary-donut")!;
+      expect(donut.getAttribute("aria-hidden")).toBe("true");
+      expect(donut.textContent).toBe("67\u00a0%");
 
       fireEvent.click(button("Volver a la última afirmación"));
       expect(heading2().textContent).toBe("Afirmación de prueba 3");
@@ -350,7 +356,8 @@ describe("QuestionnairePage", () => {
       fireEvent.click(button("Siguiente"));
       fireEvent.click(button("Siguiente"));
       expect(screen.getByText(answered)).toBeTruthy();
-      expect(screen.getByText("No has marcado ninguna afirmación como importante.")).toBeTruthy();
+      const none = screen.getByText("No has marcado ninguna afirmación como importante.");
+      expect(none.getAttribute("data-marked")).toBe("false");
 
       expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
       expect(localStorage.length).toBe(0);
@@ -541,7 +548,7 @@ describe("QuestionnairePage", () => {
 
       expect(heading2().textContent).toBe("Tus resultados");
       expect(document.activeElement).toBe(heading2());
-      expect(screen.getByText("Has respondido 5 de 6 afirmaciones y has saltado 1.")).toBeTruthy();
+      expect(screen.getByText("Muestra evaluada: 5/6 afirmaciones contestadas")).toBeTruthy();
       expect(
         screen.getByText("Afinidad entre tus respuestas y el programa de cada partido, de mayor a menor."),
       ).toBeTruthy();
@@ -620,7 +627,10 @@ describe("QuestionnairePage", () => {
       expect(heading2().textContent).toBe("Tus resultados");
       expect(screen.getByText(PROMPT)).toBeTruthy();
       expect(screen.queryByRole("list", { name: "Tus resultados" })).toBeNull();
-      expect(screen.queryByText(/%/)).toBeNull();
+      // Only the summary donut shows a percentage.
+      expect(screen.getAllByText(/%/).map((element) => element.className)).toEqual([
+        "summary-donut__label",
+      ]);
       expect(screen.queryByText(LEGEND)).toBeNull();
       expect(
         screen.getByRole("link", { name: "Cómo se calcula la afinidad (se abre en una pestaña nueva)" }),
