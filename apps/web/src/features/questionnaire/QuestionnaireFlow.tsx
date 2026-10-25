@@ -35,6 +35,8 @@ const NOTE =
   "electorales. Tus respuestas se quedan en este navegador: no se envían a ningún servidor y " +
   "se pierden si recargas o sales de la página.";
 
+const DISCLOSURE_TITLE = "Transparencia algorítmica y privacidad garantizada";
+
 function init(datasetVersion: DatasetVersion): QuestionnaireState {
   return startQuestionnaire(datasetVersion.statements.map((statement) => statement.id));
 }
@@ -148,65 +150,79 @@ function StatementStep({
   const n = index + 1;
   return (
     <>
-      <p id="questionnaire-progress" className="questionnaire__progress-label">
-        {`Afirmación ${n} de ${total}`}
-      </p>
-      <progress
-        className="questionnaire__progress"
-        max={total}
-        value={n}
-        aria-labelledby="questionnaire-progress"
-      />
-      <h2 id="statement-text" className="questionnaire__statement" tabIndex={-1} ref={headingRef}>
-        {statement.text}
-      </h2>
-      <button
-        type="button"
-        className="important-toggle"
-        aria-pressed={important}
-        aria-describedby="important-hint"
-        onClick={onToggleImportant}
-      >
-        <StarIcon />
-        <span>Importante para mí</span>
-      </button>
-      <p id="important-hint" className="questionnaire__hint">
-        {IMPORTANT_HINT}
-      </p>
-      <div role="radiogroup" aria-labelledby="statement-text" className="scale">
-        {SCALE_OPTIONS.map((option) => (
-          <label key={option.value} className="scale-option">
-            <input
-              type="radio"
-              name={`answer-${statement.id}`}
-              value={option.value}
-              checked={answer === option.value}
-              onChange={() => onSelect(option.value)}
-            />{" "}
-            <span>{option.label}</span>
-          </label>
-        ))}
-      </div>
-      {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
-      <div className="questionnaire__controls">
-        <button
-          type="button"
-          className="button-primary"
-          disabled={answer === undefined}
-          onClick={() => onMove({ type: "next" })}
-        >
-          Siguiente
-        </button>
-        <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
-          Saltar esta afirmación
-        </button>
-        {index > 0 ? (
-          <button type="button" className="button-secondary" onClick={() => onMove({ type: "back" })}>
-            Anterior
+      <div className="statement-card">
+        <p id="questionnaire-progress" className="questionnaire__progress-label">
+          {`Afirmación ${n} de ${total}`}
+        </p>
+        <progress
+          className="questionnaire__progress"
+          max={total}
+          value={n}
+          aria-labelledby="questionnaire-progress"
+        />
+        <h2 id="statement-text" className="questionnaire__statement" tabIndex={-1} ref={headingRef}>
+          {statement.text}
+        </h2>
+        <div className="important-row">
+          <button
+            type="button"
+            className="important-toggle"
+            aria-pressed={important}
+            aria-describedby="important-hint"
+            onClick={onToggleImportant}
+          >
+            <StarIcon />
+            <span>Importante para mí</span>
           </button>
-        ) : null}
+          <p id="important-hint" className="questionnaire__hint">
+            {IMPORTANT_HINT}
+          </p>
+        </div>
+        <div role="radiogroup" aria-labelledby="statement-text" className="scale">
+          {SCALE_OPTIONS.map((option) => (
+            <label key={option.value} className="scale-option">
+              <input
+                type="radio"
+                name={`answer-${statement.id}`}
+                value={option.value}
+                checked={answer === option.value}
+                onChange={() => onSelect(option.value)}
+              />{" "}
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+        {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
+        <div className="questionnaire__controls">
+          <button
+            type="button"
+            className="button-primary"
+            disabled={answer === undefined}
+            onClick={() => onMove({ type: "next" })}
+          >
+            Siguiente
+          </button>
+          <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
+            Saltar esta afirmación
+          </button>
+          {index > 0 ? (
+            <button type="button" className="button-secondary" onClick={() => onMove({ type: "back" })}>
+              Anterior
+            </button>
+          ) : null}
+        </div>
       </div>
-      <p className="questionnaire__note">{NOTE}</p>
+      <section className="disclosure-card" aria-labelledby="ai-privacy-title">
+        <span className="disclosure-card__icon">
+          <ShieldIcon />
+        </span>
+        <div>
+          <h3 id="ai-privacy-title" className="disclosure-card__title">
+            {DISCLOSURE_TITLE}
+          </h3>
+          <p className="questionnaire__note">{NOTE}</p>
+        </div>
+      </section>
     </>
   );
 }
@@ -274,7 +290,7 @@ function EndScreen({
   );
 }
 
-// Outline when not pressed, filled amber when pressed (components.css): the
+// Outline when not pressed, filled gold when pressed (components.css): the
 // shape carries the state, not only the colour.
 function StarIcon() {
   return (
@@ -291,6 +307,27 @@ function StarIcon() {
         strokeWidth="1.5"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+// Decorative shield on the disclosure card (an original drawing).
+function ShieldIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinejoin="round"
+      strokeLinecap="round"
+    >
+      <path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.5-4-1.2-7-5-7-9.5V6z" />
+      <path d="M9 12l2 2 4-4" />
     </svg>
   );
 }

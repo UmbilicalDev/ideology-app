@@ -12,31 +12,60 @@ html {
 
 body {
   margin: 0;
-  background: var(--color-background);
-  color: var(--color-text);
-  font-family: var(--font-ui);
-  font-size: var(--font-size-body);
-  line-height: 1.5;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-lg);
+  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
 }
 
+/* The M3 responsive grid (DESIGN.md Layout). Window-class values come from
+   tokens.css; every direct child sits in the content columns. */
 main {
-  max-width: calc(var(--reading-width) + 2 * var(--space-md));
+  box-sizing: border-box;
+  max-width: var(--layout-max-width);
   margin: 0 auto;
-  padding: var(--space-lg) var(--space-md);
+  padding: var(--space-lg) var(--layout-margin);
+  display: grid;
+  grid-template-columns: repeat(var(--layout-columns), minmax(0, 1fr));
+  column-gap: var(--layout-gutter);
+  align-content: start;
+}
+
+main > * {
+  grid-column: var(--layout-content-column);
+  min-width: 0;
+}
+
+/* Grid items do not collapse margins with their children, so a section's
+   last paragraph would add its margin to the section's own. */
+main > * > :last-child {
+  margin-bottom: 0;
 }
 
 h1 {
-  font-size: var(--font-size-h1);
-  font-weight: 700;
-  line-height: 1.25;
+  font: var(--page-title-font);
+  letter-spacing: var(--page-title-tracking);
   margin: 0 0 var(--space-md);
 }
 
 h2 {
-  font-size: var(--font-size-h2);
-  font-weight: 600;
+  font: var(--md-sys-typescale-title-lg);
+  letter-spacing: var(--md-sys-typescale-title-lg-tracking);
+}
+
+h3,
+h4 {
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
 }
 
 p {
   margin: 0 0 var(--space-md);
+}
+
+/* Reading measure for running text. */
+main p,
+.plain-list,
+blockquote {
+  max-inline-size: 75ch;
 }

@@ -200,6 +200,36 @@ describe("QuestionnairePage", () => {
     expect(screen.getAllByRole("radio").every((r) => r.getAttribute("name") === "answer-102")).toBe(true);
   });
 
+  test("the AI/privacy disclosure card follows the scale and is absent on the end screen", async () => {
+    await openQuestionnaire();
+    const disclosure = screen.getByRole("region", {
+      name: "Transparencia algorítmica y privacidad garantizada",
+    });
+    const title = within(disclosure).getByRole("heading", { level: 3 });
+    expect(title.textContent).toBe("Transparencia algorítmica y privacidad garantizada");
+    const note = within(disclosure).getByText(/Tus respuestas se quedan en este navegador/);
+    expect(note.tagName).toBe("P");
+    expect(note.className).toBe("questionnaire__note");
+    expect(note.textContent).toBe(
+      "Las afirmaciones las ha generado una inteligencia artificial a partir de los programas " +
+        "electorales. Tus respuestas se quedan en este navegador: no se envían a ningún servidor y " +
+        "se pierden si recargas o sales de la página.",
+    );
+    const icons = disclosure.querySelectorAll("svg");
+    expect(icons).toHaveLength(1);
+    expect(icons[0]?.getAttribute("aria-hidden")).toBe("true");
+    const group = screen.getByRole("radiogroup");
+    expect(group.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    for (let i = 0; i < 3; i += 1) {
+      fireEvent.click(button("Saltar esta afirmación"));
+    }
+    expect(heading2().textContent).toBe("Tus resultados");
+    expect(
+      screen.queryByRole("region", { name: "Transparencia algorítmica y privacidad garantizada" }),
+    ).toBeNull();
+  });
+
   describe("Important flag", () => {
     function toggle() {
       return button("Importante para mí");

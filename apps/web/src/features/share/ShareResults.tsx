@@ -66,7 +66,7 @@ export function ShareResults({
     <section className="share" aria-labelledby="share-title">
       <h3 id="share-title">Comparte tu resultado</h3>
       <p>Copia un enlace que lleva tus respuestas para compartir este resultado.</p>
-      <button type="button" className="button-secondary" onClick={() => void handleCopy()}>
+      <button type="button" className="button-tonal" onClick={() => void handleCopy()}>
         Copiar enlace
       </button>
       <p role="status" className="share__status">

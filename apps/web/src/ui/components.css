@@ -1,20 +1,23 @@
-/* Shared components (DESIGN.md). Neutral palette only: no party colours,
-   no red/green. The amber accent is reserved for focus and Important. */
+/* Shared components (DESIGN.md Components). Material 3 roles from tokens.css
+   only: no hard-coded colour, font or shadow here. Neutral palette: no party
+   colours, no red/green. Secondary (gold) is reserved for focus, Important
+   and the tonal share button. */
 
 section {
   margin: 0 0 var(--space-lg);
 }
 
 h2 {
-  line-height: 1.3;
   margin: 0 0 var(--space-sm);
 }
 
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
+/* Level 1 cards: tonal surface, outline-variant frame, no shadow. */
+.card,
+.share {
+  background: var(--color-card);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: var(--card-padding);
 }
 
 .card p:last-child {
@@ -22,14 +25,14 @@ h2 {
 }
 
 a {
-  color: var(--color-primary);
+  color: var(--md-sys-color-primary);
 }
 
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
 summary:focus-visible {
-  outline: 3px solid var(--color-accent);
+  outline: 3px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
@@ -38,50 +41,75 @@ h2[tabindex="-1"]:focus {
   outline: none;
 }
 
+/* Landing election list: 1 column at compact, 2 from medium (tokens.css). */
 .election-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
+  grid-template-columns: repeat(var(--election-columns), minmax(0, 1fr));
   gap: var(--space-sm);
+}
+
+.election-list > li {
+  display: grid;
 }
 
 .election-link {
   display: block;
   min-height: 48px;
   padding: var(--space-md);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
+  background: var(--color-card);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
+  color: var(--md-sys-color-on-surface);
   text-decoration: none;
 }
 
 .election-link:hover {
-  border-color: var(--color-primary);
+  border-color: var(--md-sys-color-primary);
 }
 
 .election-link__name {
   display: block;
-  font-weight: 600;
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
 }
 
-/* muted is AA only on surface (4.8:1), not on background (4.4:1). */
 .election-link__date {
   display: block;
-  color: var(--color-muted);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+}
+
+/* Buttons: filled, outlined and tonal pills (48px minimum). */
+.button-primary,
+.button-secondary,
+.button-tonal {
+  min-height: 48px;
+  padding: 0 var(--space-lg);
+  border-radius: var(--md-sys-shape-corner-full);
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
+  cursor: pointer;
 }
 
 .button-primary {
-  min-height: 48px;
-  padding: 0 var(--space-lg);
-  background: var(--color-primary);
-  color: #ffffff;
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
   border: 0;
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
+}
+
+.button-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--md-sys-color-on-primary) 8%, var(--md-sys-color-primary));
+}
+
+/* M3 disabled: 12% on-surface container, 38% label (inactive control). */
+.button-primary:disabled {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+  cursor: not-allowed;
 }
 
 /* A link styled as the primary button (shared result CTAs). */
@@ -91,25 +119,28 @@ a.button-primary {
   text-decoration: none;
 }
 
-.button-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .button-secondary {
-  min-height: 48px;
-  padding: 0 var(--space-lg);
-  background: var(--color-surface);
-  color: var(--color-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  border: 1px solid var(--md-sys-color-outline);
 }
 
 .button-secondary:hover {
-  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+}
+
+.button-tonal {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border: 0;
+}
+
+.button-tonal:hover {
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-on-secondary-container) 8%,
+    var(--md-sys-color-secondary-container)
+  );
 }
 
 /* Text links that still meet the 48px minimum tap target. */
@@ -132,15 +163,27 @@ main h1[tabindex="-1"]:focus {
 }
 
 /* Questionnaire (DESIGN.md Core Screens 2). No party content and no
-   red/green: the scale ramp is decorative, meaning lives in the labels. */
+   red/green: meaning lives in the labels and the radio dot. */
 .questionnaire__election,
 .questionnaire__progress-label {
-  color: var(--color-secondary);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-label-lg);
+  letter-spacing: var(--md-sys-typescale-label-lg-tracking);
   margin-bottom: var(--space-sm);
 }
 
-.questionnaire__election {
-  font-weight: 600;
+/* Level 2: the active Statement card. */
+.statement-card {
+  background: var(--color-card);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  box-shadow: var(--elevation-2);
+  padding: var(--card-padding);
+  margin: 0 0 var(--space-lg);
+}
+
+.statement-card > :last-child {
+  margin-bottom: 0;
 }
 
 .questionnaire__progress {
@@ -151,27 +194,32 @@ main h1[tabindex="-1"]:focus {
   appearance: none;
   -webkit-appearance: none;
   border: 0;
-  border-radius: 4px;
-  background: var(--color-border);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-highest);
   overflow: hidden;
 }
 
 .questionnaire__progress::-webkit-progress-bar {
-  background: var(--color-border);
-  border-radius: 4px;
+  background: var(--md-sys-color-surface-container-highest);
+  border-radius: var(--md-sys-shape-corner-full);
 }
 
 .questionnaire__progress::-webkit-progress-value {
-  background: var(--color-primary);
-  border-radius: 4px;
+  background: var(--md-sys-color-primary);
+  border-radius: var(--md-sys-shape-corner-full);
 }
 
 .questionnaire__progress::-moz-progress-bar {
-  background: var(--color-primary);
-  border-radius: 4px;
+  background: var(--md-sys-color-primary);
+  border-radius: var(--md-sys-shape-corner-full);
 }
 
 .questionnaire__statement {
+  font: var(--md-sys-typescale-headline-sm);
+  letter-spacing: var(--md-sys-typescale-headline-sm-tracking);
+  /* About 65 characters per line. Not 65ch: a "0" is wider than the average
+     Public Sans letter, so 65ch fits about 80 characters. */
+  max-inline-size: 30em;
   margin-bottom: var(--space-md);
 }
 
@@ -182,59 +230,86 @@ main h1[tabindex="-1"]:focus {
 }
 
 .scale-option {
-  --scale-ramp: var(--color-scale-disagree-strong);
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-md);
   width: 100%;
   min-height: 48px;
   padding: var(--space-md);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-left: 4px solid var(--scale-ramp);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
+  background: var(--color-card);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-default);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-lg);
+  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
   cursor: pointer;
 }
 
-.scale-option:nth-child(2) {
-  --scale-ramp: color-mix(in srgb, var(--color-scale-disagree-strong) 75%, var(--color-scale-agree-strong));
+.scale-option:hover {
+  border-color: var(--md-sys-color-outline);
 }
 
-.scale-option:nth-child(3) {
-  --scale-ramp: color-mix(in srgb, var(--color-scale-disagree-strong) 50%, var(--color-scale-agree-strong));
-}
-
-.scale-option:nth-child(4) {
-  --scale-ramp: color-mix(in srgb, var(--color-scale-disagree-strong) 25%, var(--color-scale-agree-strong));
-}
-
-.scale-option:nth-child(5) {
-  --scale-ramp: var(--color-scale-agree-strong);
-}
-
+/* The radio indicator: a circle in currentColor, a filled dot when checked. */
 .scale-option input {
   flex: none;
   width: 20px;
   height: 20px;
   margin: 0;
-  accent-color: var(--color-primary);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font: inherit;
+  cursor: pointer;
 }
 
-.scale-option:hover {
-  border-color: var(--color-primary);
-  border-left-color: var(--scale-ramp);
+.scale-option input:checked {
+  color: inherit;
+  background: radial-gradient(circle, currentColor 0 4px, transparent 4.5px);
 }
 
+@media (forced-colors: active) {
+  .scale-option input {
+    appearance: auto;
+    -webkit-appearance: auto;
+  }
+}
+
+/* Checked states: a 2px border with 1px less padding (no layout shift). */
 .scale-option:has(input:checked) {
-  border: 2px solid var(--color-primary);
-  border-left: 4px solid var(--scale-ramp);
+  padding: calc(var(--space-md) - 1px);
+  border-width: 2px;
   font-weight: 600;
 }
 
-/* The outline goes on the whole option, not only the small native radio. */
+/* Agree: primary-container. */
+.scale-option:has(input[value="1"]:checked),
+.scale-option:has(input[value="2"]:checked) {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  border-color: var(--md-sys-color-primary);
+}
+
+/* Neutral. */
+.scale-option:has(input[value="0"]:checked) {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  border-color: var(--md-sys-color-outline);
+}
+
+/* Disagree: a neutral slate, never red. */
+.scale-option:has(input[value="-1"]:checked),
+.scale-option:has(input[value="-2"]:checked) {
+  background: var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface);
+  border-color: var(--md-sys-color-outline);
+}
+
+/* The outline goes on the whole option, not only the small radio. */
 .scale-option:has(input:focus-visible) {
-  outline: 3px solid var(--color-accent);
+  outline: 3px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
@@ -242,8 +317,17 @@ main h1[tabindex="-1"]:focus {
   outline: none;
 }
 
-/* Important toggle. Amber only when pressed (and on focus, above); the
-   filled vs outline star and the text weight carry the state too. */
+/* Important toggle and its hint, side by side when they fit. */
+.important-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+  margin: 0 0 var(--space-md);
+}
+
+/* Gold only when pressed (and on focus); the filled vs outline star and the
+   text weight carry the state too. */
 .important-toggle {
   display: inline-flex;
   align-items: center;
@@ -251,17 +335,18 @@ main h1[tabindex="-1"]:focus {
   min-height: 48px;
   min-width: 48px;
   padding: 0 var(--space-md);
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-weight: 400;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-full);
+  font: var(--md-sys-typescale-title-md);
+  font-weight: 500;
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
   cursor: pointer;
 }
 
 .important-toggle:hover {
-  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
 }
 
 .important-toggle__star {
@@ -269,30 +354,44 @@ main h1[tabindex="-1"]:focus {
   width: 24px;
   height: 24px;
   fill: none;
-  stroke: var(--color-secondary);
+  stroke: var(--md-sys-color-secondary);
 }
 
-/* 1px less padding so the 2px border does not shift the layout. */
 .important-toggle[aria-pressed="true"] {
-  padding: 0 calc(var(--space-md) - 1px);
-  border: 2px solid var(--color-accent);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border-color: var(--md-sys-color-secondary);
   font-weight: 600;
 }
 
+.important-toggle[aria-pressed="true"]:hover {
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-on-secondary-container) 8%,
+    var(--md-sys-color-secondary-container)
+  );
+}
+
 .important-toggle[aria-pressed="true"] .important-toggle__star {
-  fill: var(--color-accent);
-  stroke: var(--color-text);
+  fill: var(--md-sys-color-secondary);
+  stroke: var(--md-sys-color-secondary);
 }
 
 .questionnaire__hint {
-  color: var(--color-secondary);
-  font-size: 15px;
-  margin: var(--space-sm) 0 var(--space-md);
+  margin: 0;
+}
+
+.questionnaire__note,
+.questionnaire__hint {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
 }
 
 .questionnaire__skipped {
-  color: var(--color-text);
-  font-style: italic;
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-lg);
+  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
 }
 
 .questionnaire__controls {
@@ -302,8 +401,43 @@ main h1[tabindex="-1"]:focus {
   margin: 0 0 var(--space-lg);
 }
 
-.questionnaire__note {
-  color: var(--color-secondary);
+/* AI and privacy disclosure below the Statement card. */
+.disclosure-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  background: var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: var(--space-md);
+}
+
+.disclosure-card__icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--color-info-container);
+  color: var(--color-on-info-container);
+}
+
+.disclosure-card__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.disclosure-card__title {
+  margin: 0 0 var(--space-xs);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-label-lg);
+  letter-spacing: var(--md-sys-typescale-label-lg-tracking);
+}
+
+.disclosure-card .questionnaire__note {
+  margin: 0;
 }
 
 /* Results ranking (DESIGN.md "Ranking row"). Every row is identical: no
@@ -318,9 +452,9 @@ main h1[tabindex="-1"]:focus {
 }
 
 .ranking-row {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  background: var(--color-card);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
   padding: var(--space-md);
 }
 
@@ -333,32 +467,36 @@ main h1[tabindex="-1"]:focus {
 }
 
 .ranking-row__name {
-  font-weight: 600;
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .ranking-row__short {
-  color: var(--color-secondary);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
 }
 
 .ranking-row__percent {
   margin-left: auto;
-  font-weight: 600;
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
   font-variant-numeric: tabular-nums;
 }
 
 .ranking-bar {
   height: 8px;
-  border-radius: 4px;
-  background: var(--color-border);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-highest);
   overflow: hidden;
 }
 
 .ranking-bar__fill {
   height: 100%;
-  border-radius: 4px;
-  background: var(--color-primary);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-primary);
 }
 
 .ranking-row__meta {
@@ -367,28 +505,44 @@ main h1[tabindex="-1"]:focus {
   align-items: center;
   gap: var(--space-sm);
   margin: var(--space-sm) 0 0;
-  color: var(--color-secondary);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
 }
 
-/* Not amber (reserved for focus and Important), not red or green. */
-.coverage-badge {
+/* Tags: pills on tonal pairs. Info (tertiary) for low coverage, secondary
+   for the Voter's Important mark. */
+.coverage-badge,
+.important-mark,
+.tag--info {
   display: inline-block;
-  padding: 0 var(--space-sm);
-  border: 1px solid var(--color-secondary);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 14px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  font: var(--md-sys-typescale-label-md);
+  letter-spacing: var(--md-sys-typescale-label-md-tracking);
+}
+
+.coverage-badge,
+.tag--info {
+  background: var(--color-info-container);
+  color: var(--color-on-info-container);
+}
+
+.important-mark {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
 
 .ranking-legend {
-  color: var(--color-secondary);
-  font-size: 15px;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
 }
 
 /* Results breakdown (DESIGN.md "Breakdown row"). Stacked at every width.
    Every Party item is identical in every state: no party colour, logo or
-   highlight. Amber only on focus and the Important mark. */
+   highlight. */
 .breakdown {
   list-style: none;
   margin: 0 0 var(--space-md);
@@ -398,38 +552,28 @@ main h1[tabindex="-1"]:focus {
 }
 
 .breakdown-row {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  background: var(--color-card);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
   padding: var(--space-md);
 }
 
 .breakdown-row__number {
   margin: 0 0 var(--space-sm);
-  color: var(--color-secondary);
-  font-size: 15px;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-label-lg);
+  letter-spacing: var(--md-sys-typescale-label-lg-tracking);
 }
 
 .breakdown-row__statement {
   margin: 0 0 var(--space-sm);
-  font-size: inherit;
-  font-weight: 600;
-  line-height: 1.4;
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
   overflow-wrap: anywhere;
 }
 
 .breakdown-row__answer {
   margin: 0 0 var(--space-md);
-}
-
-.important-mark {
-  display: inline-block;
-  padding: 0 var(--space-sm);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 14px;
 }
 
 .breakdown-positions {
@@ -441,9 +585,9 @@ main h1[tabindex="-1"]:focus {
 }
 
 .position {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  background: var(--color-card-nested);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-medium);
 }
 
 .position__summary {
@@ -455,7 +599,7 @@ main h1[tabindex="-1"]:focus {
   padding: var(--space-sm) var(--space-md);
   list-style: none;
   cursor: pointer;
-  border-radius: var(--radius-md);
+  border-radius: var(--md-sys-shape-corner-medium);
 }
 
 .position__summary::-webkit-details-marker {
@@ -469,8 +613,8 @@ main h1[tabindex="-1"]:focus {
   width: 8px;
   height: 8px;
   margin-right: var(--space-sm);
-  border-right: 2px solid var(--color-secondary);
-  border-bottom: 2px solid var(--color-secondary);
+  border-right: 2px solid var(--md-sys-color-on-surface-variant);
+  border-bottom: 2px solid var(--md-sys-color-on-surface-variant);
   transform: rotate(-45deg);
   transition: transform 0.15s ease;
 }
@@ -486,7 +630,7 @@ main h1[tabindex="-1"]:focus {
 }
 
 .position__short {
-  color: var(--color-secondary);
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .position__value {
@@ -498,12 +642,16 @@ main h1[tabindex="-1"]:focus {
   padding: 0 var(--space-md) var(--space-md);
 }
 
+/* Evidence: Public Sans like everything else, told apart by layout. */
 .evidence__quote {
   margin: 0 0 var(--space-sm);
-  padding-left: 12px;
-  border-left: 3px solid var(--color-border);
-  font-family: var(--font-quote);
-  font-size: 15px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--md-sys-color-surface-container-high);
+  border-left: 4px solid var(--md-sys-color-outline);
+  border-radius: 0 var(--md-sys-shape-corner-default) var(--md-sys-shape-corner-default) 0;
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-lg);
+  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
   overflow-wrap: anywhere;
 }
 
@@ -513,30 +661,23 @@ main h1[tabindex="-1"]:focus {
   margin: 0;
 }
 
-/* Share Link (DESIGN.md "Share button"): a neutral card on the end screen,
-   not amber and not party-coloured. The fallback field keeps the long URL
-   inside it (it scrolls) so the page never widens at 375px. */
+/* Share Link (DESIGN.md "Share card"): a neutral card on the end screen.
+   The fallback field keeps the long URL inside it (it scrolls) so the page
+   never widens at 375px. */
 .share {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
   margin: 0 0 var(--space-lg);
 }
 
 .share h3 {
-  font-size: var(--font-size-body);
-  font-weight: 600;
-  line-height: 1.3;
   margin: 0 0 var(--space-sm);
 }
 
-.share .button-secondary {
+.share .button-tonal {
   margin: 0 0 var(--space-md);
 }
 
 .share__status {
-  color: var(--color-text);
+  color: var(--md-sys-color-on-surface);
 }
 
 .share label {
@@ -551,11 +692,11 @@ main h1[tabindex="-1"]:focus {
   min-height: 48px;
   margin: 0 0 var(--space-md);
   padding: 0 var(--space-sm);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-family: var(--font-ui);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--color-card);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
   font-size: 16px; /* 16px or more: no zoom on focus in iOS Safari */
 }
 
@@ -565,6 +706,6 @@ main h1[tabindex="-1"]:focus {
 
 /* Superseded notice on the shared result: a neutral card, not an alert. */
 .shared-notice h2 {
-  font-size: var(--font-size-body);
-  font-weight: 600;
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
 }
