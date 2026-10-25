@@ -806,5 +806,32 @@
       "2026-10-23 independent validator: accept. Own scratch git clone (own .venv and DB copy): ./init.sh exit 0 (Python 3.15.0, Node 24.22.0, pytest 1454, Vitest 350); single test steps ok; every read-only CLI command with the README outputs (db check, data check, election list, db upgrade, pipeline list/report --run 3/checks/statements/positions, party list, source list/text); throwaway DB: data import 9 added then 9 unchanged, fake-provider and missing-key failures exactly as documented; exact run command without --yes (fresh, --resume-from 3, --reuse-from 3) refused at confirmation rc 1, conflicting flags usage error rc 2, clone DB shasum unchanged; port 8101: default DB 500, missing build 404, documented start all routes 200, opened once in the Claude built-in browser (Chromium), console clean, only GETs; Vite dev started and stopped. 16 config defaults match config.py; e2e env -u command matches the e2e spec; 19 relative links resolve; no contradiction with AGENTS.md, ARCHITECTURE.md, technical-discovery or specs. Worktree gate CI=true ./init.sh rerun after the validator accidentally killed its own concurrent vite build: exit 0 (pytest 1454, Vitest 350). data/ideology.db shasum b7a1dd5a738e62e9edf28a0ba6a1757cd2c81bd3 unchanged. Two optional Low notes recorded in docs/risks-and-open-questions.md."
     ],
     "notes": "Docs only. Spanish or English decided in the spec (repo docs are English; the user and Voter-facing copy are Spanish)."
+  },
+  {
+    "id": "material3-civic-horizon-theme",
+    "area": "web",
+    "title": "Material 3 redesign with the Civic Horizon palette",
+    "user_visible_behavior": "Every web screen (Landing, Questionnaire, Results, Methodology, Shared result) follows a Material Design 3 look using the Civic Horizon colour roles, typography (Public Sans), shapes and tonal elevation from docs/design/civic-horizon.md, in light theme and in dark theme (prefers-color-scheme), with no change to behaviour or data flow; the only copy change is the title of the AI/privacy disclosure card (see notes).",
+    "depends_on": [
+      "landing-election-picker",
+      "questionnaire-important-flag",
+      "results-breakdown-evidence",
+      "share-link-open",
+      "methodology-page"
+    ],
+    "status": "not_started",
+    "verification": [
+      "DESIGN.md is rewritten first to the Civic Horizon direction (front matter tokens + prose), keeping the existing neutrality rules: Public Sans is the only typeface (Evidence quotes included, which stay distinguishable by layout, e.g. a quote block with a border, not by a serif), and Layout follows the M3 responsive grid (compact 0-599px: 4 columns, 16px margins; medium 600-839px: 8 columns, 32px margins; expanded 840px+: 12 columns, max 1200px, 48px margins) replacing the 720px reading column; apps/web/src/ui/tokens.css mirrors it as M3 colour-role tokens (light and dark), type scale, radii, spacing and breakpoints, and no component CSS uses a hard-coded colour or font outside tokens.css",
+      "Every screen uses the M3 grid: one column at compact width, and at medium/expanded the layout widens per the grid (Statement text capped at about 65 characters per line); the Results breakdown may stay stacked; no horizontal scroll at any width",
+      "The Questionnaire's AI/privacy disclosure card gets a decorative shield icon (inline SVG, aria-hidden, in a tertiary/primary tonal container) and the title 'Transparencia algorítmica y privacidad garantizada' above its existing text, as in docs/design/questionnaire-prototype.png; the text itself is unchanged",
+      "Components map to the M3 roles in docs/design/civic-horizon.md: filled primary button (48px min, pill), tonal and outlined buttons, cards on surface-container tiers with outline-variant borders, 5-point scale with neutral/agree/disagree states (disagree in neutral slate, never red/green), Important flag on secondary, Baja cobertura and AI-generated tags on tertiary",
+      "Neutrality is kept: every party row and breakdown row is styled identically, no winner emphasis, no party colours",
+      "Public Sans is served by the app itself (no third-party font request) and the scale stays usable by keyboard and screen reader",
+      "WCAG 2.1 AA contrast is checked for every text/background pair used, in light and dark theme",
+      "./init.sh passes (pytest, Vitest, typecheck, build); existing web tests updated only where they assert styling",
+      "Browser check at 375px, at a medium width (about 700px) and at desktop (1280px), light and dark theme, walking every core screen: no console errors, no failed requests, and no request carries voter answers"
+    ],
+    "evidence": [],
+    "notes": "Source palette and rules: docs/design/civic-horizon.md (copied verbatim from the user-provided Civic Horizon DESIGN.md). UI only; no API, domain or pipeline change. Decided by the user (2026-10-25): Public Sans is the only typeface, Evidence quotes included (the serif quote rule is dropped); the M3 responsive grid replaces the 720px column; exactly two themes, light and dark. Accepted specs that name Georgia quotes or the 720px column (results-breakdown-evidence, landing-election-picker, questionnaire-*, methodology-page, web-client-skeleton) are historical and are not edited; the new spec supersedes them. Palette (decided 2026-10-25 from the prototype docs/design/questionnaire-prototype.png, whose sampled colours match the unprefixed set: bluish surface #f5faff page, surface-container-lowest white card, dark-teal primary button and progress): light theme = the unprefixed roles, dark theme = dark-*; the light-* set is not used. The prototype is a visual reference. Decided by the user (2026-10-25): its shield icon and title on the transparency card are in scope; its topic pill and 'Inicio / N% completado / Finalización' progress labels are out of scope. Out of scope: political compass and match-indicator chip from the source doc (no such screens), product logo/name."
   }
 ]
