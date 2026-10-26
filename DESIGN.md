@@ -137,7 +137,10 @@ A calm, civic tool built on Material Design 3 with the Civic Horizon palette (`d
 
 ## Existing Design Assets
 
-- `apps/web/src/assets/ideologiapp-logo.svg`: the product logo (user-provided). It is an image with its own fixed colours (sky blue, white, gold); it is the product's mark, never a party's, and it is never recoloured or used next to a party.
+- `apps/web/src/assets/ideologiapp-logo.svg`: the product logo (user-provided). It is an image with its own fixed colours (sky blue, white, gold); it is the product's mark, never a party's, and it is never recoloured or used next to a party. It is also the browser tab icon (`<link rel="icon">` in `apps/web/index.html`).
+- `apps/web/src/assets/ideologiapp-touch-icon.png`: the home-screen icon (`apple-touch-icon`), 180x180, the logo rendered with its sky-blue background filled to the corners (iOS shows transparent corners as black). Regenerate it from the SVG if the logo changes.
+- `apps/web/public/favicon.ico`: 16/32/48px fallback of the logo for clients that ask for `/favicon.ico` directly. Regenerate it with the touch icon.
+- Tab title: `IdeologiApp`; pages with their own title use `<Page> · IdeologiApp` (`Metodología · IdeologiApp`, `Resultado compartido · IdeologiApp`). The Landing subtitle `Comparador de programas electorales` stays as page text.
 - `docs/design/civic-horizon.md`: the source palette, type scale, shapes, elevation and grid. This file picks the parts the app uses; `apps/web/src/ui/tokens.css` mirrors this file.
 
 ## Generated Concept Images

@@ -958,6 +958,27 @@
     "notes": "Requested by the user on 2026-10-26 (task 1). Landing and Questionnaire are out of scope (they show no Parties). Decided by the user (2026-10-26): logos sit on a contrasting background so dark-on-transparent logos (EAJ-PNV text, BNG small text) stay legible in dark mode; to keep identical treatment, every Party's tile (logo or placeholder) uses the same light neutral background in both themes, with a subtle outline-variant border."
   },
   {
+    "id": "brand-favicon",
+    "area": "web",
+    "title": "Browser tab icon and title with the IdeologiApp brand",
+    "user_visible_behavior": "The browser tab shows the IdeologiApp logo as its icon and 'IdeologiApp' as its title; saving the app to a phone home screen uses the logo; the Methodology and shared-result tabs read 'Metodología · IdeologiApp' and 'Resultado compartido · IdeologiApp'.",
+    "depends_on": ["brand-and-results-polish"],
+    "status": "accepted",
+    "verification": [
+      "index.html links the product logo SVG as the tab icon and a 180x180 opaque PNG as apple-touch-icon, both same-origin and fingerprinted by Vite in the build; the title is 'IdeologiApp'",
+      "Methodology and shared-result titles use '· IdeologiApp'; tests updated",
+      "./init.sh passes",
+      "Browser check at 375px and desktop, light and dark: tab icon and title on the Landing, Methodology and shared result; /favicon.ico answers 200 (fallback ICO), no console errors, only same-origin requests"
+    ],
+    "evidence": [
+      "2026-10-26 implementation (Session 072, main session): apps/web/index.html links /src/assets/ideologiapp-logo.svg as the SVG tab icon and the new /src/assets/ideologiapp-touch-icon.png (180x180, opaque, sky-blue corners) as apple-touch-icon; title 'IdeologiApp'; apps/web/public/favicon.ico (16/32/48, transparent corners) as fallback; METHODOLOGY_TITLE and SHARED_RESULTS_TITLE use '· IdeologiApp'; new Vitest src/app/index-html.test.tsx (4 tests); App, Methodology and SharedResults title tests updated. Icons rendered once from the SVG with macOS Quick Look and Pillow in a throwaway venv; no dependency added. DESIGN.md (Existing Design Assets) and the risks doc updated; spec docs/specs/brand-favicon.md.",
+      "2026-10-26 CI=true ./init.sh exit 0: pytest 1560 passed, Vitest 20 files / 400 tests passed (396 before, +4), typecheck ok, vite build ok (dist/index.html links /assets/ideologiapp-logo-*.svg and /assets/ideologiapp-touch-icon-*.png; dist/favicon.ico identical to the source).",
+      "2026-10-26 browser check (Claude desktop built-in browser, Chromium; the user's uvicorn on 127.0.0.1:8000 serving the fresh build with data/ideology.db): tab title 'IdeologiApp' on the Landing, 'Metodología · IdeologiApp' on /metodologia, 'Resultado compartido · IdeologiApp' on /resultados; icon link and apple-touch-icon resolve to 200 image/svg+xml and image/png; /favicon.ico 200 image/x-icon (before the fallback it answered 404 to requests made outside the page); Landing at 375x812 dark and desktop light renders the brand title unchanged; console empty; 0 cross-origin resource entries.",
+      "2026-10-26 independent validator: accept. CI=true ./init.sh exit 0 (pytest 1560, Vitest 20 files / 400, vite build ok; dist/index.html links /assets/ideologiapp-logo-*.svg type image/svg+xml and /assets/ideologiapp-touch-icon-*.png, title IdeologiApp; dist/favicon.ico identical to source). Icons inspected with Pillow in a throwaway venv: touch icon 180x180 RGB, opaque, corners #33c6fc; favicon.ico 16/32/48 RGBA with transparent corners; both the undistorted product logo; SVG unchanged. Browser check (Claude desktop built-in browser; own uvicorn on :8013 with a scratch copy of data/ideology.db; 375x812 light and dark, 981px dark, 1280x800 light): title 'IdeologiApp' on the Landing, 'Metodología · IdeologiApp' on /metodologia (link, back, deep link), 'Resultado compartido · IdeologiApp' on /resultados#v1-3-…; icon links 200 (immutable); /favicon.ico 200 image/x-icon every time browser chrome asked; console empty; all requests same-origin, none carries the answers. Low notes: test comment named the wrong DESIGN.md section (fixed); a barely visible seam at the original rounded border in the touch icon (accepted, iOS masks the corners)."
+    ],
+    "notes": "Requested by the user on 2026-10-26 ('crear un icono de pestaña a partir del icono de la app'); title 'IdeologiApp' chosen by the user. Spec: docs/specs/brand-favicon.md. Small UI feature planned and implemented in the main session."
+  },
+  {
     "id": "share-ideologiapp",
     "area": "web",
     "title": "Share section split: share your result and share IdeologiApp",

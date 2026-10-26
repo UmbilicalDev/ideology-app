@@ -72,7 +72,7 @@ describe("App routes", () => {
   });
 
   test("the Landing links to the methodology page, and Volver al inicio restores the title", async () => {
-    document.title = "Comparador de programas electorales";
+    document.title = "IdeologiApp";
     const fetch = vi.fn<FetchLike>(async () => jsonResponse({ elections: [electionJson()] }));
     renderAt("/", fetch);
     await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" });
@@ -81,14 +81,14 @@ describe("App routes", () => {
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toBe("Metodología");
     expect(document.activeElement).toBe(h1);
-    expect(document.title).toBe("Metodología · Comparador de programas electorales");
+    expect(document.title).toBe("Metodología · IdeologiApp");
     expect(fetch).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("link", { name: "Volver al inicio" }));
     expect(
       await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }),
     ).toBeTruthy();
-    expect(document.title).toBe("Comparador de programas electorales");
+    expect(document.title).toBe("IdeologiApp");
   });
 
   test("the methodology deep link renders without an API request", () => {

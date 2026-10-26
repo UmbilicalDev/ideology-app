@@ -105,7 +105,7 @@ describe("MethodologyPage", () => {
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toBe("Metodología");
     expect(document.activeElement).toBe(h1);
-    expect(document.title).toBe("Metodología · Comparador de programas electorales");
+    expect(document.title).toBe("Metodología · IdeologiApp");
     expect(screen.getByText(INTRO_TEXT)).toBeTruthy();
   });
 

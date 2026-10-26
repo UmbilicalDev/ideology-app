@@ -384,7 +384,7 @@ describe("SharedResultsPage", () => {
   });
 
   test("Scenario 8: h1 focused on mount, title set and restored; read-only page", async () => {
-    document.title = "Comparador de programas electorales";
+    document.title = "IdeologiApp";
     const fetch = sixStatements();
     const view = renderAt(LINK, fetch);
     const h1 = screen.getByRole("heading", { level: 1 });
@@ -399,7 +399,7 @@ describe("SharedResultsPage", () => {
     expect(screen.queryByRole("button", { name: "Volver a la última afirmación" })).toBeNull();
     expect(screen.queryByRole("radio")).toBeNull();
     view.unmount();
-    expect(document.title).toBe("Comparador de programas electorales");
+    expect(document.title).toBe("IdeologiApp");
   });
 
   test("Scenario 8: the h1 and focus stay in every non-ready state", async () => {
