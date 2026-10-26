@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 
 import { HomeButton } from "../common/HomeButton";
 
-export const METHODOLOGY_TITLE = "Metodología · Comparador de programas electorales";
+export const METHODOLOGY_TITLE = "Metodología · IdeologiApp";
 
 // Methodology screen (DESIGN.md Core Screens 4). Static copy, no API request.
 // It states the default Validation thresholds and the matching rule; keep it in

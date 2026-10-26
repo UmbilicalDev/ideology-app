@@ -11,7 +11,7 @@ import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
 import { useSharedResult } from "./useSharedResult";
 
-export const SHARED_RESULTS_TITLE = "Resultado compartido · Comparador de programas electorales";
+export const SHARED_RESULTS_TITLE = "Resultado compartido · IdeologiApp";
 
 const MISSING = "Este enlace no contiene ningún resultado. Comprueba que lo has copiado entero.";
 const INVALID =
