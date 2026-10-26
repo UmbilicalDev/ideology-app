@@ -1,6 +1,7 @@
 import { NO_STANCE, SKIP, type BreakdownPosition, type BreakdownRow } from "@ideology-app/core";
 
 import { SCALE_LABELS } from "../scale-labels";
+import { PartyLogo } from "./PartyLogo";
 
 const INTRO_REST =
   "y la posición de cada partido en cada afirmación. Las posiciones y las citas " +
@@ -30,7 +31,8 @@ const NO_STANCE_SENTENCE =
  * The results breakdown (DESIGN.md "Breakdown row"): one row per Statement
  * with the Voter's Answer and every Party's Position as a native disclosure
  * revealing its Evidence. Renders `rows` as given (from `buildBreakdown`, so
- * Parties follow the ranking order) and treats every Party the same.
+ * Parties follow the ranking order) and treats every Party the same (the
+ * same decorative party-logo tile in every position summary).
  * AI-generated text is rendered as React text, never as HTML.
  */
 export function ResultsBreakdown({
@@ -90,9 +92,12 @@ function Position({ position }: { readonly position: BreakdownPosition }) {
   return (
     <details className="position">
       <summary className="position__summary">
-        <span className="position__name">{position.name}</span>{" "}
-        <span className="position__short">{position.shortName}</span>{" "}
-        <span className="position__value">{value}</span>
+        <PartyLogo logoUrl={position.logoUrl} shortName={position.shortName} size="breakdown" />
+        <span className="position__label">
+          <span className="position__name">{position.name}</span>{" "}
+          <span className="position__short">{position.shortName}</span>{" "}
+          <span className="position__value">{value}</span>
+        </span>
       </summary>
       <div className="position__body">
         {position.evidence === null ? (

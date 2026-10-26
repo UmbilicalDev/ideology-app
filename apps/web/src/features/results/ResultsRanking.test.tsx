@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import type { RankedParty } from "@ideology-app/core";
 
+import { textWithoutLogos } from "../../test/text";
 import { ResultsRanking } from "./ResultsRanking";
 
 const NBSP = " ";
@@ -12,6 +13,7 @@ const EXPLANATION =
 function ranked(overrides: Partial<RankedParty> & Pick<RankedParty, "partyId" | "name">): RankedParty {
   return {
     shortName: `P${overrides.partyId}`,
+    logoUrl: null,
     matchScore: 0.5,
     percent: 50,
     sharedStatementCount: 10,
@@ -40,7 +42,7 @@ describe("ResultsRanking", () => {
       ranked({ partyId: 2, name: "Álava Común", shortName: "ÁC", matchScore: 0.555, percent: 56, sharedStatementCount: 1, lowCoverage: true }),
     ]);
     const items = rows();
-    expect(items.map((li) => li.textContent)).toEqual([
+    expect(items.map(textWithoutLogos)).toEqual([
       `Ñandú Unido ÑU 81${NBSP}%7 afirmaciones en común`,
       `Álava Común ÁC 56${NBSP}%1 afirmación en común Baja cobertura${EXPLANATION}`,
     ]);
@@ -55,7 +57,7 @@ describe("ResultsRanking", () => {
     ]);
     const [row] = rows();
     expect(row!.querySelector(".ranking-row__percent")?.textContent).toBe("Sin afirmaciones en común");
-    expect(row!.textContent).not.toContain("%");
+    expect(textWithoutLogos(row!)).not.toContain("%");
     expect(row!.querySelector(".ranking-bar__fill")?.getAttribute("style")).toBe("width: 0%;");
     const chip = within(row!).getByRole("button", { name: "Baja cobertura" });
     expect(chip.className).toBe("coverage-badge");
@@ -124,6 +126,24 @@ describe("ResultsRanking", () => {
     }
   });
 
+  test("every row gets the same tile: the logo when there is one, else the short-name placeholder", () => {
+    const logo = "/api/v1/parties/1/logo?v=0000000000000001";
+    renderRanking([
+      ranked({ partyId: 1, name: "Primero", shortName: "PR", percent: 90, logoUrl: logo }),
+      ranked({ partyId: 7, name: "Euskal Herria Bildu", shortName: "EH Bildu", percent: 60 }),
+    ]);
+    const [first, second] = rows().map((li) => li.querySelector(".ranking-row__head")!.firstElementChild!);
+    expect(first!.className).toBe(second!.className);
+    expect(first!.querySelector("img")?.getAttribute("src")).toBe(logo);
+    expect(Array.from(second!.querySelectorAll("tspan"), (t) => t.textContent)).toEqual(["EH", "Bildu"]);
+    // The names stay as text, and the tiles are hidden from assistive technology.
+    expect(rows().map((li) => li.querySelector(".ranking-row__label")?.textContent)).toEqual([
+      "Primero PR",
+      "Euskal Herria Bildu EH Bildu",
+    ]);
+    expect(screen.queryAllByRole("img")).toHaveLength(0);
+  });
+
   test("every row has the same markup: no per-Party colour, style or highlight; bars are decorative", () => {
     renderRanking([
       ranked({ partyId: 1, name: "Primero", shortName: "PR", percent: 90 }),
@@ -141,7 +161,12 @@ describe("ResultsRanking", () => {
       expect(styled.map((el) => el.className)).toEqual(["ranking-bar__fill"]);
       expect(styled[0]!.getAttribute("style")).toMatch(/^width: \d+%;$/);
       expect(li.querySelector(".ranking-bar")?.getAttribute("aria-hidden")).toBe("true");
-      expect(li.querySelector("img, svg")).toBeNull();
+      const tiles = li.querySelectorAll(".party-logo");
+      expect(tiles).toHaveLength(1);
+      expect(li.querySelector(".ranking-row__head")?.firstElementChild).toBe(tiles[0]);
+      expect(tiles[0]!.className).toBe("party-logo party-logo--ranking");
+      expect(tiles[0]!.getAttribute("aria-hidden")).toBe("true");
+      expect(li.querySelectorAll("img, svg")).toHaveLength(li.querySelectorAll(".party-logo svg").length);
     }
   });
 });

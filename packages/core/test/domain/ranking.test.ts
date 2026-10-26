@@ -47,12 +47,23 @@ describe("rankParties", () => {
       partyId: 2,
       name: "Alto",
       shortName: "AL",
+      logoUrl: null,
       matchScore: 1,
       percent: 100,
       sharedStatementCount: 1,
       lowCoverage: true,
     });
     expect(ranked.map((r) => r.percent)).toEqual([100, 50, 0]);
+  });
+
+  test("copies a non-null logoUrl unchanged", () => {
+    const logo = "/api/v1/parties/2/logo?v=0123456789abcdef";
+    const parties = [party(1, "Uno", [1]), { ...party(2, "Dos", [2]), logoUrl: logo }];
+    const ranked = rankParties(answers(2), parties);
+    expect(ranked.map((r) => [r.partyId, r.logoUrl])).toEqual([
+      [2, logo],
+      [1, null],
+    ]);
   });
 
   test("breaks ties by name with Spanish collation, whatever the input order or ids", () => {

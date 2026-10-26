@@ -111,6 +111,7 @@ describe("buildBreakdown", () => {
       partyId: 1,
       name: "Alfa",
       shortName: "P1",
+      logoUrl: null,
       value: 1,
       evidence: { quote: "Cita Alfa 1.", page: 1, href: null },
     });
@@ -123,11 +124,21 @@ describe("buildBreakdown", () => {
       partyId: 2,
       name: "Beta",
       shortName: "P2",
+      logoUrl: null,
       value: NO_STANCE,
       evidence: null,
     });
     for (const row of rows) {
       expect(row.positions[3]).toMatchObject({ partyId: 4, value: NO_STANCE, evidence: null });
+    }
+  });
+
+  test("every position copies its Party's logoUrl, null or not", () => {
+    const logo = "/api/v1/parties/2/logo?v=fedcba9876543210";
+    const parties = PARTIES.map((p) => (p.id === 2 ? { ...p, logoUrl: logo } : p));
+    const rows = buildBreakdown(STATEMENTS, parties, [], [1, 2, 3]);
+    for (const row of rows) {
+      expect(row.positions.map((p) => p.logoUrl)).toEqual([null, logo, null]);
     }
   });
 

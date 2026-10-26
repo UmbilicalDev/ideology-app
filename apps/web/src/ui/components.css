@@ -624,9 +624,53 @@ main h1[tabindex="-1"]:focus {
   fill: var(--md-sys-color-secondary);
 }
 
+/* Party logo tile (DESIGN.md "Party logo"): the same fixed-size, white,
+   bordered tile for every Party in both themes, holding the logo or the
+   short-name placeholder. The size is fixed, so a failed logo swaps to the
+   placeholder without moving anything. Decorative (aria-hidden). */
+.party-logo {
+  flex: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  width: var(--party-logo-size);
+  height: var(--party-logo-size);
+  background: var(--color-party-logo-tile);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-small);
+}
+
+.party-logo--ranking {
+  --party-logo-size: var(--party-logo-size-ranking);
+}
+
+.party-logo--breakdown {
+  --party-logo-size: var(--party-logo-size-breakdown);
+}
+
+/* The committed logos carry their own 6% padding. */
+.party-logo__img,
+.party-logo__placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.party-logo__img {
+  object-fit: contain;
+}
+
+.party-logo__text {
+  fill: var(--color-on-party-logo-tile);
+  font: var(--party-logo-placeholder-font);
+}
+
 /* Results ranking (DESIGN.md "Ranking row"). Every row is identical: no
-   party colour, logo, highlight or winner styling. The bar is decorative;
-   the percentage, count and badge text carry the meaning. */
+   party colour, highlight or winner styling, and every Party gets the same
+   party-logo tile. The bar is decorative; the percentage, count and badge
+   text carry the meaning. */
 .ranking {
   list-style: none;
   margin: 0 0 var(--space-md);
@@ -644,10 +688,15 @@ main h1[tabindex="-1"]:focus {
 
 .ranking-row__head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   column-gap: var(--space-sm);
   margin: 0 0 var(--space-sm);
+}
+
+/* Name and short name; they wrap inside this box, never under the tile. */
+.ranking-row__label {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .ranking-row__name {
@@ -664,7 +713,9 @@ main h1[tabindex="-1"]:focus {
 }
 
 .ranking-row__percent {
+  flex: 0 1 auto;
   margin-left: auto;
+  text-align: right;
   font: var(--md-sys-typescale-title-md);
   letter-spacing: var(--md-sys-typescale-title-md-tracking);
   font-variant-numeric: tabular-nums;
@@ -758,8 +809,8 @@ main h1[tabindex="-1"]:focus {
 }
 
 /* Results breakdown (DESIGN.md "Breakdown row"). Stacked at every width.
-   Every Party item is identical in every state: no party colour, logo or
-   highlight. */
+   Every Party item is identical in every state: no party colour or
+   highlight, and every Party gets the same 32px party-logo tile. */
 .breakdown-section__title {
   font: var(--md-sys-typescale-title-lg);
   letter-spacing: var(--md-sys-typescale-title-lg-tracking);
@@ -812,9 +863,10 @@ main h1[tabindex="-1"]:focus {
   border-radius: var(--md-sys-shape-corner-medium);
 }
 
+/* Chevron, tile and a text box beside the tile; the name, short name and
+   stance wrap inside the box, so the tile is never alone on its line. */
 .position__summary {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   column-gap: var(--space-sm);
   min-height: 48px;
@@ -843,6 +895,15 @@ main h1[tabindex="-1"]:focus {
 
 .position[open] > .position__summary::before {
   transform: rotate(45deg);
+}
+
+.position__label {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-sm);
 }
 
 .position__name {

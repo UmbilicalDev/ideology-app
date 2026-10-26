@@ -38,6 +38,10 @@
   --color-info-container: var(--md-sys-color-tertiary-fixed);
   --color-on-info-container: var(--md-sys-color-on-tertiary-fixed-variant);
   --color-focus-ring: var(--md-sys-color-secondary);
+  /* Party logo tile (DESIGN.md "Party logo"): fixed in both themes, so the
+     dark block MUST NOT override these two. */
+  --color-party-logo-tile: #ffffff;
+  --color-on-party-logo-tile: #3f484d;
   --elevation-2: 0 2px 8px -2px rgba(0, 31, 42, 0.08);
 
   /* Type scale: <weight> <size>/<line-height> <family>, plus tracking. */
@@ -59,6 +63,8 @@
   --md-sys-typescale-label-lg-tracking: 0.00625rem;
   --md-sys-typescale-label-md: 500 0.75rem/1rem var(--md-ref-typeface-plain);
   --md-sys-typescale-label-md-tracking: 0.03125rem;
+  /* Placeholder text in SVG user units (scaled to fit the tile). */
+  --party-logo-placeholder-font: 600 10px/12px var(--md-ref-typeface-plain);
 
   /* Shapes. */
   --md-sys-shape-corner-small: 0.25rem;
@@ -86,6 +92,8 @@
   --election-columns: 1;
   --card-padding: var(--space-md);
   --brand-logo-size: 40px;
+  --party-logo-size-ranking: 40px;
+  --party-logo-size-breakdown: 32px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -133,6 +141,7 @@
     --election-columns: 2;
     --card-padding: var(--space-lg);
     --brand-logo-size: 48px;
+    --party-logo-size-ranking: 48px;
   }
 }
 

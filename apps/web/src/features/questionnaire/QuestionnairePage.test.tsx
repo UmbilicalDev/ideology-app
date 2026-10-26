@@ -12,7 +12,15 @@ import {
 } from "@ideology-app/core";
 
 import { App } from "../../app/App";
-import { datasetVersionJson, electionJson, jsonResponse, textResponse } from "../../test/fetch-mocks";
+import {
+  datasetVersionJson,
+  electionJson,
+  jsonResponse,
+  partyLogoUrl,
+  recordImageRequests,
+  textResponse,
+} from "../../test/fetch-mocks";
+import { textWithoutLogos } from "../../test/text";
 import { METHODOLOGY_PATH } from "../paths";
 
 const ELECTION_URL = "/api/v1/elections/1";
@@ -457,6 +465,29 @@ describe("QuestionnairePage", () => {
     expect(await screen.findByText("Afirmación 1 de 2")).toBeTruthy();
   });
 
+  test("Party logos are preloaded in Party order before the first Answer, never in ranking order", async () => {
+    const { srcs } = recordImageRequests();
+    const fetch = routes({
+      [ELECTION_URL]: () => jsonResponse(electionJson()),
+      [VERSION_URL]: () => jsonResponse(datasetVersionJson({ statements: 3, logos: true })),
+    });
+    await openQuestionnaire(fetch);
+    expect(srcs).toEqual([partyLogoUrl(1), partyLogoUrl(2)]);
+    expect(document.querySelector(".party-logo")).toBeNull();
+
+    // Disagreeing with everything ranks Partido Dos first.
+    for (let i = 0; i < 3; i += 1) {
+      fireEvent.click(radio("Muy en desacuerdo"));
+      fireEvent.click(button("Siguiente"));
+    }
+    const ranking = Array.from(document.querySelectorAll(".ranking-row img"), (img) =>
+      img.getAttribute("src"),
+    );
+    expect(ranking).toEqual([partyLogoUrl(2), partyLogoUrl(1)]);
+    expect(srcs).toEqual([partyLogoUrl(1), partyLogoUrl(2)]);
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
+  });
+
   describe("results", () => {
     const NBSP = " ";
     const LEGEND =
@@ -521,7 +552,7 @@ describe("QuestionnairePage", () => {
     }
 
     function rowTexts() {
-      return rankingRows().map((li) => li.textContent);
+      return rankingRows().map(textWithoutLogos);
     }
 
     function enginePercent(answers: readonly Answer[]) {

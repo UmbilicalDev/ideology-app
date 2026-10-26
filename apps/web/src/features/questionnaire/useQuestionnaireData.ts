@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { PublicApiError, type DatasetVersion, type Election, type PublicApi } from "@ideology-app/core";
 
+import { preloadPartyLogos } from "../results/party-logo-preload";
+
 export type QuestionnaireDataState =
   | { readonly kind: "loading" }
   | {
@@ -46,8 +48,10 @@ async function load(api: PublicApi, electionId: number): Promise<QuestionnaireDa
 
 /**
  * Loads the Election, then its Published Dataset Version by id, once per
- * mount; `retry` repeats both requests. These are the page's only requests,
- * and both happen before the first Answer. Nothing is logged.
+ * mount; `retry` repeats both requests. When the version is ready, its Party
+ * logos are preloaded in Party order (`preloadPartyLogos`). These are the
+ * page's only requests, and all happen before the first Answer. Nothing is
+ * logged.
  */
 export function useQuestionnaireData(
   api: PublicApi,
@@ -61,6 +65,9 @@ export function useQuestionnaireData(
     load(api, electionId).then(
       (next) => {
         if (active) {
+          if (next.kind === "ready") {
+            preloadPartyLogos(next.datasetVersion.parties);
+          }
           setState(next);
         }
       },
