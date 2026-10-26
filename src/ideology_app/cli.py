@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from ideology_app import bundle_import
 from ideology_app import elections as service
 from ideology_app import config
+from ideology_app import party_logos
 from ideology_app import pipeline as pipelines
 from ideology_app import shared_db
 from ideology_app import source_bundle
@@ -284,6 +285,62 @@ def party_list(app: AppContext, election_id: int) -> None:
             [p.id, p.short_name, p.name] for p in service.list_parties(session, election_id)
         ]
     _print_rows(["id", "short_name", "name"], rows)
+
+
+@party.command("logo")
+@click.argument("short_name")
+@click.option("--election", "election_id", required=True, type=int, help="Election id.")
+@click.option(
+    "--file",
+    "file_path",
+    default=None,
+    type=click.Path(path_type=Path),
+    help="PNG, WebP or SVG logo (checked by content, at most 256 KiB).",
+)
+@click.option("--clear", is_flag=True, default=False, help="Remove the Party's logo.")
+@requires_db
+def party_logo(
+    app: AppContext, short_name: str, election_id: int, file_path: Path | None, clear: bool
+) -> None:
+    """Set (--file) or remove (--clear) the logo of the Party SHORT_NAME.
+
+    A bundle Election's logos normally come from its election.toml through
+    "data import"; a logo set here is reported by "data check" and "db check"
+    until election.toml declares the same file.
+    """
+    if (file_path is None) == (not clear):
+        raise click.UsageError("pass exactly one of --file or --clear")
+    # The file is checked before the database is opened for writing.
+    logo = party_logos.read_logo_file(file_path) if file_path is not None else None
+    with session_scope(app.engine) as session:
+        target = service.get_party_by_short_name(session, election_id, short_name)
+        change = service.set_party_logo(target, logo)
+        party_id = target.id
+        slug = source_bundle.bundle_slug(target.election)
+    label = f"party {short_name} (id {party_id})"
+    if logo is not None:
+        if change is party_logos.LogoChange.UNCHANGED:
+            click.echo(f"Party {short_name} (id {party_id}) already has this logo; nothing changed")
+        else:
+            click.echo(
+                f"Set logo of {label}: {logo.media_type}, {len(logo.data)} bytes, "
+                f"sha256 {logo.sha256[:12]}"
+            )
+    elif change is party_logos.LogoChange.REMOVED:
+        click.echo(f"Removed logo of {label}")
+    else:
+        click.echo(f"Party {short_name} (id {party_id}) has no logo; nothing changed")
+    changed = change in (
+        party_logos.LogoChange.SET,
+        party_logos.LogoChange.REPLACED,
+        party_logos.LogoChange.REMOVED,
+    )
+    if changed and slug is not None:
+        click.echo(
+            f"Warning: election {election_id} has a committed bundle ({slug}); "
+            '"data check" will report this logo until election.toml declares it',
+            err=True,
+        )
 
 
 @main.group()
@@ -608,6 +665,9 @@ def data_import(app: AppContext, directory: Path) -> None:
         else:
             document_part = f"source document {item.document_id}: unchanged"
         click.echo(f"{party_part}; {document_part}")
+        logo_line = _logo_line(item)
+        if logo_line is not None:
+            click.echo(logo_line)
     for short_name, party_id in report.left_alone:
         click.echo(f"Party {short_name} (id {party_id}) is not in the bundle; left unchanged")
     click.echo(
@@ -620,6 +680,19 @@ def data_import(app: AppContext, directory: Path) -> None:
         _echo_trigger(trigger, mode)
 
 
+def _logo_line(item: bundle_import.PartyOutcome) -> str | None:
+    """The ``data import`` line for a logo that was set, replaced or removed."""
+    prefix = f"Party {item.short_name} (id {item.party_id}): logo"
+    if item.logo_change is party_logos.LogoChange.REMOVED:
+        return f"{prefix} removed"
+    if item.logo_change in (party_logos.LogoChange.SET, party_logos.LogoChange.REPLACED):
+        return (
+            f"{prefix} {item.logo_change.value} "
+            f"({item.logo_file}, {item.logo_media_type}, {item.logo_size} bytes)"
+        )
+    return None
+
+
 @data.command("check")
 @click.argument("directory", type=click.Path(path_type=Path))
 @requires_db
@@ -627,8 +700,9 @@ def data_check(app: AppContext, directory: Path) -> None:
     """Check that the database holds exactly a Source Text Bundle's text. Read-only.
 
     Exits 1 and prints one line per divergence (a missing Election, Party or
-    document, a different content hash or page text, or a Party document that
-    was not imported from the bundle).
+    document, a different content hash or page text, a Party document that
+    was not imported from the bundle, or a Party logo that differs from the
+    one election.toml declares).
     """
     bundle = source_bundle.read_bundle(directory)
     session = Session(app.engine)

@@ -46,6 +46,8 @@ export interface PublicApiClientOptions {
 const ELECTION_STATUSES: readonly ElectionStatus[] = ["draft", "active", "archived"];
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+// Same-origin only: the client never loads an image from another origin.
+const LOGO_URL_PATTERN = /^\/api\/v1\/parties\/[1-9][0-9]*\/logo\?v=[0-9a-f]{16}$/;
 
 class ContractError extends Error {}
 
@@ -200,6 +202,7 @@ function parseParty(value: unknown, path: string, statements: readonly Statement
   const id = requirePositiveInteger(item, "id", path);
   const name = requireString(item, "name", path);
   const shortName = requireString(item, "short_name", path);
+  const logoUrl = parseLogoUrl(item["logo_url"], path);
   const rawPositions = requireArray(item, "positions", path);
   if (rawPositions.length !== statements.length) {
     throw new ContractError(
@@ -210,7 +213,20 @@ function parseParty(value: unknown, path: string, statements: readonly Statement
     // The length check above guarantees statements[index] exists.
     parsePosition(position, `${path}.positions[${index}]`, (statements[index] as Statement).id),
   );
-  return { id, name, shortName, positions };
+  return { id, name, shortName, logoUrl, positions };
+}
+
+// A body cached before `logo_url` existed has no key: read it as `null`.
+function parseLogoUrl(value: unknown, path: string): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || !LOGO_URL_PATTERN.test(value)) {
+    throw new ContractError(
+      `${path}.logo_url must be null or a path like /api/v1/parties/{id}/logo?v=<16 hex>`,
+    );
+  }
+  return value;
 }
 
 function parseDatasetVersion(body: unknown): DatasetVersion {

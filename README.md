@@ -233,6 +233,8 @@ Todos son de solo lectura; usa el mismo prefijo `DATABASE_URL=sqlite:///data/ide
   Sin `--url` la Evidencia no muestra enlace. Nunca versiones un PDF ni edites un `.md`.
 - Añade el fichero a `election.toml` (sigue el formato de [`data/elections/es-general-2023-07-23/election.toml`](data/elections/es-general-2023-07-23/election.toml)). Una elección nueva es un directorio `<slug>/` nuevo con su propio `election.toml`.
 - Luego `db upgrade` y `data import data/elections/<slug>`, y comprueba con `data check data/elections/<slug>`. La importación es idempotente; un `.md` cambiado registra un documento que sustituye al anterior.
+- Logos de partido (opcional): guarda el fichero del usuario en `data/elections/<slug>/logos/<partido>.svg` (o `.png` / `.webp`) y añade `logo = "logos/<partido>.svg"` a ese partido en `election.toml`. Solo PNG, WebP o SVG (por contenido), hasta 256 KiB, y un SVG sin scripts ni referencias externas. `data import` guarda el logo y `data check` lo compara; si un fichero se rechaza, no lo edites: devuélveselo al usuario.
+- Fuera de un bundle: `party logo SHORT --election E --file F` o `--clear` (escribe en la base; en una elección con bundle, `data check` lo señalará hasta que `election.toml` declare el mismo fichero).
 - Una elección importada queda en `draft` hasta su primera ejecución publicada.
 - Tras una migración, ejecuta `db upgrade` sobre la base compartida. Un PR que añade una migración también versiona la base actualizada.
 - Ambas escrituras siguen el ciclo pull → escribir → `db check` → commit → push, y nunca mientras alguien está generando. `data import` sobre la base compartida no pide confirmación.

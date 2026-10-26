@@ -43,6 +43,7 @@ TABLES_AT_0005 = TABLES_AT_0004 | POSITION_TABLES
 VALIDATION_TABLES = {"validation_results", "validation_report_entries"}
 TABLES_AT_0009 = TABLES_AT_0005 | VALIDATION_TABLES
 ALL_TABLES = TABLES_AT_0009 | {"pipeline_run_calls"}
+HEAD = "0013"
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -51,7 +52,7 @@ def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
 
 
 def test_second_upgrade_is_a_noop(db_url: str) -> None:
@@ -59,7 +60,7 @@ def test_second_upgrade_is_a_noop(db_url: str) -> None:
     run_migrations(db_url)
 
     assert _tables(db_url) == ALL_TABLES
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
 
 
 def test_downgrade_to_0001_drops_source_document_tables(db_url: str) -> None:
@@ -843,7 +844,7 @@ def test_downgrade_to_0007_drops_only_the_column_and_keeps_rows(db_url: str) -> 
 
     run_migrations(db_url)
     assert "validation_settings" in _pipeline_run_columns(db_url)
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
 
 
 def test_offline_postgresql_render_of_0008() -> None:
@@ -976,7 +977,7 @@ def test_downgrade_to_0008_drops_only_the_columns_and_keeps_pages(db_url: str) -
 
     run_migrations(db_url)
     assert {"replaced_by_id", "last_checked_at"} <= set(_source_document_columns(db_url))
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
 
 
 def test_offline_postgresql_render_of_0009() -> None:
@@ -1032,7 +1033,7 @@ def test_upgrade_0010_adds_the_calls_table_and_column_and_keeps_rows(db_url: str
 
     run_migrations(db_url)
 
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
     assert _tables(db_url) == ALL_TABLES
     columns = _pipeline_run_columns(db_url)
     assert columns["resumed_from_run_id"]["nullable"] is True
@@ -1086,7 +1087,7 @@ def test_downgrade_to_0009_drops_the_calls_and_keeps_runs_and_versions(db_url: s
         "dataset_versions": 1,
     }
     run_migrations(db_url)
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
 
 
 def test_offline_postgresql_render_of_0010() -> None:
@@ -1165,7 +1166,7 @@ def test_downgrade_to_0010_drops_only_bundle_file_and_keeps_pages(db_url: str) -
         "source_document_pages": 1,
     }
     run_migrations(db_url)
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
 
 
 def test_offline_postgresql_render_of_0011() -> None:
@@ -1203,7 +1204,7 @@ def test_upgrade_0012_adds_nullable_statement_selection_and_keeps_rows(db_url: s
 
     run_migrations(db_url)
 
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
     after = _pipeline_run_columns(db_url)
     assert set(after) - set(before) == {"statement_selection"}
     assert after["statement_selection"]["nullable"] is True
@@ -1258,7 +1259,7 @@ def test_downgrade_to_0011_drops_only_the_column_and_keeps_versions(db_url: str)
         "statements": 1,
     }
     run_migrations(db_url)
-    assert _version(db_url) == "0012"
+    assert _version(db_url) == HEAD
     assert "statement_selection" in _pipeline_run_columns(db_url)
 
 
@@ -1279,3 +1280,125 @@ def test_offline_postgresql_render_of_0012() -> None:
     assert "ALTER TABLE pipeline_runs ADD COLUMN statement_selection JSON;" in up_sql
     assert "CHECK" not in up_sql
     assert "ALTER TABLE pipeline_runs DROP COLUMN statement_selection;" in down.getvalue()
+
+
+# Migration 0013: Party logos on parties (party-logos-data).
+
+LOGO_COLUMNS = {"logo", "logo_media_type", "logo_sha256"}
+ALL_ROW_TABLES = (
+    "elections",
+    "parties",
+    "source_documents",
+    "source_document_pages",
+    "pipeline_runs",
+    "dataset_versions",
+    "statements",
+    "party_positions",
+)
+
+
+def _party_columns(url: str) -> dict[str, dict[str, object]]:
+    engine = make_engine(url)
+    try:
+        return {c["name"]: c for c in sa.inspect(engine).get_columns("parties")}
+    finally:
+        engine.dispose()
+
+
+def _seed_with_position(engine: Engine) -> None:
+    _seed_run_and_version(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO party_positions (statement_id, party_id, value, "
+                "evidence_source_document_id, evidence_quote, evidence_page) "
+                "VALUES (1, 1, 1, 1, 'x', 1)"
+            )
+        )
+
+
+def test_upgrade_0013_adds_three_nullable_logo_columns_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url, "0012")
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+    finally:
+        engine.dispose()
+    before = _party_columns(db_url)
+    assert not LOGO_COLUMNS & set(before)
+    counts = _counts(db_url, ALL_ROW_TABLES)
+
+    run_migrations(db_url, "0013")
+
+    assert _version(db_url) == "0013"
+    after = _party_columns(db_url)
+    assert set(after) - set(before) == LOGO_COLUMNS
+    assert all(after[name]["nullable"] is True for name in LOGO_COLUMNS)
+    assert isinstance(after["logo"]["type"], sa.LargeBinary)
+    assert isinstance(after["logo_media_type"]["type"], sa.String)
+    assert after["logo_media_type"]["type"].length == 20
+    assert after["logo_sha256"]["type"].length == 64
+    assert _counts(db_url, ALL_ROW_TABLES) == counts
+    engine = make_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text("SELECT logo, logo_media_type, logo_sha256 FROM parties")
+            ).one()
+        assert tuple(row) == (None, None, None)
+    finally:
+        engine.dispose()
+
+
+def test_downgrade_to_0012_drops_only_the_logo_columns_and_keeps_children(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text(
+                    "UPDATE parties SET logo = X'89504E47', logo_media_type = 'image/png', "
+                    "logo_sha256 = :sha"
+                ),
+                {"sha": "a" * 64},
+            )
+    finally:
+        engine.dispose()
+    columns_before = set(_party_columns(db_url))
+    counts = _counts(db_url, ALL_ROW_TABLES)
+    assert counts["party_positions"] == 1 and counts["source_document_pages"] == 1
+
+    downgrade(db_url, "0012")
+
+    assert _version(db_url) == "0012"
+    assert set(_party_columns(db_url)) == columns_before - LOGO_COLUMNS
+    assert _tables(db_url) == ALL_TABLES
+    # Not recreated: the cascade from parties to its children never fires.
+    assert _counts(db_url, ALL_ROW_TABLES) == counts
+    run_migrations(db_url)
+    assert _version(db_url) == HEAD
+    assert LOGO_COLUMNS <= set(_party_columns(db_url))
+
+
+def test_offline_postgresql_render_of_0013() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0012:0013",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0013:0012",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "ALTER TABLE parties ADD COLUMN logo BYTEA;" in up_sql
+    assert "ALTER TABLE parties ADD COLUMN logo_media_type VARCHAR(20);" in up_sql
+    assert "ALTER TABLE parties ADD COLUMN logo_sha256 VARCHAR(64);" in up_sql
+    assert "CHECK" not in up_sql and "CREATE TABLE" not in up_sql
+    down_sql = down.getvalue()
+    for column in ("logo", "logo_media_type", "logo_sha256"):
+        assert f"ALTER TABLE parties DROP COLUMN {column};" in down_sql

@@ -2,3 +2,5 @@
 data/elections/**/*.md -text linguist-generated
 # The shared database (shared-database): never diffed, merged or EOL-converted.
 data/ideology.db binary
+# Party logos (party-logos-data): byte-exact (logo_sha256), so "data check" matches on every machine.
+data/elections/**/logos/** binary

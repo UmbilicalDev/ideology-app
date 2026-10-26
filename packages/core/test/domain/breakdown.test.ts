@@ -33,7 +33,7 @@ function party(
         ? null
         : { quote: `Cita ${name} ${i + 1}.`, page: i + 1, url, sourceDocumentId: id },
   }));
-  return { id, name, shortName: `P${id}`, positions };
+  return { id, name, shortName: `P${id}`, logoUrl: null, positions };
 }
 
 const PARTIES: Party[] = [

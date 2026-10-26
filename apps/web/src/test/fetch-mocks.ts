@@ -61,12 +61,14 @@ export function datasetVersionJson({
         id: 1,
         name: "Partido Uno",
         short_name: "P1",
+        logo_url: null,
         positions: items.map((s) => ({ statement_id: s.id, value: 1, evidence })),
       },
       {
         id: 2,
         name: "Partido Dos",
         short_name: "P2",
+        logo_url: null,
         positions: items.map((s, i) =>
           i === 0
             ? { statement_id: s.id, value: "no_stance", evidence: null }

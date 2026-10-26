@@ -80,6 +80,12 @@ class Party(Base):
     )
     name: Mapped[str] = mapped_column(sa.String(200))
     short_name: Mapped[str] = mapped_column(sa.String(50))
+    # The Party's logo (migration 0013): all three set or all null, written only
+    # by ``elections.set_party_logo`` after ``party_logos.check_logo``. The bytes
+    # are deferred: no Party query loads them unless asked.
+    logo: Mapped[bytes | None] = mapped_column(sa.LargeBinary(), deferred=True)
+    logo_media_type: Mapped[str | None] = mapped_column(sa.String(20))
+    logo_sha256: Mapped[str | None] = mapped_column(sa.String(64))
 
     election: Mapped[Election] = relationship(back_populates="parties")
     source_documents: Mapped[list["SourceDocument"]] = relationship(
