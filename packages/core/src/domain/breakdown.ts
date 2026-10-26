@@ -20,6 +20,8 @@ export interface BreakdownPosition {
   readonly partyId: number;
   readonly name: string;
   readonly shortName: string;
+  /** Same-origin logo path from `Party.logoUrl`, or `null` (placeholder). */
+  readonly logoUrl: string | null;
   readonly value: ScaleValue | typeof NO_STANCE;
   /** `null` exactly when `value` is `no_stance`. */
   readonly evidence: EvidenceView | null;
@@ -68,7 +70,12 @@ function orderParties(parties: readonly Party[], partyOrder: readonly number[]):
 
 function toPosition(party: Party, statementId: number): BreakdownPosition {
   const found = party.positions.find((p) => p.statementId === statementId);
-  const base = { partyId: party.id, name: party.name, shortName: party.shortName };
+  const base = {
+    partyId: party.id,
+    name: party.name,
+    shortName: party.shortName,
+    logoUrl: party.logoUrl,
+  };
   if (found === undefined || found.value === NO_STANCE || found.evidence === null) {
     return { ...base, value: NO_STANCE, evidence: null };
   }

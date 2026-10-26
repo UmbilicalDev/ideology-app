@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 import type { BreakdownPosition, BreakdownRow } from "@ideology-app/core";
 
+import { textWithoutLogos } from "../../test/text";
 import { ResultsBreakdown } from "./ResultsBreakdown";
 
 const INTRO =
@@ -16,6 +17,7 @@ const UNO_URL: BreakdownPosition = {
   partyId: 1,
   name: "Partido Uno",
   shortName: "P1",
+  logoUrl: null,
   value: 2,
   evidence: { quote: "Bajaremos el IVA.", page: 3, href: "https://example.org/uno.pdf#page=3" },
 };
@@ -23,6 +25,7 @@ const DOS_UPLOAD: BreakdownPosition = {
   partyId: 2,
   name: "Partido Dos",
   shortName: "P2",
+  logoUrl: null,
   value: -1,
   evidence: { quote: "<b>x</b>", page: 7, href: null },
 };
@@ -30,6 +33,7 @@ const TRES_NONE: BreakdownPosition = {
   partyId: 3,
   name: "Partido Tres",
   shortName: "P3",
+  logoUrl: null,
   value: "no_stance",
   evidence: null,
 };
@@ -112,7 +116,7 @@ describe("ResultsBreakdown", () => {
       const details = items(row);
       expect(details).toHaveLength(3);
       expect(details.every((d) => !d.open)).toBe(true);
-      expect(details.map((d) => d.querySelector("summary")?.textContent)).toEqual([
+      expect(details.map((d) => textWithoutLogos(d.querySelector("summary")!))).toEqual([
         "Partido Uno P1 Muy de acuerdo",
         "Partido Dos P2 En desacuerdo",
         "Partido Tres P3 Sin posición en el programa",
@@ -159,7 +163,9 @@ describe("ResultsBreakdown", () => {
   test("every Party item has identical class names and nothing is styled inline", () => {
     const { container } = renderBreakdown();
     const signature = (d: HTMLDetailsElement) =>
-      [d, ...Array.from(d.querySelectorAll("summary, summary > span"))].map((el) => el.className);
+      [d, ...Array.from(d.querySelectorAll("summary, summary > span, .position__label > span"))].map(
+        (el) => el.className,
+      );
     const all = Array.from(container.querySelectorAll<HTMLDetailsElement>("details"));
     expect(all).toHaveLength(9);
     for (const d of all) {
@@ -167,7 +173,24 @@ describe("ResultsBreakdown", () => {
       expect((d.parentElement as HTMLElement).getAttribute("class")).toBeNull();
     }
     expect(container.querySelector("[style]")).toBeNull();
-    expect(container.querySelector("img, svg")).toBeNull();
+    // The only image content is the decorative party-logo tile, first in
+    // every summary, identical for every Party.
+    const tiles = Array.from(container.querySelectorAll(".party-logo"));
+    expect(tiles).toHaveLength(9);
+    for (const d of all) {
+      const tile = d.querySelector("summary")!.firstElementChild!;
+      expect(tile.className).toBe("party-logo party-logo--breakdown");
+      expect(tile.getAttribute("aria-hidden")).toBe("true");
+      // The tile is followed by one text box holding name, short name and stance.
+      const summaryChildren = Array.from(d.querySelector("summary")!.children, (el) => el.className);
+      expect(summaryChildren).toEqual(["party-logo party-logo--breakdown", "position__label"]);
+      expect(
+        Array.from(d.querySelector(".position__label")!.children, (el) => el.className),
+      ).toEqual(["position__name", "position__short", "position__value"]);
+    }
+    expect(container.querySelectorAll("img, svg")).toHaveLength(
+      container.querySelectorAll(".party-logo img, .party-logo svg").length,
+    );
   });
 
   test("an empty list renders the section with no rows", () => {

@@ -6,6 +6,7 @@ import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@i
 
 import { App } from "../../app/App";
 import { datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
+import { textWithoutLogos } from "../../test/text";
 
 // The results breakdown through the whole App, with the 6-Statement fixture
 // (ids 101..106): Partido Uno +1 everywhere with Evidence from a URL document
@@ -189,7 +190,7 @@ describe("results breakdown", () => {
     walk(SCENARIO_1);
     const uno = item(breakdownRows()[0]!, "Partido Uno");
     expect(uno.open).toBe(false);
-    expect(uno.querySelector("summary")?.textContent).toBe("Partido Uno P1 De acuerdo");
+    expect(textWithoutLogos(uno.querySelector("summary")!)).toBe("Partido Uno P1 De acuerdo");
     open(uno);
     const quote = uno.querySelector("blockquote.evidence__quote");
     expect(quote?.textContent).toBe("Cita del programa de Partido Uno.");
@@ -203,7 +204,7 @@ describe("results breakdown", () => {
     await openSix();
     walk(SCENARIO_1);
     const dos = item(breakdownRows()[1]!, "Partido Dos");
-    expect(dos.querySelector("summary")?.textContent).toBe("Partido Dos P2 En desacuerdo");
+    expect(textWithoutLogos(dos.querySelector("summary")!)).toBe("Partido Dos P2 En desacuerdo");
     open(dos);
     expect(dos.querySelector("blockquote.evidence__quote")?.textContent).toBe("Cita.");
     expect(within(dos).getByText(UPLOAD_SENTENCE)).toBeTruthy();
@@ -214,7 +215,7 @@ describe("results breakdown", () => {
     await openSix();
     walk(SCENARIO_1);
     const dos = item(breakdownRows()[0]!, "Partido Dos");
-    expect(dos.querySelector("summary")?.textContent).toBe("Partido Dos P2 Sin posición en el programa");
+    expect(textWithoutLogos(dos.querySelector("summary")!)).toBe("Partido Dos P2 Sin posición en el programa");
     open(dos);
     expect(within(dos).getByText(NO_STANCE_SENTENCE)).toBeTruthy();
     expect(dos.querySelector("blockquote")).toBeNull();

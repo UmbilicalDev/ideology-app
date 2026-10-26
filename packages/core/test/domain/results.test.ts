@@ -126,6 +126,30 @@ describe("buildResults", () => {
       expect(row.positions.map((p) => p.partyId)).toEqual(order);
     }
   });
+
+  test("ranking and breakdown carry each Party's logoUrl", () => {
+    const logos = new Map([
+      [1, "/api/v1/parties/1/logo?v=0000000000000001"],
+      [3, "/api/v1/parties/3/logo?v=0000000000000003"],
+    ]);
+    const parties = PARTIES.map((p) => ({ ...p, logoUrl: logos.get(p.id) ?? null }));
+    const ids = STATEMENTS.map((s) => s.id);
+    const state: QuestionnaireState = {
+      statementIds: ids,
+      currentIndex: ids.length,
+      answers: new Map(ids.map((id) => [id, 1] as const)),
+      important: new Set(),
+    };
+    const { ranking, breakdown } = buildResults({ statements: STATEMENTS, parties }, state);
+    for (const party of ranking) {
+      expect(party.logoUrl).toBe(logos.get(party.partyId) ?? null);
+    }
+    for (const row of breakdown) {
+      for (const position of row.positions) {
+        expect(position.logoUrl).toBe(logos.get(position.partyId) ?? null);
+      }
+    }
+  });
 });
 
 describe("sharedVersionStatus", () => {

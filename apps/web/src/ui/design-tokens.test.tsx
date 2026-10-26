@@ -50,6 +50,22 @@ describe("design tokens", () => {
     expect(tokens).not.toMatch(/Georgia|Inter\b/);
   });
 
+  test("the party-logo tile colours are declared once and fixed in both themes", () => {
+    const tokens = withoutComments(sheets[TOKENS]!);
+    for (const [name, value] of [
+      ["--color-party-logo-tile", "#ffffff"],
+      ["--color-on-party-logo-tile", "#3f484d"],
+    ] as const) {
+      expect(declarations(tokens, name)).toEqual([value]);
+    }
+    const darkStart = tokens.indexOf("@media (prefers-color-scheme: dark)");
+    expect(darkStart).toBeGreaterThan(-1);
+    const darkEnd = tokens.indexOf("@media", darkStart + 1);
+    const dark = tokens.slice(darkStart, darkEnd === -1 ? undefined : darkEnd);
+    expect(dark).not.toContain("--color-party-logo-tile");
+    expect(dark).not.toContain("--color-on-party-logo-tile");
+  });
+
   test.each(Object.entries(sheets))("%s loads nothing from another origin", (_path, css) => {
     expect(css).not.toMatch(/url\(\s*["']?(?:https?:)?\/\//i);
     expect(css).not.toMatch(/@import\s+(?:url\()?\s*["']?(?:https?:)?\/\//i);

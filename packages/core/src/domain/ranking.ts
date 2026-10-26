@@ -14,6 +14,8 @@ export interface RankedParty {
   readonly partyId: number;
   readonly name: string;
   readonly shortName: string;
+  /** Same-origin logo path from `Party.logoUrl`, or `null` (placeholder). */
+  readonly logoUrl: string | null;
   /** The engine's score from 0 to 1, or `null` when no Statement is shared. */
   readonly matchScore: number | null;
   /** `Math.round(matchScore * 100)`, or `null` with `matchScore`. */
@@ -47,6 +49,7 @@ export function rankParties(answers: readonly Answer[], parties: readonly Party[
       partyId: party.id,
       name: party.name,
       shortName: party.shortName,
+      logoUrl: party.logoUrl,
       matchScore: result.matchScore,
       percent: result.matchScore === null ? null : Math.round(result.matchScore * 100),
       sharedStatementCount: result.sharedStatementCount,

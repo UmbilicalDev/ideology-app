@@ -1,6 +1,6 @@
 ---
 name: ideology-app (Civic Horizon)
-description: Neutral, civic, mobile-first voting advice tool on Material Design 3 with the Civic Horizon palette. Calm and trustworthy; no party colours in the base UI.
+description: Neutral, civic, mobile-first voting advice tool on Material Design 3 with the Civic Horizon palette. Calm and trustworthy; no party colours in the base UI (only a party logo image carries its own colours).
 designAssets:
   sourceOfTruth:
     - docs/design/civic-horizon.md
@@ -62,6 +62,8 @@ semantic:
   info-container: { light: "{colors.tertiary-fixed}", dark: "{colorsDark.tertiary-container}" }
   on-info-container: { light: "{colors.on-tertiary-fixed-variant}", dark: "{colorsDark.on-tertiary-container}" }
   focus-ring: "secondary"
+  party-logo-tile: { light: "#ffffff", dark: "#ffffff", note: "fixed in both themes (the light surface-container-lowest), so dark-on-transparent logos stay legible" }
+  on-party-logo-tile: { light: "#3f484d", dark: "#3f484d", note: "placeholder text, fixed in both themes (the light on-surface-variant)" }
   elevation-2: { light: "0 2px 8px -2px rgba(0, 31, 42, 0.08)", dark: "0 2px 8px -2px rgba(0, 0, 0, 0.4)" }
 typography:
   fontFamily: "Public Sans (self-hosted variable font), system-ui, sans-serif"
@@ -119,13 +121,19 @@ components:
   evidence-quote: { backgroundColor: surface-container-high, textColor: on-surface, borderLeft: "4px outline", typography: body-lg, fontStyle: normal }
   progress: { track: surface-container-highest, value: primary, height: 8px, rounded: full }
   ranking-bar: { track: surface-container-highest, fill: primary, height: 8px, rounded: full }
+  party-logo:
+    tile: { backgroundColor: party-logo-tile, border: "1px outline-variant", rounded: small, boxSizing: border-box, decorative: true }
+    size: { ranking: "40px (48px from 600px)", breakdown: 32px }
+    image: { source: "the API's same-origin logoUrl only", fit: "object-fit contain, no extra padding (the committed PNGs carry 6% padding)", alt: "" }
+    placeholder: { content: "Party short name, at most 2 lines (split once at the first space or hyphen when longer than 4 characters)", textColor: on-party-logo-tile, typography: "600 10px/12px, scaled to fit by an SVG viewBox" }
+    failure: "a logo that fails to load becomes the placeholder in the same tile (no layout shift)"
 ---
 
 # Design Direction
 
 ## Overview
 
-A calm, civic tool built on Material Design 3 with the Civic Horizon palette (`docs/design/civic-horizon.md`). The UI must never suggest a preference: identical treatment for every party, and no party colours anywhere.
+A calm, civic tool built on Material Design 3 with the Civic Horizon palette (`docs/design/civic-horizon.md`). The UI must never suggest a preference: identical treatment for every party, and no party colours anywhere except inside a party's own logo image.
 
 ## Existing Design Assets
 
@@ -143,7 +151,8 @@ Trustworthy, quiet, readable, like a good public-service website. Evidence (quot
 ## Neutrality Rules (unchanged)
 
 - Every party row and every party position looks the same, in every state. No winner styling: the first row is not emphasised (no number, medal, colour or size change).
-- No party colours for bars, backgrounds or text. Party logos are an open question.
+- No party colours for bars, backgrounds or text. The only exception: the logo image itself carries a Party's colours (logos shown, decided by the user on 2026-10-26).
+- Every Party gets the same party-logo tile (same size, shape, border and white background, in both themes), with its logo or, when it has none or the logo fails to load, a short-name placeholder. A logo is never recoloured, cropped or resized per Party.
 - No red/green on the agreement scale. Disagree states use a neutral slate (`outline-variant`), never red.
 - The meaning of the scale never relies on colour alone: the label text and the filled radio dot carry it.
 
@@ -162,6 +171,7 @@ Exactly two themes, chosen by the operating system through `prefers-color-scheme
 - **Secondary** (gold): focus ring, the Important flag (toggle and mark) and the tonal `Copiar enlace` button. Gold means "focus" or "marked by you", never a party.
 - **Tertiary / info pair**: `Baja cobertura` and the shield tile on the disclosure card. Light uses `tertiary-fixed` with `on-tertiary-fixed-variant`; dark uses `tertiary-container` with `on-tertiary-container`. An "AI-generated" tag, if one is ever added, uses the same pair.
 - **Surfaces**: the page is `surface`; cards are `surface-container-lowest` in light and `surface-container-low` in dark; a disclosure nested inside a card is one tier up.
+- **Party logo tile**: `party-logo-tile` (`#ffffff`) with `on-party-logo-tile` (`#3f484d`) for the placeholder, the same pair in both themes, so dark-on-transparent logos stay legible in dark mode and every Party looks the same. Its border is `outline-variant` and follows the theme.
 - Never put text on `outline` or `outline-variant` except the disagree state, whose pair is checked below.
 
 ## Typography
@@ -210,11 +220,12 @@ Tonal elevation, as in the source. Only levels 0–2 are used (there are no stic
 - **Disclosure card** (Questionnaire only, below the Statement card): a decorative shield (`aria-hidden`) in a 40px info tile, the title `Transparencia algorítmica y privacidad garantizada` and the unchanged AI/privacy note.
 - **Election card** (Landing): one link per Election holding its name, date and a filled `Realizar cuestionario` pill with an arrow, so the whole card is the target and reads as actionable.
 - **Summary card** (end screen and shared result, below the results title): a Level 1 card with a 64px donut of the answered share (`primary` arc on a `surface-container-highest` track, no arc at 0 %, the rounded percentage in its centre in label-md weight 600, decorative; the arc is 9.4 / 10.0 against the card in light / dark, the track is decorative like the ranking track), the title `Muestra evaluada: N/T afirmaciones contestadas` (title-md), the skipped count, and the Important sentence led by the Important star (`secondary`; filled when at least one Statement is marked, outline otherwise).
-- **Ranking row**: party name + short name, percentage, a `primary` bar on a `surface-container-highest` track, and a `Baja cobertura` chip (info pair) when it applies. Every row looks the same.
+- **Ranking row**: the party-logo tile, party name + short name, percentage, a `primary` bar on a `surface-container-highest` track, and a `Baja cobertura` chip (info pair) when it applies. Every row looks the same.
+- **Party logo** (ranking rows and breakdown positions only, on the end screen and the shared result): a decorative tile (`aria-hidden`, `alt=""`; the name stays as text next to it) with a fixed white `party-logo-tile` background in both themes, a 1px `outline-variant` border and the small (4px) corner. Ranking: 40px, 48px from 600px; breakdown: 32px at every width, filling the 48px summary row. The logo comes only from the API's same-origin `logoUrl` and fills the tile with `object-fit: contain`. Without a logo, or when it fails to load, the tile shows the short name in `on-party-logo-tile` (600 weight), scaled down by an SVG viewBox to fit inside the tile, on at most 2 lines (`EH`/`Bildu`, `EAJ-`/`PNV`). The swap happens inside the same fixed tile, so nothing moves. Logos are requested in Dataset Version Party order before the results render, never in ranking order.
 - **Coverage chip and tooltip**: the `Baja cobertura` chip is a focusable button with an info icon. Its explanation appears in a tooltip (`inverse` pair: `on-surface` background with `surface` text) on hover, keyboard focus or tap, stays while hovered, and closes with Escape; the chip is described by the tooltip. There is no legend under the ranking.
 - **Notice card**: the "not a voting recommendation" text on the end screen and the shared result, in a Level 1 card with a decorative info icon in a 40px info tile (same layout as the disclosure card).
 - **External link**: the methodology link opening in a new tab ends in an external-link icon; `(se abre en una pestaña nueva)` stays in its accessible name as visually hidden text.
-- **Breakdown row**: the Statement, the Voter's answer (Saltada / `Importante (cuenta el doble)` mark on `secondary-container`), and each party's position in ranking order as a native disclosure revealing the Evidence quote and its locator: a link to `url#page=N`, or the page alone for uploaded documents; `Sin posición en el programa` for no stance.
+- **Breakdown row**: the Statement, the Voter's answer (Saltada / `Importante (cuenta el doble)` mark on `secondary-container`), and each party's position in ranking order as a native disclosure whose summary is the chevron, the 32px party-logo tile and one text box beside the tile with the name, short name and value (the text wraps inside the box, so the tile is never alone on its line) revealing the Evidence quote and its locator: a link to `url#page=N`, or the page alone for uploaded documents; `Sin posición en el programa` for no stance.
 - **Evidence quote**: Public Sans body-lg on `surface-container-high` with a 4px `outline` left border; never serif, never italic.
 - **Share card**: a decorative share icon before the `Comparte tu resultado` title; `Copiar enlace` (tonal, with a link icon) copies the Share Link to the clipboard; if copying fails, the link is shown in a read-only field, focused and selected, to copy by hand. A short note says that nothing is stored on any server and that anyone with the link can see the answers.
 - **Icons**: inline SVG drawn for this app, 24px (20px inside buttons and chips), `currentColor`, `aria-hidden`; meaning always lives in the adjacent text.
@@ -248,6 +259,7 @@ WCAG 2.1 AA contrast for every text pair in both themes, and at least 3:1 for bo
 | outline border on card / surface (≥ 3) | 4.5 / 4.3 | 5.4 / 5.8 |
 | focus ring secondary on surface / card (≥ 3) | 6.1 / 6.4 | 10.9 / 10.0 |
 | surface on on-surface (coverage tooltip) | 16.4 | 14.4 |
+| on-party-logo-tile on party-logo-tile (placeholder) | 9.4 | 9.4 |
 
 The scale is a native radio group usable by keyboard and screen reader.
 
@@ -257,9 +269,10 @@ The scale is a native radio group usable by keyboard and screen reader.
 - Do label AI-generated content clearly.
 - Do take every colour, font and shadow from `tokens.css`.
 - Don't use party colours for bars or backgrounds.
+- Don't recolour, crop or resize a logo per Party; every Party gets the same tile.
 - Don't use red/green on the agreement scale.
 - Don't load fonts, styles, scripts or images from another origin.
 
 ## Open Design Questions
 
-- Whether to show party logos at all (licensing and neutrality).
+- None. (Party logos: settled by the user on 2026-10-26, shown in a fixed white tile; logo licensing stays open in `docs/risks-and-open-questions.md`.)

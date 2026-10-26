@@ -5,7 +5,14 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@ideology-app/core";
 
 import { App } from "../../app/App";
-import { datasetVersionJson, electionJson, jsonResponse, textResponse } from "../../test/fetch-mocks";
+import {
+  datasetVersionJson,
+  electionJson,
+  jsonResponse,
+  partyLogoUrl,
+  recordImageRequests,
+  textResponse,
+} from "../../test/fetch-mocks";
 import { SHARED_RESULTS_TITLE } from "./SharedResultsPage";
 
 const ELECTION_URL = "/api/v1/elections/1";
@@ -146,6 +153,35 @@ describe("SharedResultsPage", () => {
     expect(screen.getAllByText(/^Respuesta del enlace:/)).toHaveLength(6);
     expect(screen.getByText(NOTE).className).toBe("questionnaire__note");
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+  });
+
+  test("logos are preloaded in Party order whatever the ranking, then shown in ranking order", async () => {
+    const { srcs } = recordImageRequests();
+    const fetch = routes({
+      [ELECTION_URL]: () => jsonResponse(electionJson()),
+      [VERSION_URL]: () => jsonResponse(datasetVersionJson({ statements: 6, logos: true })),
+    });
+    // Disagreeing with everything ranks Partido Dos first.
+    renderAt("/resultados#v1-1-aaaaaa", fetch);
+    await ready();
+    expect(srcs).toEqual([partyLogoUrl(1), partyLogoUrl(2)]);
+    const names = Array.from(document.querySelectorAll(".ranking-row__name"), (el) => el.textContent);
+    expect(names).toEqual(["Partido Dos", "Partido Uno"]);
+    const ranking = Array.from(document.querySelectorAll(".ranking-row img"), (img) =>
+      img.getAttribute("src"),
+    );
+    expect(ranking).toEqual([partyLogoUrl(2), partyLogoUrl(1)]);
+    for (const summary of document.querySelectorAll(".position__summary")) {
+      expect(summary.firstElementChild?.className).toBe("party-logo party-logo--breakdown");
+    }
+    expect(urls(fetch)).toEqual([VERSION_URL, ELECTION_URL]);
+  });
+
+  test("an invalid link preloads no logo", async () => {
+    const { srcs } = recordImageRequests();
+    renderAt("/resultados#v1-1-dddddf", sixStatements());
+    await screen.findByText(INVALID);
+    expect(srcs).toEqual([]);
   });
 
   test("Scenario 1: Haz tú el cuestionario opens the Questionnaire", async () => {

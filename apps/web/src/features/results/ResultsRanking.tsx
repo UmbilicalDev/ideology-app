@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { LOW_COVERAGE_THRESHOLD, type RankedParty } from "@ideology-app/core";
 
 import { InfoIcon } from "../../ui/icons";
+import { PartyLogo } from "./PartyLogo";
 
 export const LOW_COVERAGE_LABEL = "Baja cobertura";
 
@@ -12,9 +13,10 @@ export const LOW_COVERAGE_EXPLANATION =
 
 /**
  * The party ranking (DESIGN.md "Ranking row"). Renders `ranking` in the order
- * given (it comes from `rankParties`) and treats every Party the same: no
- * colour, logo, highlight or position marker per Party. The meaning is in the
- * text; the bar is decorative. Expects a heading with id `results-title`.
+ * given (it comes from `rankParties`) and treats every Party the same: the
+ * same party-logo tile (logo or short-name placeholder) and no colour,
+ * highlight or position marker per Party. The meaning is in the text; the
+ * tile and the bar are decorative. Expects a heading with id `results-title`.
  */
 export function ResultsRanking({ ranking }: { readonly ranking: readonly RankedParty[] }) {
   return (
@@ -31,8 +33,11 @@ function RankingRow({ party }: { readonly party: RankedParty }) {
   return (
     <li className="ranking-row">
       <div className="ranking-row__head">
-        <span className="ranking-row__name">{party.name}</span>{" "}
-        <span className="ranking-row__short">{party.shortName}</span>{" "}
+        <PartyLogo logoUrl={party.logoUrl} shortName={party.shortName} size="ranking" />
+        <span className="ranking-row__label">
+          <span className="ranking-row__name">{party.name}</span>{" "}
+          <span className="ranking-row__short">{party.shortName}</span>
+        </span>{" "}
         <span className="ranking-row__percent">
           {party.percent === null ? "Sin afirmaciones en común" : `${party.percent}\u00a0%`}
         </span>
