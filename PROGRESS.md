@@ -783,3 +783,14 @@
 - Next best step: push to PR #73.
 - Repair (same session): validator `revise` (0 % donut dot, 100 % label touching the ring). Fixed; `CI=true ./init.sh` exit 0; browser recheck of 0 % and 100 % at 375 dark and 1280 light.
 - Validation: independent validator re-ran the gate and the browser walks after the repair; verdict accept. Status `accepted`.
+
+### Session 066
+
+- Date: 2026-10-26
+- Goal: Add the user's four new requests to the backlog (no code).
+- Completed: six features added to `feature_list.json` (`not_started`): `party-logos-data`, `party-logos-display` (task 1: party logos, local storage, short-name placeholder), `share-ideologiapp` (task 2: share card split into 'Comparte tu resultado' and 'Comparte IdeologiApp' with Copiar enlace, Facebook, WhatsApp, Instagram, X, Email), `feedback-api`, `feedback-dialog` (task 3: 'Ayúdanos a mejorar' dialog, 500 characters with counter, Landing and end screen), `donate-buymeacoffee` (task 4: link hidden until the profile is configured). Decision: party logos are local (bytes in the database, files in the bundle), not remote URLs, because `CONSTRAINTS.md` forbids loading images from another origin.
+- Verification run: `feature_list.json` parses; every `depends_on` exists.
+- Evidence captured: none (planning only).
+- Follow-up (same session): `donate-buymeacoffee` gains a disclosure '¿Para qué se usan las donaciones?' next to the link (support the project's growth and hosting costs; no donations on behalf of political parties), at the user's request.
+- Known risk or unresolved issue: logo licensing, feedback retention/moderation, enforcing the no-party-donations rule (see `docs/risks-and-open-questions.md`).
+- Next best step: plan `party-logos-data` (first ready in list order); `share-ideologiapp` and `feedback-api` are also ready and independent of it.

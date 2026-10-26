@@ -891,5 +891,140 @@
       "2026-10-25 independent validator: revise (Medium: 0 % donut dot; Low: 100 % label touching the ring), then accept after the repair: CI=true ./init.sh exit 0 (pytest 1454, Vitest 362); own browser walks (chrome-devtools, Chromium) at 375 and 1280, light and dark, end screen and shared result: 0 % shows only the track, 100 % label 39.1px in a 48.9px hole, voter and link voice correct, star filled only when Important > 0; contrast AA; console empty; same-origin GETs only, no Answers in any request; data/ideology.db unchanged. Status accepted."
     ],
     "notes": "Requested by the user on 2026-10-25 after reviewing brand-and-results-polish (PR #73). 'icono de fav' read as the Important star used by the Questionnaire toggle."
+  },
+  {
+    "id": "party-logos-data",
+    "area": "data",
+    "title": "Party logos stored locally and served by the app",
+    "user_visible_behavior": "An Operator can attach a logo to a Party (declared in the Source Text Bundle's election.toml or set with a CLI command); the public dataset API gives every Party a same-origin `logo_url` (or null when it has none) and the app serves the logo bytes itself.",
+    "depends_on": [
+      "public-dataset-api",
+      "source-text-bundle",
+      "shared-database"
+    ],
+    "status": "not_started",
+    "verification": [
+      "A migration adds the logo to Party (bytes, media type and sha256), nullable; it applies on an empty database and on a copy of data/ideology.db, and data/ideology.db is upgraded, checked with `ideology db check` and committed per CONSTRAINTS.md (Shared Database)",
+      "election.toml accepts an optional `logo = \"logos/<file>\"` per Party (path inside the bundle); `ideology data import` stores it and stays idempotent, and `ideology data check` reports a logo that differs from the database; `ideology party logo SHORT_NAME --election N --file F` and `--clear` set or remove it",
+      "Only PNG, WebP and SVG are accepted (checked by content, not extension) up to 256 KB; anything else is refused with a clear error and nothing is stored",
+      "GET /api/v1/parties/{id}/logo returns the bytes with the stored media type, `X-Content-Type-Options: nosniff`, a restrictive `Content-Security-Policy` (no scripts) and a long immutable cache; 404 JSON when the Party has no logo; the route is registered before web_router",
+      "The public dataset API adds `logo_url` per Party: a same-origin path that includes the sha256 prefix (`/api/v1/parties/{id}/logo?v=<hash>`), or null; packages/core maps it to `logoUrl` and the contract tests are updated",
+      "Dataset Versions are unchanged (the logo is a Party attribute, not part of the snapshot)",
+      "Tests never write to data/ideology.db; ./init.sh passes"
+    ],
+    "evidence": [],
+    "notes": "Requested by the user on 2026-10-26 (task 1). Decision: logos are local, not remote URLs. CONSTRAINTS.md forbids the web client loading images from another origin (no third party sees Voters); remote URLs break or change without notice; storing the bytes in the database keeps the committed shared database the single source of truth. Logo files are committed next to the bundle under data/elections/<slug>/logos/. CLI/data feature: no browser check. Licensing of party logos is an open question (docs/risks-and-open-questions.md)."
+  },
+  {
+    "id": "party-logos-display",
+    "area": "web",
+    "title": "Party logos and short-name placeholder on the results",
+    "user_visible_behavior": "On the end screen and the shared result, every Party in the ranking and in the per-Statement breakdown shows its logo next to its name; a Party without a logo shows a neutral placeholder with its short name (siglas).",
+    "depends_on": [
+      "party-logos-data",
+      "results-summary-card"
+    ],
+    "status": "not_started",
+    "verification": [
+      "DESIGN.md is updated first: the 'Whether to show party logos at all' open question is settled (logos shown, decided by the user 2026-10-26) and a party-logo component is defined (same fixed size for every Party, same tile shape and neutral background, object-fit contain); the 'no party colours' rule gets the explicit exception that only the logo image itself carries a Party's colours",
+      "The logo is decorative (`alt=\"\"`; the Party name stays as text next to it) and is loaded only from the same-origin `logoUrl`",
+      "The placeholder shows the Party short name in a neutral tile (tokens.css colours only, same size and shape as a logo); long short names fit without overflow (e.g. 'EH Bildu', 'SUMAR')",
+      "A logo that fails to load falls back to the placeholder without layout shift",
+      "Neutrality is kept: every Party row and breakdown row is styled identically with or without a logo, no winner emphasis",
+      "./init.sh passes; tests cover logo, placeholder and fallback",
+      "Browser check at 375px, about 700px and 1280px, light and dark: end screen and shared result with some Parties with a logo and some without; no console errors, no request to another origin, no request carries voter answers"
+    ],
+    "evidence": [],
+    "notes": "Requested by the user on 2026-10-26 (task 1). Landing and Questionnaire are out of scope (they show no Parties)."
+  },
+  {
+    "id": "share-ideologiapp",
+    "area": "web",
+    "title": "Share section split: share your result and share IdeologiApp",
+    "user_visible_behavior": "On the end screen the share card is split into two parts: 'Comparte tu resultado' (the existing Share Link with 'Copiar enlace', unchanged) and 'Comparte IdeologiApp', a row of icon buttons that share the IdeologiApp home URL: Copiar enlace, Facebook, WhatsApp, Instagram, X and Email.",
+    "depends_on": [
+      "results-summary-card"
+    ],
+    "status": "not_started",
+    "verification": [
+      "DESIGN.md is updated first (share card with two sections, icon-button row, brand icons drawn as inline SVG in currentColor, neutral tokens, no brand colours)",
+      "The shared URL is always the home URL (`location.origin + '/'`); it never contains a fragment, a Dataset Version id or any answer (unit test on the URL builder)",
+      "Facebook, WhatsApp, X and Email are plain links (`facebook.com/sharer/sharer.php?u=`, `wa.me/?text=`, `x.com/intent/post?url=&text=`, `mailto:?subject=&body=`) opening in a new tab with `rel=\"noopener noreferrer\"` (mailto in place); no third-party script, SDK or image is loaded",
+      "Instagram has no web share link: where the Web Share API exists it calls `navigator.share` with the home URL; elsewhere it copies the home URL and says it is ready to paste in Instagram",
+      "Copiar enlace copies the home URL and announces it in a live region, like the existing result Copiar enlace",
+      "Every icon button has an accessible name (e.g. 'Compartir IdeologiApp en Facebook'), a 48px target and a visible focus ring; the row wraps at 375px without horizontal scroll",
+      "The 'Comparte tu resultado' part keeps its copy, behaviour and tests",
+      "./init.sh passes",
+      "Browser check at 375px, about 700px and 1280px, light and dark: every button opens or copies the right URL; no console errors, no failed requests, no request carries voter answers"
+    ],
+    "evidence": [],
+    "notes": "Requested by the user on 2026-10-26 (task 2). The share links are navigations started by the Voter, not resource loads, so CONSTRAINTS.md's no-other-origin rule is kept. Whether the shared result (/resultados#…) also shows 'Comparte IdeologiApp' is decided in the spec (default: yes, the IdeologiApp part only)."
+  },
+  {
+    "id": "feedback-api",
+    "area": "api",
+    "title": "Store anonymous Voter feedback",
+    "user_visible_behavior": "POST /api/v1/feedback accepts an anonymous message of 1 to 500 characters and stores it in a feedback store separate from the shared database; an Operator reads it with `ideology feedback list`.",
+    "depends_on": [
+      "public-dataset-api"
+    ],
+    "status": "not_started",
+    "verification": [
+      "Body `{\"message\": str, \"origin\": \"landing\" | \"results\"}`; the message is trimmed, must be 1..500 characters (counted the same way as the client counter) and may not contain control characters other than newlines; 201 on success, 422 otherwise; oversized bodies are refused",
+      "Only message, origin and created_at are stored: no IP, user agent, cookie, Election, Dataset Version or answers",
+      "Feedback goes to `FEEDBACK_DATABASE_URL` (default `sqlite:///feedback.db` in the current directory, gitignored), never to data/ideology.db; pointing it at the shared database file is refused",
+      "A simple abuse guard is in place (e.g. per-process rate limit and a honeypot field) and documented",
+      "`ideology feedback list [--since DATE]` prints the stored messages",
+      "packages/core gets `sendFeedback` in createPublicApiClient (components still never call fetch)",
+      "CONSTRAINTS.md is updated: the feedback POST is the only request that carries free text, and it carries no answers; the methodology page privacy copy and its test mention that feedback is stored (CONSTRAINTS.md Public Copy rule)",
+      "./init.sh passes"
+    ],
+    "evidence": [],
+    "notes": "Requested by the user on 2026-10-26 (task 3), backend half. A separate store avoids writing Voter text into the committed shared database when the app is served from data/ideology.db. Retention, moderation and Operator notification are open questions (docs/risks-and-open-questions.md). API/CLI feature: no browser check."
+  },
+  {
+    "id": "feedback-dialog",
+    "area": "web",
+    "title": "Feedback button and 'Ayúdanos a mejorar' dialog",
+    "user_visible_behavior": "The Landing and the end screen show a feedback button; it opens a modal titled 'Ayúdanos a mejorar' with the subtitle 'Dinos qué te ha parecido IdeologiApp', a plain text box limited to 500 characters with a live counter, and an 'Enviar' button; after sending, the dialog thanks the Voter for their opinion.",
+    "depends_on": [
+      "feedback-api",
+      "share-ideologiapp"
+    ],
+    "status": "not_started",
+    "verification": [
+      "DESIGN.md is updated first (feedback button placement and style, modal dialog on M3 tokens, counter, success and error states)",
+      "The dialog is modal: focus moves into it, Tab stays inside, Escape and a close button close it, focus returns to the button; title and subtitle name and describe it",
+      "The text box has a visible label, a 500-character limit and a counter 'N/500' announced politely near the limit; Enviar is disabled while the trimmed text is empty or a request is in flight",
+      "Enviar posts only the message and origin through the packages/core client; on success the form is replaced by a thank-you message (e.g. '¡Gracias por tu opinión!') and a close button; on error the text is kept and a retry message is shown",
+      "On the end screen the answers stay in memory: opening, sending and closing the dialog does not lose them or change the URL",
+      "./init.sh passes; tests cover open/close, counter, limit, success, error and that the request body carries no answers",
+      "Browser check at 375px, about 700px and 1280px, light and dark, keyboard only and pointer: Landing and end screen; no console errors, no failed requests, and the feedback POST carries no voter answers"
+    ],
+    "evidence": [],
+    "notes": "Requested by the user on 2026-10-26 (task 3), UI half. Copy from the user: title 'Ayúdanos a mejorar', subtitle 'Dinos qué te ha parecido IdeologiApp', button 'Enviar'. The button label and the thank-you wording are proposed in the spec. Depends on share-ideologiapp only to serialise edits to the end screen."
+  },
+  {
+    "id": "donate-buymeacoffee",
+    "area": "web",
+    "title": "Donate to the project with Buy Me a Coffee",
+    "user_visible_behavior": "When a Buy Me a Coffee profile is configured, the Landing and the end screen show an 'Invítanos a un café' link that opens the project's Buy Me a Coffee page in a new tab; next to it, a disclosure (desplegable) '¿Para qué se usan las donaciones?' explains that donating is a simple way to support the project and help it grow (adding or improving features) and to cover hosting costs, and that donations made on behalf of political parties are not accepted; with no profile configured neither is shown.",
+    "depends_on": [
+      "feedback-dialog"
+    ],
+    "status": "not_started",
+    "verification": [
+      "DESIGN.md is updated first (donation link placement and style, coffee icon as inline SVG, neutral tokens, no Buy Me a Coffee brand colours or widget)",
+      "The profile URL is configuration, not code: one setting (e.g. `DONATION_URL`) accepted only as https://www.buymeacoffee.com/<profile>; unset or invalid hides the link",
+      "It is a plain link opening in a new tab with `rel=\"noopener noreferrer\"`; no Buy Me a Coffee script, widget, iframe or image is loaded (CONSTRAINTS.md no-other-origin rule)",
+      "The link never carries answers, a fragment or a Dataset Version",
+      "Next to the link, a disclosure (native <details>/<summary> or a button with aria-expanded and aria-controls) titled '¿Para qué se usan las donaciones?', closed by default, keyboard operable, opens without moving the layout of the link; its text says donations are a simple way to support IdeologiApp and let it grow (new or improved features) and help pay hosting costs, and that donations on behalf of political parties are not accepted; the exact copy is fixed in the spec and tested",
+      "The disclosure is shown only when the link is shown; it wraps under the link at 375px without horizontal scroll",
+      "README.md documents how to set the profile",
+      "./init.sh passes; tests cover configured, unset and invalid values",
+      "Browser check at 375px, about 700px and 1280px, light and dark, with a test profile URL and with none: Landing and end screen, opening and closing the disclosure with keyboard and pointer; no console errors, no failed requests, no request carries voter answers"
+    ],
+    "evidence": [],
+    "notes": "Requested by the user on 2026-10-26 (task 4); the disclosure about how donations are used and the no-party-donations rule were added by the user the same day. The real Buy Me a Coffee profile is pending (user); the feature is complete with the link hidden by default. Depends on feedback-dialog only to serialise edits to the Landing and end screen."
   }
 ]
