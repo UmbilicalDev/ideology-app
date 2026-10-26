@@ -24,6 +24,7 @@ function party(id: number, name: string, value: 1 | -1): Party {
     id,
     name,
     shortName: `P${id}`,
+    logoUrl: null,
     positions: STATEMENTS.map((s) => ({
       statementId: s.id,
       value,

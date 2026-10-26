@@ -63,6 +63,7 @@ Rules:
   - Once a `.md` is committed, the PDF is no longer needed by anyone (import, generation and Evidence read only the bundle), so a local-only PDF can be discarded.
   - Replace a manifesto: put the new PDF on your machine, run `source extract … --force` over that Party's `.md` (or delete the file and extract again), review the diff, commit it. Every machine's next `data import` registers a replacement Source Document (the old one stays for older Evidence); in `live` that queues a run.
   - Never edit a `.md` by hand: the import refuses a file that is not in canonical form or whose `text_sha256` does not match.
+  - Party logos (`party-logos-data`): put the user's file in `data/elections/<slug>/logos/` and declare `logo = "logos/<file>"` on that Party in `election.toml`; commit the files, the manifest and the upgraded/imported `data/ideology.db` together. Importing logos is a bundle write like any other (pull → `data import` → `data check` → `db check` → commit, never while someone is generating); it never queues a run or touches a Dataset Version. A refused file is reported to the user, never edited.
 
 ## Integrations
 

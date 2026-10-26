@@ -21,6 +21,8 @@ class PartySpec:
     pages: Sequence[str]
     source_url: str | None = None
     pdf_sha256: str = field(default="")
+    # ``(manifest path, bytes)``, e.g. ``("logos/pp.svg", logo_factory.svg())``.
+    logo: tuple[str, bytes] | None = None
 
     def content(self) -> bytes:
         pdf = self.pdf_sha256 or hashlib.sha256(self.file.encode()).hexdigest()
@@ -73,6 +75,8 @@ def manifest_text(
             f"name = {json.dumps(party.name, ensure_ascii=False)}",
             f"file = {json.dumps(party.file)}",
         ]
+        if party.logo is not None:
+            lines.append(f"logo = {json.dumps(party.logo[0])}")
     return "\n".join(lines) + "\n"
 
 
@@ -91,4 +95,8 @@ def write_bundle(
     )
     for party in parties:
         (directory / party.file).write_bytes(party.content())
+        if party.logo is not None:
+            logo_path = directory / party.logo[0]
+            logo_path.parent.mkdir(parents=True, exist_ok=True)
+            logo_path.write_bytes(party.logo[1])
     return directory

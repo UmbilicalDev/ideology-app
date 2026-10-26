@@ -27,6 +27,7 @@ from ideology_app.models import (
     PartyPosition,
     Statement,
 )
+from ideology_app.party_logos import logo_url
 from ideology_app.pipeline.publishing import get_published_dataset_version
 
 PUBLIC_STATUSES = frozenset({DatasetVersionStatus.PUBLISHED, DatasetVersionStatus.SUPERSEDED})
@@ -119,6 +120,22 @@ def get_public_version(session: Session, dataset_version_id: int) -> DatasetVers
     return _version_out(session, version)
 
 
+def get_party_logo(session: Session, party_id: int) -> tuple[bytes, str, str]:
+    """``(bytes, media_type, sha256)`` of a Party's logo (one SELECT of three columns).
+
+    Any Party of any Election: a logo is not part of a Dataset Version.
+    """
+    row = session.execute(
+        select(Party.logo, Party.logo_media_type, Party.logo_sha256).where(Party.id == party_id)
+    ).first()
+    if row is None:
+        raise ApiNotFoundError("party_not_found", f"party {party_id} not found")
+    data, media_type, sha256 = row
+    if data is None or media_type is None or sha256 is None:
+        raise ApiNotFoundError("party_logo_not_found", f"party {party_id} has no logo")
+    return data, media_type, sha256
+
+
 def _utc_timestamp(value: dt.datetime) -> str:
     """``YYYY-MM-DDTHH:MM:SSZ``; a naive value (SQLite) is read as UTC."""
     if value.tzinfo is None:
@@ -174,7 +191,13 @@ def _version_out(session: Session, version: DatasetVersion) -> DatasetVersionOut
             for s in statements
         ],
         parties=[
-            PartyOut(id=p.id, name=p.name, short_name=p.short_name, positions=by_party[p.id])
+            PartyOut(
+                id=p.id,
+                name=p.name,
+                short_name=p.short_name,
+                logo_url=logo_url(p.id, p.logo_sha256),
+                positions=by_party[p.id],
+            )
             for p in parties
         ],
     )

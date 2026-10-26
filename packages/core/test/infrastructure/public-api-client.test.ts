@@ -258,6 +258,8 @@ function evidenceBody(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
+const LOGO_URL = "/api/v1/parties/5/logo?v=0123456789abcdef";
+
 function versionBody(): Record<string, unknown> {
   return {
     id: 3,
@@ -272,6 +274,7 @@ function versionBody(): Record<string, unknown> {
         id: 5,
         name: "Partido A",
         short_name: "PA",
+        logo_url: LOGO_URL,
         positions: [
           { statement_id: 10, value: 2, evidence: evidenceBody() },
           { statement_id: 20, value: "no_stance", evidence: null },
@@ -326,6 +329,7 @@ describe("createPublicApiClient getDatasetVersion", () => {
           id: 5,
           name: "Partido A",
           shortName: "PA",
+          logoUrl: LOGO_URL,
           positions: [
             {
               statementId: 10,
@@ -356,6 +360,18 @@ describe("createPublicApiClient getDatasetVersion", () => {
     const emptyVersion = await createPublicApiClient({ fetch: fetchReturning(jsonResponse(empty)) }).getDatasetVersion(3);
     expect(emptyVersion.statements).toEqual([]);
     expect(emptyVersion.parties).toEqual([]);
+  });
+
+  test("a null or missing logo_url is null (bodies cached before logo_url existed)", async () => {
+    const mutations: Mutate[] = [
+      (b) => { b["parties"][0]["logo_url"] = null; },
+      (b) => { delete b["parties"][0]["logo_url"]; },
+    ];
+    for (const mutate of mutations) {
+      const api = createPublicApiClient({ fetch: fetchReturning(jsonResponse(mutated(mutate))) });
+      const version = await api.getDatasetVersion(3);
+      expect(version.parties[0]?.logoUrl).toBeNull();
+    }
   });
 
   test("a 404 is an http error with status 404 and json() is not called", async () => {
@@ -401,6 +417,22 @@ describe("createPublicApiClient getDatasetVersion", () => {
     ["a missing topic", (b) => { delete b["statements"][0]["topic"]; }, "statements[0].topic must be a string"],
     ["party id 1.5", (b) => { b["parties"][0]["id"] = 1.5; }, "parties[0].id must be a positive integer"],
     ["a missing short_name", (b) => { delete b["parties"][0]["short_name"]; }, "parties[0].short_name must be a string"],
+    ...[
+      "https://evil.example/logo.png",
+      "//evil.example/api/v1/parties/5/logo?v=0123456789abcdef",
+      "http://localhost/api/v1/parties/5/logo?v=0123456789abcdef",
+      "/api/v1/parties/5/logo",
+      "/api/v1/parties/0/logo?v=0123456789abcdef",
+      "/api/v1/parties/5/logo?v=0123456789ABCDEF",
+      "/api/v1/parties/5/logo?v=0123456789abcdef&x=1",
+      "data:image/png;base64,AAAA",
+      "",
+    ].map((url): [string, Mutate, string] => [
+      `logo_url ${JSON.stringify(url)}`,
+      (b) => { b["parties"][0]["logo_url"] = url; },
+      "parties[0].logo_url must be null or a path like /api/v1/parties/{id}/logo?v=<16 hex>",
+    ]),
+    ["logo_url 7", (b) => { b["parties"][0]["logo_url"] = 7; }, "parties[0].logo_url must be null or a path"],
     ["a positions length mismatch", (b) => { b["parties"][0]["positions"].pop(); }, "parties[0].positions must have one entry per Statement (2), got 1"],
     ["a wrong statement_id order", (b) => { b["parties"][0]["positions"].reverse(); }, "parties[0].positions[0].statement_id must be 10"],
     ["value 3", (b) => { b["parties"][0]["positions"][0]["value"] = 3; }, 'parties[0].positions[0].value must be an integer from -2 to 2 or "no_stance"'],

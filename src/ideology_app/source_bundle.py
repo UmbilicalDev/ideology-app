@@ -6,6 +6,9 @@ A bundle is a directory ``<root>/<slug>/`` (``root`` is
 A Source Text file is written only by ``ideology source extract`` and is never
 edited: it holds YAML front matter and each page's text exactly as
 ``pdf_text.extract_pages`` returned it, under ``<!-- page N -->`` markers.
+A Party may also declare a logo (``logo = "logos/<file>"``): an optional
+``logos/`` directory holds exactly the declared logo files, checked by
+``party_logos`` (PNG, WebP or SVG by content, at most 256 KiB).
 
 This module is the only one that parses or serialises Source Text files. It is
 pure: no database and no pypdf. Files are read and written as bytes; only
@@ -26,6 +29,12 @@ from typing import Any
 from ideology_app import config
 from ideology_app.elections import InvalidInputError
 from ideology_app.models import Election, ElectionType
+from ideology_app.party_logos import (
+    EXTENSION_MEDIA_TYPES,
+    InvalidLogoError,
+    Logo,
+    read_logo_file,
+)
 
 BUNDLE_FORMAT = 1
 MANIFEST_FORMAT = 1
@@ -50,6 +59,8 @@ _MARKER_PREFIX = "<!-- page"
 _ESCAPED_MARKER_RE = re.compile(r"^\\*<!-- page")
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 _FILE_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*\.md$")
+LOGOS_DIR = "logos"
+_LOGO_RE = re.compile(r"^logos/[a-z0-9][a-z0-9._-]*\.(png|webp|svg)$")
 _COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
 _NAME_MAX = 200
 _SHORT_NAME_MAX = 50
@@ -58,6 +69,7 @@ _BOM = b"\xef\xbb\xbf"
 _MANIFEST_TOP_KEYS = frozenset({"format", "election", "parties"})
 _MANIFEST_ELECTION_KEYS = ("country", "type", "date", "name")
 _MANIFEST_PARTY_KEYS = ("short_name", "name", "file")
+_MANIFEST_PARTY_OPTIONAL_KEYS = frozenset({"logo"})
 
 
 class BundleError(InvalidInputError):
@@ -353,11 +365,20 @@ def bundle_slug(election: Election, root: Path | None = None) -> str | None:
 
 
 @dataclass(frozen=True)
+class BundleLogo:
+    """A Party's declared logo: its manifest path (``logos/<file>``) and checked bytes."""
+
+    file: str
+    logo: Logo
+
+
+@dataclass(frozen=True)
 class BundleParty:
     short_name: str
     name: str
     file: str
     text: SourceText
+    logo: BundleLogo | None = None
 
 
 @dataclass(frozen=True)
@@ -406,9 +427,14 @@ class _ManifestLines:
 
 
 def _check_keys(
-    name: str, line: int, table: dict[str, Any], keys: Sequence[str] | frozenset[str], where: str
+    name: str,
+    line: int,
+    table: dict[str, Any],
+    keys: Sequence[str] | frozenset[str],
+    where: str,
+    optional: frozenset[str] = frozenset(),
 ) -> None:
-    unknown = sorted(set(table) - set(keys))
+    unknown = sorted(set(table) - set(keys) - optional)
     if unknown:
         raise _error(name, line, f"unknown key {unknown[0]!r} in {where}")
     missing = [key for key in keys if key not in table]
@@ -435,6 +461,8 @@ class _ManifestParty:
     short_name: str
     name: str
     file: str
+    logo: str | None = None
+    logo_line: int = 1
 
 
 def _read_manifest(
@@ -495,12 +523,17 @@ def _read_manifest(
     if not isinstance(parties_raw, list) or not parties_raw:
         raise _error(name, lines.of(key="parties"), "[[parties]] must list at least one party")
     parties: list[_ManifestParty] = []
-    seen: dict[str, set[str]] = {"short_name": set(), "name": set(), "file": set()}
+    seen: dict[str, set[str]] = {
+        "short_name": set(), "name": set(), "file": set(), "logo": set()
+    }
     for index, entry in enumerate(parties_raw):
         where = f"[[parties]] #{index + 1}"
         if not isinstance(entry, dict):
             raise _error(name, lines.of("parties", index), f"{where} must be a table")
-        _check_keys(name, lines.of("parties", index), entry, _MANIFEST_PARTY_KEYS, where)
+        _check_keys(
+            name, lines.of("parties", index), entry, _MANIFEST_PARTY_KEYS, where,
+            _MANIFEST_PARTY_OPTIONAL_KEYS,
+        )
         short_name = _text_value(
             name, lines.of("parties", index, "short_name"), entry["short_name"],
             "short_name", _SHORT_NAME_MAX,
@@ -516,14 +549,68 @@ def _read_manifest(
                 f"file {file!r} is invalid: expected a name like 'pp.md' "
                 "(lower-case letters, digits, '.', '_', '-')",
             )
-        for field, value in (("short_name", short_name), ("name", party_name), ("file", file)):
+        logo = entry.get("logo")
+        logo_line = lines.of("parties", index, "logo")
+        if logo is not None and (not isinstance(logo, str) or not _LOGO_RE.match(logo)):
+            raise _error(
+                name,
+                logo_line,
+                f"logo {logo!r} is invalid: expected a path like 'logos/pp.svg' "
+                "(lower-case letters, digits, '.', '_', '-'; .png, .webp or .svg)",
+            )
+        values: list[tuple[str, str]] = [
+            ("short_name", short_name), ("name", party_name), ("file", file)
+        ]
+        if logo is not None:
+            values.append(("logo", logo))
+        for field, value in values:
             if value in seen[field]:
                 raise _error(
                     name, lines.of("parties", index, field), f"duplicate {field} {value!r}"
                 )
             seen[field].add(value)
-        parties.append(_ManifestParty(short_name, party_name, file))
+        parties.append(_ManifestParty(short_name, party_name, file, logo, logo_line))
     return country, election_type, date, election_name, parties
+
+
+def _check_logos_dir(directory: Path, declared: set[str]) -> None:
+    """``logos/`` (when present) is a directory of regular files, each one declared."""
+    logos = directory / LOGOS_DIR
+    if not logos.is_symlink() and not logos.exists():
+        return
+    if logos.is_symlink() or not logos.is_dir():
+        raise _error(str(logos), 1, "logos must be a directory, not a link or a file")
+    for child in sorted(logos.iterdir(), key=lambda p: p.name):
+        if child.name.startswith("."):
+            continue
+        if child.is_symlink():
+            raise _error(str(child), 1, "logo file must not be a symbolic link")
+        if child.is_dir():
+            raise _error(str(child), 1, "subdirectories are not allowed in logos/")
+        if not child.is_file():
+            raise _error(str(child), 1, "logo file is not a regular file")
+        if f"{LOGOS_DIR}/{child.name}" not in declared:
+            raise _error(str(child), 1, f"file is not declared as a logo in {MANIFEST_NAME}")
+
+
+def _read_logo(directory: Path, manifest: str, entry: _ManifestParty) -> BundleLogo | None:
+    if entry.logo is None:
+        return None
+    path = directory / entry.logo
+    if not path.is_symlink() and not path.exists():
+        raise _error(manifest, entry.logo_line, f"logo file {entry.logo!r} not found")
+    try:
+        logo = read_logo_file(path)
+    except InvalidLogoError as exc:
+        raise _error(str(path), 1, str(exc)) from None
+    expected = EXTENSION_MEDIA_TYPES[Path(entry.logo).suffix]
+    if logo.media_type != expected:
+        raise _error(
+            str(path),
+            1,
+            f"extension {Path(entry.logo).suffix} does not match its content ({logo.media_type})",
+        )
+    return BundleLogo(entry.logo, logo)
 
 
 def read_bundle(path: Path) -> Bundle:
@@ -532,7 +619,10 @@ def read_bundle(path: Path) -> Bundle:
     Checks the manifest, the directory name (the slug), that no ``*.pdf`` is
     anywhere under it, that every top-level ``*.md`` is listed and every
     listed file exists, and parses every Source Text file (whose ``party``
-    must equal its manifest ``short_name``). Nothing is written.
+    must equal its manifest ``short_name``). Every declared logo is read and
+    checked (``party_logos``; its extension must match its content), and
+    ``logos/`` must hold only declared logo files (dotfiles are ignored).
+    Nothing is written.
     """
     directory = Path(path)
     if not directory.is_dir():
@@ -561,6 +651,10 @@ def read_bundle(path: Path) -> Bundle:
             str(directory / unlisted[0]), 1, f"file is not listed in {MANIFEST_NAME}"
         )
 
+    _check_logos_dir(
+        directory, {party.logo for party in manifest_parties if party.logo is not None}
+    )
+
     parties: list[BundleParty] = []
     for entry in manifest_parties:
         file_path = directory / entry.file
@@ -577,7 +671,10 @@ def read_bundle(path: Path) -> Bundle:
                 f"party {source_text.party!r} does not match the manifest short_name "
                 f"{entry.short_name!r}",
             )
-        parties.append(BundleParty(entry.short_name, entry.name, entry.file, source_text))
+        logo = _read_logo(directory, manifest, entry)
+        parties.append(
+            BundleParty(entry.short_name, entry.name, entry.file, source_text, logo)
+        )
 
     return Bundle(
         path=directory,

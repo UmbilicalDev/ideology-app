@@ -52,6 +52,10 @@ class PartyOut(_Out):
     id: int
     name: str
     short_name: str
+    logo_url: str | None = Field(
+        description="Same-origin path of the Party's logo "
+        "(/api/v1/parties/{id}/logo?v=<sha256 prefix>), or null when it has none."
+    )
     positions: list[PositionOut]
 
 

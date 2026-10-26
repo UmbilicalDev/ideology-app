@@ -5,9 +5,13 @@ Documents from a bundle that ``source_bundle.read_bundle`` already checked. It
 is idempotent: an unchanged file is reported ``unchanged``; a changed file
 registers a replacement row (the old row gets only ``replaced_by_id``, like a
 URL re-fetch). Every conflict with the database is found before the first
-write. Functions take a Session and never commit.
+write. The bundle is authoritative for its Parties' logos: each listed Party's
+logo is made equal to the manifest's (no ``logo`` key clears it); Parties not
+in the bundle are untouched, and a logo change never touches a Dataset Version
+or queues a run. Functions take a Session and never commit.
 """
 
+import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -24,6 +28,7 @@ from ideology_app.models import (
     SourceDocumentOrigin,
     SourceDocumentStatus,
 )
+from ideology_app.party_logos import LogoChange
 from ideology_app.source_bundle import Bundle, BundleParty
 from ideology_app.source_documents import set_parsed_pages, validate_url
 
@@ -51,6 +56,10 @@ class PartyOutcome:
     document_id: int
     page_count: int
     replaced_document_id: int | None = None
+    logo_change: LogoChange = LogoChange.NONE
+    logo_file: str | None = None
+    logo_media_type: str | None = None
+    logo_size: int | None = None
 
 
 @dataclass
@@ -223,12 +232,19 @@ def import_bundle(session: Session, bundle: Bundle) -> ImportReport:
             party = elections.add_party(
                 session, election_id=election.id, name=entry.name, short_name=entry.short_name
             )
+        logo = entry.logo.logo if entry.logo is not None else None
+        logo_fields = {
+            "logo_change": elections.set_party_logo(party, logo),
+            "logo_file": entry.logo.file if entry.logo is not None else None,
+            "logo_media_type": logo.media_type if logo is not None else None,
+            "logo_size": len(logo.data) if logo is not None else None,
+        }
         current = plan.current
         if current is not None and current.content_hash == entry.text.content_hash:
             report.outcomes.append(
                 PartyOutcome(
                     entry.short_name, party.id, party_created, DocumentStatus.UNCHANGED,
-                    current.id, current.page_count or 0,
+                    current.id, current.page_count or 0, **logo_fields,
                 )
             )
             continue
@@ -248,6 +264,7 @@ def import_bundle(session: Session, bundle: Bundle) -> ImportReport:
                 document.id,
                 len(entry.text.pages),
                 replaced_document_id=None if current is None else current.id,
+                **logo_fields,
             )
         )
     listed = {entry.short_name for entry in bundle.parties}
@@ -281,6 +298,7 @@ def check_against_bundle(session: Session, bundle: Bundle) -> list[str]:
         label = f"party {entry.short_name} (id {party.id})"
         if party.name != entry.name:
             problems.append(f"{label}: name {party.name!r} differs from {entry.name!r}")
+        problems.extend(_logo_problems(session, label, party.id, entry))
         current_rows = _current_parsed(session, party.id)
         for document in current_rows:
             if document.bundle_file is None:
@@ -299,6 +317,26 @@ def check_against_bundle(session: Session, bundle: Bundle) -> list[str]:
         for document in bundle_rows:
             problems.extend(_document_problems(label, document, entry))
     return problems
+
+
+def _logo_problems(session: Session, label: str, party_id: int, entry: BundleParty) -> list[str]:
+    data, media_type, sha256 = session.execute(
+        select(Party.logo, Party.logo_media_type, Party.logo_sha256).where(Party.id == party_id)
+    ).one()
+    stored = data is not None or media_type is not None or sha256 is not None
+    if entry.logo is None:
+        return [f"{label}: has a logo but election.toml declares none"] if stored else []
+    if not stored:
+        return [f"{label}: no logo, election.toml declares {entry.logo.file}"]
+    expected = entry.logo.logo
+    if (
+        data is None
+        or sha256 != expected.sha256
+        or media_type != expected.media_type
+        or hashlib.sha256(data).hexdigest() != sha256
+    ):
+        return [f"{label}: logo differs from {entry.logo.file}"]
+    return []
 
 
 def _document_problems(label: str, document: SourceDocument, entry: BundleParty) -> list[str]:

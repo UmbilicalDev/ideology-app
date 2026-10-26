@@ -4,13 +4,16 @@ Temporary SQLite databases, ``FakeProvider`` only, sockets blocked, no API key.
 """
 
 import datetime as dt
+import hashlib
 import json
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from logo_factory import png, svg
 from pipeline_fixtures import (
     add_parsed_document,
     candidate_lines,
@@ -28,6 +31,7 @@ from ideology_app.api.queries import _utc_timestamp
 from ideology_app.api.routes import router
 from ideology_app.config import GenerationMode
 from ideology_app.db import session_scope
+from ideology_app.elections import set_party_logo
 from ideology_app.llm import FakeProvider, LLMRequest
 from ideology_app.main import app as module_app
 from ideology_app.main import create_app
@@ -44,6 +48,7 @@ from ideology_app.models import (
     SourceDocument,
     Statement,
 )
+from ideology_app.party_logos import check_logo
 from ideology_app.pipeline import execute_run, queue_run
 
 POINTER = "public, max-age=60"
@@ -289,7 +294,8 @@ def test_published_version_follows_contract(
     ]
     seen_upload = seen_url = seen_no_stance = False
     for party in body["parties"]:
-        assert list(party) == ["id", "name", "short_name", "positions"]
+        assert list(party) == ["id", "name", "short_name", "logo_url", "positions"]
+        assert party["logo_url"] is None
         assert [p["statement_id"] for p in party["positions"]] == statement_ids
         for position in party["positions"]:
             assert list(position) == ["statement_id", "value", "evidence"]
@@ -422,6 +428,7 @@ def test_exact_dataset_version_body(
                 "id": 1,
                 "name": "Partido Alfa",
                 "short_name": "PA",
+                "logo_url": None,
                 "positions": [
                     {
                         "statement_id": 10,
@@ -440,6 +447,7 @@ def test_exact_dataset_version_body(
                 "id": 2,
                 "name": "Bloque Beta",
                 "short_name": "BB",
+                "logo_url": None,
                 "positions": [
                     {
                         "statement_id": 10,
@@ -663,6 +671,7 @@ def test_api_routes_are_get_only_without_query_or_body() -> None:
         "/api/v1/elections/{election_id}",
         "/api/v1/elections/{election_id}/published-dataset-version",
         "/api/v1/dataset-versions/{dataset_version_id}",
+        "/api/v1/parties/{party_id}/logo",
     }
     for route in api_routes:
         assert route.methods == {"GET"}, route.path
@@ -798,3 +807,196 @@ def test_database_url_comes_from_environment(
 
     with TestClient(create_app()) as client:
         assert client.get("/api/v1/dataset-versions/1").status_code == 200
+
+
+# --- party-logos-data Scenarios 7-9: the logo route and logo_url ------------
+
+LOGO_SVG = svg('<circle cx="5" cy="5" r="4" fill="#336699"/>')
+LOGO_PNG = png(2, 3)
+LOGO_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox"
+YEAR = "public, max-age=31536000, immutable"
+
+
+def set_logo(engine: Engine, party_id: int, data: bytes | None) -> str | None:
+    """Set (or clear) a Party's logo through the service; returns its ``v``."""
+    with session_scope(engine) as session:
+        party = session.get(Party, party_id)
+        assert party is not None
+        logo = check_logo(data) if data is not None else None
+        set_party_logo(party, logo)
+    return None if logo is None else logo.sha256[:16]
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def test_logo_is_served_with_safe_headers(
+    migrated_engine: Engine, client_for: Callable[[], TestClient]
+) -> None:
+    seed_exact_version(migrated_engine)
+    version = set_logo(migrated_engine, 1, LOGO_SVG)
+    client = client_for()
+
+    response = client.get(f"/api/v1/parties/1/logo?v={version}")
+
+    assert response.status_code == 200
+    assert response.content == LOGO_SVG
+    expected_headers = {
+        "content-type": "image/svg+xml",
+        "x-content-type-options": "nosniff",
+        "content-security-policy": LOGO_CSP,
+        "cross-origin-resource-policy": "same-origin",
+        "etag": f'"{_sha(LOGO_SVG)[:32]}"',
+        "cache-control": YEAR,
+    }
+    for name, value in expected_headers.items():
+        assert response.headers[name] == value, name
+
+    not_modified = client.get(
+        f"/api/v1/parties/1/logo?v={version}",
+        headers={"If-None-Match": expected_headers["etag"]},
+    )
+    assert not_modified.status_code == 304 and not_modified.content == b""
+    for name in ("x-content-type-options", "content-security-policy",
+                 "cross-origin-resource-policy", "etag", "cache-control"):
+        assert not_modified.headers[name] == expected_headers[name], name
+
+    for path in ("/api/v1/parties/1/logo", "/api/v1/parties/1/logo?v=0000000000000000",
+                 f"/api/v1/parties/1/logo?v={version}&v=x"):
+        stale = client.get(path)
+        assert stale.status_code == 200 and stale.content == LOGO_SVG, path
+        assert stale.headers["cache-control"] == "no-cache", path
+        assert stale.headers["content-security-policy"] == LOGO_CSP
+
+
+def test_png_logo_and_a_replaced_logo(
+    migrated_engine: Engine, client_for: Callable[[], TestClient]
+) -> None:
+    seed_exact_version(migrated_engine)
+    old = set_logo(migrated_engine, 2, LOGO_PNG)
+    client = client_for()
+    first = client.get(f"/api/v1/parties/2/logo?v={old}")
+    assert first.headers["content-type"] == "image/png" and first.content == LOGO_PNG
+
+    new = set_logo(migrated_engine, 2, LOGO_SVG)
+
+    # The old URL still serves the current logo, but must be revalidated.
+    stale = client.get(f"/api/v1/parties/2/logo?v={old}")
+    assert stale.content == LOGO_SVG and stale.headers["cache-control"] == "no-cache"
+    assert client.get(f"/api/v1/parties/2/logo?v={new}").headers["cache-control"] == YEAR
+
+
+def test_logo_errors(migrated_engine: Engine, client_for: Callable[[], TestClient]) -> None:
+    seed_exact_version(migrated_engine)
+    client = client_for()
+
+    for path, code, message in (
+        ("/api/v1/parties/1/logo", "party_logo_not_found", "party 1 has no logo"),
+        ("/api/v1/parties/999/logo?v=abc", "party_not_found", "party 999 not found"),
+    ):
+        response = client.get(path, headers={"If-None-Match": "*"})
+        assert response.status_code == 404, path
+        assert response.json() == {"error": {"code": code, "message": message}}
+        assert response.headers["cache-control"] == "no-store"
+    for bad in ("0", "-1", "2147483648", "abc"):
+        assert client.get(f"/api/v1/parties/{bad}/logo").status_code == 422, bad
+    for method in ("post", "put", "patch", "delete"):
+        assert getattr(client, method)("/api/v1/parties/1/logo").status_code == 405
+
+
+def test_logo_route_runs_only_selects_and_is_before_the_web_client(
+    migrated_engine: Engine,
+    client_for: Callable[[], TestClient],
+    db_url: str,
+    tmp_path: Path,
+) -> None:
+    seed_exact_version(migrated_engine)
+    version = set_logo(migrated_engine, 1, LOGO_SVG)
+    statements: list[str] = []
+
+    def record(_conn: Any, _cursor: Any, statement: str, *_args: Any) -> None:
+        statements.append(statement)
+
+    client = client_for()
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        for path in (f"/api/v1/parties/1/logo?v={version}", "/api/v1/parties/2/logo",
+                     "/api/v1/parties/999/logo"):
+            client.get(path)
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+    assert statements
+    for statement in statements:
+        assert statement.lstrip().split(None, 1)[0].upper() in {"SELECT", "PRAGMA"}, statement
+
+    # With a built web client, its catch-all must not shadow the logo route.
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html><title>x</title>", encoding="utf-8")
+    with TestClient(create_app(db_url, web_dist_dir=dist)) as with_web:
+        assert with_web.get("/elecciones").text.startswith("<!doctype html>")
+        served = with_web.get(f"/api/v1/parties/1/logo?v={version}")
+        assert served.content == LOGO_SVG
+        assert served.headers["content-type"] == "image/svg+xml"
+        assert with_web.get("/api/v1/parties/2/logo").json()["error"]["code"] == (
+            "party_logo_not_found"
+        )
+
+    app = create_app("sqlite://")
+    operation = app.openapi()["paths"]["/api/v1/parties/{party_id}/logo"]["get"]
+    assert operation["operationId"] == "getPartyLogo"
+    assert set(operation["responses"]["200"]["content"]) == {
+        "image/png", "image/webp", "image/svg+xml"
+    }
+    assert operation["responses"]["404"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ErrorOut"
+    }
+    assert "304" in operation["responses"]
+    assert [p["name"] for p in operation["parameters"]] == ["party_id"]
+
+
+def test_logo_url_in_both_dataset_version_endpoints(
+    published: int, migrated_engine: Engine, client_for: Callable[[], TestClient]
+) -> None:
+    version = set_logo(migrated_engine, 1, LOGO_SVG)
+    set_logo(migrated_engine, 3, LOGO_PNG)
+    client = client_for()
+
+    by_id = client.get(f"/api/v1/dataset-versions/{published}")
+    current = client.get("/api/v1/elections/1/published-dataset-version")
+
+    assert by_id.content == current.content
+    parties = by_id.json()["parties"]
+    assert [list(p) for p in parties] == [
+        ["id", "name", "short_name", "logo_url", "positions"]
+    ] * 3
+    assert [p["logo_url"] for p in parties] == [
+        f"/api/v1/parties/1/logo?v={version}",
+        None,
+        f"/api/v1/parties/3/logo?v={_sha(LOGO_PNG)[:16]}",
+    ]
+    logo = client.get(parties[0]["logo_url"])
+    assert logo.content == LOGO_SVG and logo.headers["cache-control"] == YEAR
+
+
+def test_logo_changes_leave_dataset_versions_untouched(
+    published: int, migrated_engine: Engine
+) -> None:
+    tables = ("dataset_versions", "statements", "party_positions", "pipeline_runs",
+              "pipeline_run_source_documents", "source_documents")
+
+    def snapshot() -> dict[str, list[tuple[Any, ...]]]:
+        with migrated_engine.connect() as conn:
+            return {
+                t: [tuple(r) for r in conn.exec_driver_sql(f"SELECT * FROM {t} ORDER BY 1")]
+                for t in tables
+            }
+
+    before = snapshot()
+    set_logo(migrated_engine, 1, LOGO_SVG)
+    set_logo(migrated_engine, 1, LOGO_PNG)
+    set_logo(migrated_engine, 1, None)
+    set_logo(migrated_engine, 2, LOGO_SVG)
+
+    assert snapshot() == before

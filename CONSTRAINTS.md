@@ -98,6 +98,13 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Web tests MUST NOT reach the network: `apps/web/src/test/setup.ts` stubs global `fetch` to throw, and tests inject a mocked `FetchLike`. Reason: a deterministic, offline CI.
 - npm dependencies MUST be exact-pinned and installed with `npm ci` from the committed `package-lock.json`; any new runtime dependency MUST be justified in its feature spec. Reason: a reproducible verification gate and a small client.
 
+## Party Logos
+
+- Party logo bytes MUST enter the database only through `party_logos.check_logo` / `read_logo_file` (PNG, WebP or SVG by content, at most 256 KiB; SVG without script, event handlers, `javascript:`, entities, stylesheets or external references) and MUST be written only by `elections.set_party_logo`. Reason: SVG is active content, and the three logo columns must be set or cleared together.
+- Party logos MUST be served only by `GET /api/v1/parties/{id}/logo`, with `X-Content-Type-Options: nosniff` and the sandbox CSP (`http_cache.LOGO_CSP`). Reason: a directly opened SVG must run nothing and load nothing.
+- The web client MUST show a Party logo only from the API's `logo_url` (a same-origin path checked by `packages/core`), never from another source. Reason: the no-other-origin rule (Web Client Styling) and one checked path for logo URLs.
+- Committed logo files under `data/elections/<slug>/logos/` MUST NOT be edited, converted or optimised in place to make them pass; a refused file goes back to the user. Only the user may ask for a file to be normalised before it is declared (the 2023 logos were, see `docs/specs/party-logos-data.md` "As Implemented"). Reason: the files are the user's, and `data check` compares their exact bytes with the database.
+
 ## Web Client Serving
 
 - New server routes MUST be registered in `create_app` before `web_router`, and the SPA fallback MUST NOT serve `/api/` or `/health` paths. Reason: the catch-all `GET /{path:path}` matches every path, so anything included after it is unreachable, and unknown API paths must keep their JSON `404`.

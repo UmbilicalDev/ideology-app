@@ -28,6 +28,7 @@ function party(id: number, name: string, values: readonly (ScaleValue | typeof N
     id,
     name,
     shortName: `P${id}`,
+    logoUrl: null,
     positions: values.map((value, i) => ({
       statementId: STATEMENTS[i]!.id,
       value,

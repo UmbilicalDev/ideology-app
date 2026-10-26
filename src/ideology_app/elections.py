@@ -7,12 +7,16 @@ validated here, so every caller (CLI today, others later) gets the same rules.
 import datetime as dt
 import re
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ideology_app.models import Election, ElectionStatus, ElectionType, Party
+
+if TYPE_CHECKING:  # party_logos imports InvalidInputError from this module.
+    from ideology_app.party_logos import Logo, LogoChange
 
 _COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
 _NAME_MAX = 200
@@ -28,7 +32,7 @@ class InvalidInputError(ElectionsError):
 
 
 class NotFoundError(ElectionsError):
-    """A referenced Election does not exist."""
+    """A referenced Election or Party does not exist."""
 
 
 class DuplicateError(ElectionsError):
@@ -122,3 +126,40 @@ def list_parties(session: Session, election_id: int) -> Sequence[Party]:
     return session.scalars(
         select(Party).where(Party.election_id == election_id).order_by(Party.id)
     ).all()
+
+
+def get_party_by_short_name(session: Session, election_id: int, short_name: str) -> Party:
+    """The Party of an Election with that short name. Raises NotFoundError."""
+    _get_election(session, election_id)
+    party = session.scalars(
+        select(Party).where(Party.election_id == election_id, Party.short_name == short_name)
+    ).one_or_none()
+    if party is None:
+        raise NotFoundError(f"party {short_name!r} not found in election {election_id}")
+    return party
+
+
+def set_party_logo(party: Party, logo: "Logo | None") -> "LogoChange":
+    """Make ``party``'s logo equal to ``logo`` (``None`` clears it). Never commits.
+
+    The only writer of ``logo``, ``logo_media_type`` and ``logo_sha256``: all
+    three are set together or cleared together. ``logo`` must come from
+    ``party_logos.check_logo`` / ``read_logo_file``. Compares the stored
+    SHA-256 and media type (the bytes are not loaded).
+    """
+    from ideology_app.party_logos import LogoChange
+
+    had_logo = party.logo_sha256 is not None or party.logo_media_type is not None
+    if logo is None:
+        if not had_logo:
+            return LogoChange.NONE
+        party.logo = None
+        party.logo_media_type = None
+        party.logo_sha256 = None
+        return LogoChange.REMOVED
+    if party.logo_sha256 == logo.sha256 and party.logo_media_type == logo.media_type:
+        return LogoChange.UNCHANGED
+    party.logo = logo.data
+    party.logo_media_type = logo.media_type
+    party.logo_sha256 = logo.sha256
+    return LogoChange.REPLACED if had_logo else LogoChange.SET

@@ -30,6 +30,11 @@ export interface Party {
   readonly id: number;
   readonly name: string;
   readonly shortName: string;
+  /**
+   * Same-origin path of the Party's logo (`/api/v1/parties/{id}/logo?v=<hash>`),
+   * or `null` when it has none. Never another origin.
+   */
+  readonly logoUrl: string | null;
   /** One entry per Statement, in Statement order. */
   readonly positions: readonly PartyPosition[];
 }

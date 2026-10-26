@@ -14,43 +14,52 @@ name = "Elecciones generales 2023"
 short_name = "PP"
 name = "Partido Popular"
 file = "pp.md"
+logo = "logos/pp.png"
 
 [[parties]]
 short_name = "PSOE"
 name = "Partido Socialista Obrero Español"
 file = "psoe.md"
+logo = "logos/psoe.png"
 
 [[parties]]
 short_name = "VOX"
 name = "Vox"
 file = "vox.md"
+logo = "logos/vox.png"
 
 [[parties]]
 short_name = "SUMAR"
 name = "Sumar"
 file = "sumar.md"
+logo = "logos/sumar.png"
 
 [[parties]]
 short_name = "ERC"
 name = "Esquerra Republicana de Catalunya"
 file = "erc.md"
+logo = "logos/erc.png"
 
 [[parties]]
 short_name = "JUNTS"
 name = "Junts per Catalunya"
 file = "junts.md"
+logo = "logos/junts.png"
 
 [[parties]]
 short_name = "EH Bildu"
 name = "Euskal Herria Bildu"
 file = "eh-bildu.md"
+logo = "logos/eh-bildu.png"
 
 [[parties]]
 short_name = "EAJ-PNV"
 name = "Euzko Alderdi Jeltzalea-Partido Nacionalista Vasco"
 file = "eaj-pnv.md"
+logo = "logos/eaj-pnv.png"
 
 [[parties]]
 short_name = "BNG"
 name = "Bloque Nacionalista Galego"
 file = "bng.md"
+logo = "logos/bng.png"

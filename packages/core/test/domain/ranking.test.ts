@@ -27,7 +27,7 @@ function party(
     evidence:
       value === NO_STANCE ? null : { quote: "Cita.", page: 1, url: null, sourceDocumentId: 1 },
   }));
-  return { id, name, shortName, positions };
+  return { id, name, shortName, logoUrl: null, positions };
 }
 
 function answers(...values: readonly (ScaleValue | typeof SKIP)[]): Answer[] {

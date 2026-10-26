@@ -69,7 +69,7 @@ function partiesFor(ids: readonly number[], random: () => number): Party[] {
           value === NO_STANCE ? null : { quote: "Cita.", page: 1, url: null, sourceDocumentId: 1 },
       };
     });
-    return { id: partyId, name: `Partido ${partyId}`, shortName: `P${partyId}`, positions };
+    return { id: partyId, name: `Partido ${partyId}`, shortName: `P${partyId}`, logoUrl: null, positions };
   });
 }
 
