@@ -53,7 +53,7 @@ h2 {
 
 /* Level 1 cards: tonal surface, outline-variant frame, no shadow. */
 .card,
-.share {
+.share-card {
   background: var(--color-card);
   border: 1px solid var(--md-sys-color-outline-variant);
   border-radius: var(--md-sys-shape-corner-large);
@@ -944,14 +944,26 @@ main h1[tabindex="-1"]:focus {
   margin: 0;
 }
 
-/* Share Link (DESIGN.md "Share card"): a neutral card on the end screen.
-   The fallback field keeps the long URL inside it (it scrolls) so the page
-   never widens at 375px. */
-.share {
+/* Share card (DESIGN.md "Share card"): one neutral card holding the Share
+   Link section (.share) and the Comparte IdeologiApp section (.share-app).
+   The fallback fields keep the long URL inside them (they scroll) so the
+   page never widens at 375px. */
+.share-card {
   margin: 0 0 var(--space-lg);
 }
 
-.share h3 {
+.share-card > section {
+  margin: 0;
+}
+
+.share + .share-app {
+  margin-top: var(--card-padding);
+  padding-top: var(--card-padding);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.share h3,
+.share-app h3 {
   margin: 0 0 var(--space-sm);
 }
 
@@ -973,7 +985,8 @@ main h1[tabindex="-1"]:focus {
   color: var(--md-sys-color-on-surface);
 }
 
-.share label {
+.share label,
+.share-app label {
   display: block;
   margin: 0 0 var(--space-sm);
 }
@@ -994,6 +1007,67 @@ main h1[tabindex="-1"]:focus {
 }
 
 .share .questionnaire__note {
+  margin-bottom: 0;
+}
+
+/* Comparte IdeologiApp targets (DESIGN.md "share-target"): a wrapping row of
+   tiles, each a 48px outlined circle above a caption. Neutral tokens only,
+   never brand colours; the global rule gives the whole tile its focus ring. */
+.share-targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  margin: 0 0 var(--space-sm);
+  padding: 0;
+  list-style: none;
+}
+
+.share-target {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+  box-sizing: border-box;
+  width: 4.5rem;
+  min-height: 48px;
+  padding: var(--space-xs) 0;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-small);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-label-md);
+  letter-spacing: var(--md-sys-typescale-label-md-tracking);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.share-target__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--color-card);
+  color: var(--md-sys-color-on-surface);
+}
+
+.share-target:hover .share-target__icon {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--color-card));
+}
+
+.share-target__label {
+  overflow-wrap: anywhere;
+}
+
+.share-app .share__status:empty {
+  margin: 0;
+}
+
+.share-app .share__field {
   margin-bottom: 0;
 }
 
