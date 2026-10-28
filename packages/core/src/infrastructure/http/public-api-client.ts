@@ -1,6 +1,7 @@
 // HTTP adapter for the public API (`/api/v1`). It checks the response
 // contract and maps snake_case keys to camelCase once. `packages/core` has no
 // DOM types, so `fetch` and `Response` are described structurally here.
+import type { FeedbackApi, FeedbackInput } from "../../application/feedback-api";
 import type { PublicApi } from "../../application/public-api";
 import type {
   DatasetVersion,
@@ -20,8 +21,15 @@ export interface HttpResponseLike {
 
 export type FetchLike = (
   url: string,
-  init: { readonly method: "GET"; readonly headers: Readonly<Record<string, string>> },
+  init: {
+    readonly method: "GET" | "POST";
+    readonly headers: Readonly<Record<string, string>>;
+    readonly body?: string;
+  },
 ) => Promise<HttpResponseLike>;
+
+/** The read-only public API plus the single write, `sendFeedback`. */
+export type PublicApiClient = PublicApi & FeedbackApi;
 
 export type PublicApiErrorKind = "network" | "http" | "invalid_response";
 
@@ -247,7 +255,7 @@ function parseDatasetVersion(body: unknown): DatasetVersion {
   return { id, electionId, createdAt, statements, parties };
 }
 
-export function createPublicApiClient(options: PublicApiClientOptions): PublicApi {
+export function createPublicApiClient(options: PublicApiClientOptions): PublicApiClient {
   // Called as a plain function: `window.fetch` invoked as a method of another
   // object throws "Illegal invocation".
   const fetchFn = options.fetch;
@@ -291,7 +299,38 @@ export function createPublicApiClient(options: PublicApiClientOptions): PublicAp
     }
   }
 
+  // The only request with a body. Only `message`, `origin` and a non-empty
+  // `website` are sent: never an Election, Dataset Version or Answers.
+  async function sendFeedback(feedback: FeedbackInput): Promise<void> {
+    const path = "/api/v1/feedback";
+    const body: { message: string; origin: string; website?: string } = {
+      message: feedback.message,
+      origin: feedback.origin,
+    };
+    if (typeof feedback.website === "string" && feedback.website !== "") {
+      body.website = feedback.website;
+    }
+    let response: HttpResponseLike;
+    try {
+      response = await fetchFn(`${baseUrl}${path}`, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new PublicApiError("network", `POST ${path} failed: network error`);
+    }
+    if (!response.ok) {
+      throw new PublicApiError(
+        "http",
+        `POST ${path} failed: HTTP ${response.status}`,
+        response.status,
+      );
+    }
+  }
+
   return {
+    sendFeedback,
     listElections() {
       return getParsed("/api/v1/elections", parseElectionList);
     },

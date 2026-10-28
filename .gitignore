@@ -6,6 +6,7 @@ __pycache__/
 *.egg-info/
 .env
 *.db
+# feedback.db (FEEDBACK_DATABASE_URL default) is ignored by *.db; never commit it.
 *.db-journal
 *.db-wal
 *.db-shm

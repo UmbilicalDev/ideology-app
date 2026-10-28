@@ -27,6 +27,12 @@ from ideology_app import pipeline as pipelines
 from ideology_app import shared_db
 from ideology_app import source_bundle
 from ideology_app import source_documents as sources
+from ideology_app.feedback.store import (
+    FeedbackStoreError,
+    check_separate,
+    has_schema,
+    list_messages,
+)
 from ideology_app.pdf_text import EXTRACTOR, PdfTextError, extract_pages
 from ideology_app.db import (
     head_revision,
@@ -1342,3 +1348,75 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
             click.echo("")
             click.echo("discarded findings:")
             _print_rows(FINDINGS_HEADER, _findings_rows(report.statement_selection))
+
+
+@main.group()
+@click.option(
+    "--feedback-database-url",
+    envvar="FEEDBACK_DATABASE_URL",
+    default=None,
+    help="SQLAlchemy URL of the feedback store. Defaults to $FEEDBACK_DATABASE_URL, "
+    "else sqlite:///feedback.db.",
+)
+@click.pass_context
+def feedback(ctx: click.Context, feedback_database_url: str | None) -> None:
+    """Anonymous Voter feedback (read-only; the API stores it)."""
+    ctx.meta["feedback_url"] = (
+        feedback_database_url or ""
+    ).strip() or config.feedback_database_url()
+
+
+def _feedback_timestamp(value: dt.datetime) -> str:
+    return value.astimezone(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@feedback.command("list")
+@click.option(
+    "--since",
+    type=click.DateTime(["%Y-%m-%d"]),
+    default=None,
+    help="YYYY-MM-DD: only messages from 00:00 UTC that day on.",
+)
+@click.pass_context
+def feedback_list(ctx: click.Context, since: dt.datetime | None) -> None:
+    """Print the stored feedback messages, oldest first. Never writes or creates a file."""
+    app = ctx.find_object(AppContext)
+    assert app is not None
+    url: str = ctx.meta["feedback_url"]
+    try:
+        check_separate(url, app.url)
+    except FeedbackStoreError as exc:
+        raise click.ClickException(str(exc)) from exc
+    path = shared_db.sqlite_path(url)
+    if path is not None and not path.exists():
+        raise click.ClickException(f"no feedback store at {path}; the server creates it on startup")
+    try:
+        engine = make_engine(shared_db.read_only_url(path) if path is not None else url)
+    except SQLAlchemyError as exc:
+        raise click.ClickException(f"invalid feedback database URL: {exc}") from exc
+    except ImportError as exc:
+        raise click.ClickException(f"database driver not installed: {exc}") from exc
+    where = str(path) if path is not None else _safe_url(url)
+    try:
+        try:
+            ready = has_schema(engine)
+        except SQLAlchemyError as exc:
+            if path is None:
+                raise click.ClickException(f"cannot open the feedback store: {exc}") from exc
+            ready = False  # not a SQLite database at all
+        if not ready:
+            raise click.ClickException(f"{where} is not a feedback store")
+        messages = list_messages(
+            engine, since.replace(tzinfo=dt.UTC) if since is not None else None
+        )
+    finally:
+        engine.dispose()
+    if not messages:
+        click.echo("No feedback messages.")
+        return
+    for message in messages:
+        click.echo(f"#{message.id}  {_feedback_timestamp(message.created_at)}  {message.origin}")
+        for line in message.message.split("\n"):
+            click.echo(f"  {line}")
+        click.echo("")
+    click.echo(f"{len(messages)} message(s)")
