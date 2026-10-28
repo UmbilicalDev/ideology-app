@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from ideology_app.api.http_cache import etag_for, if_none_match_matches
 from ideology_app.api.queries import _utc_timestamp
+from ideology_app.api.feedback_routes import feedback_router
 from ideology_app.api.routes import router
 from ideology_app.config import GenerationMode
 from ideology_app.db import session_scope
@@ -663,8 +664,11 @@ def test_404_ignores_if_none_match(
 def test_api_routes_are_get_only_without_query_or_body() -> None:
     # The router's own routes carry the full prefixed path.
     api_routes = [r for r in router.routes if isinstance(r, APIRoute)]
+    feedback_routes = [r for r in feedback_router.routes if isinstance(r, APIRoute)]
     app_paths = {p for p in create_app("sqlite://").openapi()["paths"] if p.startswith("/api/")}
-    assert app_paths == {r.path for r in api_routes}
+    # The read-only router plus the single write route (feedback-api).
+    assert app_paths == {r.path for r in api_routes} | {r.path for r in feedback_routes}
+    assert [(r.path, r.methods) for r in feedback_routes] == [("/api/v1/feedback", {"POST"})]
 
     assert {r.path for r in api_routes} == {
         "/api/v1/elections",
@@ -795,8 +799,10 @@ def test_lifespan_disposes_engine(db_url: str, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(main, "make_engine", tracking)
     with TestClient(create_app(db_url)) as client:
         engine = client.app.state.engine  # type: ignore[attr-defined]
+        feedback_engine = client.app.state.feedback_engine  # type: ignore[attr-defined]
         assert disposed == []
-    assert disposed == [engine]
+    # The feedback store's Engine (feedback-api) is disposed too, first.
+    assert disposed == [feedback_engine, engine]
 
 
 def test_database_url_comes_from_environment(

@@ -462,3 +462,119 @@ describe("createPublicApiClient getDatasetVersion", () => {
     expect(error.message).toBe("GET /api/v1/dataset-versions/3: response body must be an object");
   });
 });
+
+describe("createPublicApiClient sendFeedback", () => {
+  function emptyResponse(status: number): HttpResponseLike & { json: ReturnType<typeof vi.fn> } {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: vi.fn(async () => {
+        throw new Error("the body must not be read");
+      }),
+    };
+  }
+
+  async function sendError(fetch: FetchLike): Promise<PublicApiError> {
+    const error: unknown = await createPublicApiClient({ fetch })
+      .sendFeedback({ message: "hola", origin: "landing" })
+      .then(
+        () => {
+          throw new Error("expected sendFeedback to reject");
+        },
+        (reason: unknown) => reason,
+      );
+    expect(error).toBeInstanceOf(PublicApiError);
+    return error as PublicApiError;
+  }
+
+  test("sends exactly one POST with the JSON body and nothing else", async () => {
+    const response = emptyResponse(201);
+    const fetch = fetchReturning(response);
+    const result = await createPublicApiClient({ fetch }).sendFeedback({
+      message: "hola",
+      origin: "landing",
+    });
+    expect(result).toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/v1/feedback", {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: '{"message":"hola","origin":"landing"}',
+    });
+    const init = fetch.mock.calls[0]?.[1];
+    expect(JSON.parse(init?.body ?? "")).toEqual({ message: "hola", origin: "landing" });
+    expect(response.json).not.toHaveBeenCalled();
+  });
+
+  test("sends the message as given; the server trims and checks it", async () => {
+    const fetch = fetchReturning(emptyResponse(201));
+    await createPublicApiClient({ fetch }).sendFeedback({ message: "  hola\n", origin: "results" });
+    expect(JSON.parse(fetch.mock.calls[0]?.[1]?.body ?? "")).toEqual({
+      message: "  hola\n",
+      origin: "results",
+    });
+  });
+
+  test("sends website only when it is a non-empty string", async () => {
+    const fetch = fetchReturning(emptyResponse(201));
+    const api = createPublicApiClient({ fetch });
+    await api.sendFeedback({ message: "a", origin: "landing", website: "" });
+    await api.sendFeedback({ message: "a", origin: "landing", website: "http://spam" });
+    expect(JSON.parse(fetch.mock.calls[0]?.[1]?.body ?? "")).toEqual({ message: "a", origin: "landing" });
+    expect(JSON.parse(fetch.mock.calls[1]?.[1]?.body ?? "")).toEqual({
+      message: "a",
+      origin: "landing",
+      website: "http://spam",
+    });
+  });
+
+  test("never sends extra keys passed at runtime", async () => {
+    const fetch = fetchReturning(emptyResponse(201));
+    const input = { message: "a", origin: "landing", answers: "abc", electionId: 1 } as const;
+    await createPublicApiClient({ fetch }).sendFeedback(input);
+    expect(JSON.parse(fetch.mock.calls[0]?.[1]?.body ?? "")).toEqual({ message: "a", origin: "landing" });
+  });
+
+  test("any 2xx resolves without reading the body", async () => {
+    for (const status of [200, 201, 204]) {
+      const response = emptyResponse(status);
+      await expect(
+        createPublicApiClient({ fetch: fetchReturning(response) }).sendFeedback({
+          message: "a",
+          origin: "landing",
+        }),
+      ).resolves.toBeUndefined();
+      expect(response.json).not.toHaveBeenCalled();
+    }
+  });
+
+  test.each([413, 415, 422, 429, 500])("HTTP %i rejects as http with that status", async (status) => {
+    const error = await sendError(fetchReturning(emptyResponse(status)));
+    expect(error.kind).toBe("http");
+    expect(error.status).toBe(status);
+    expect(error.message).toBe(`POST /api/v1/feedback failed: HTTP ${status}`);
+  });
+
+  test("a rejected fetch rejects as network", async () => {
+    const error = await sendError(vi.fn<FetchLike>(async () => Promise.reject(new TypeError("offline"))));
+    expect(error.kind).toBe("network");
+    expect(error.status).toBeNull();
+    expect(error.message).toBe("POST /api/v1/feedback failed: network error");
+  });
+
+  test("prefixes baseUrl, trims one trailing slash and calls fetch as a plain function", async () => {
+    let receiver: unknown = "unset";
+    const calls: string[] = [];
+    const fetch: FetchLike = function (this: unknown, url: string) {
+      receiver = this;
+      calls.push(url);
+      return Promise.resolve(emptyResponse(201));
+    };
+    await createPublicApiClient({ fetch, baseUrl: "http://h/" }).sendFeedback({
+      message: "a",
+      origin: "landing",
+    });
+    expect(calls).toEqual(["http://h/api/v1/feedback"]);
+    expect(receiver).toBeUndefined();
+  });
+});

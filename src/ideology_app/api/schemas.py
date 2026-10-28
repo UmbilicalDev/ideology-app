@@ -8,7 +8,9 @@ pointer), so it can be cached as ``immutable``.
 import datetime as dt
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from ideology_app.feedback.message import clean_message
 
 # What ``packages/core`` match-score consumes: -2..+2 or ``"no_stance"`` (``PartyPosition.engine_value``).
 PositionValue = Annotated[int, Field(ge=-2, le=2, strict=True)] | Literal["no_stance"]
@@ -81,3 +83,27 @@ class ErrorBody(_Out):
 
 class ErrorOut(_Out):
     error: ErrorBody
+
+
+class FeedbackIn(BaseModel):
+    """The body of ``POST /api/v1/feedback``. Any other key is refused (422)."""
+
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    message: str = Field(
+        description="1..500 Unicode code points after trimming; no control characters "
+        "other than newline. Stored trimmed."
+    )
+    origin: Literal["landing", "results"] = Field(description="The screen it was sent from.")
+    website: str | None = Field(
+        default=None, description="Leave empty. A non-empty value is accepted and discarded."
+    )
+
+    @field_validator("message")
+    @classmethod
+    def _clean(cls, value: str) -> str:
+        return clean_message(value)
+
+
+class FeedbackAcceptedOut(_Out):
+    status: Literal["received"]

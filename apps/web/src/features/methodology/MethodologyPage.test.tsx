@@ -41,6 +41,13 @@ const SHARE_TEXT =
   "Al abrir el enlace se ve el mismo resultado, calculado de nuevo en el navegador con la misma " +
   "versión del cuestionario; si después se ha publicado una más reciente, se avisa.";
 
+const FEEDBACK_TEXT =
+  "Si nos envías tu opinión sobre la herramienta, se guarda solo el texto que escribas, la " +
+  "pantalla desde la que la envías (la de inicio o la de resultados) y la fecha. No se guardan " +
+  "tus respuestas, tu dirección IP ni ningún otro dato sobre ti. Para frenar los envíos " +
+  "masivos, el servidor cuenta durante unos minutos, solo en memoria, los envíos de cada " +
+  "conexión. No escribas datos personales en el mensaje.";
+
 const DISCLAIMER_TEXT =
   "Esta herramienta no es una recomendación de voto. Las afirmaciones y las posiciones las " +
   "genera automáticamente una inteligencia artificial, sin revisión humana, y pueden contener " +
@@ -189,6 +196,9 @@ describe("MethodologyPage", () => {
     const privacy = screen.getByRole("region", { name: "Tus respuestas" });
     expect(within(privacy).getByText(PRIVACY_TEXT)).toBeTruthy();
     expect(within(privacy).getByText(SHARE_TEXT)).toBeTruthy();
+    // feedback-api: the third paragraph says what feedback stores.
+    const paragraphs = Array.from(privacy.querySelectorAll("p")).map((p) => p.textContent);
+    expect(paragraphs).toEqual([PRIVACY_TEXT, SHARE_TEXT, FEEDBACK_TEXT]);
     expect(privacy.textContent).not.toContain("se usará");
     const disclaimer = screen.getByRole("region", { name: "Aviso" });
     expect(disclaimer.className).toBe("card");

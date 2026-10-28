@@ -54,6 +54,7 @@ Otras rutas del servidor:
 
 - `/health` responde `{"status":"ok"}`.
 - La API pública está bajo `/api/v1/`, con Swagger UI en `/api/docs` y OpenAPI en `/api/openapi.json`.
+- `POST /api/v1/feedback` guarda una opinión anónima (`{"message": "...", "origin": "landing" | "results"}`, de 1 a 500 caracteres) en `FEEDBACK_DATABASE_URL` (por defecto `feedback.db` en el directorio actual, creado al arrancar). Para leerlas: `.venv/bin/ideology feedback list [--since AAAA-MM-DD]` (solo lectura, desde el mismo directorio).
 - El cliente web se sirve desde `WEB_DIST_DIR` (por defecto `apps/web/dist`). Si falta `index.html`, el servidor registra un aviso y `/` responde 404: ejecuta `./init.sh` o `npm run build`.
 
 Recarga en caliente del cliente (opcional), con uvicorn corriendo en el puerto 8000:
@@ -144,6 +145,7 @@ Variables de entorno (lee `src/ideology_app/config.py`):
 | `SOURCE_FILES_DIR` | `source_files` | PDFs subidos o descargados con `source add`. |
 | `SOURCE_REFETCH_INTERVAL_HOURS` | `6` | Antigüedad mínima para que `source refetch` vuelva a descargar una URL. |
 | `WEB_DIST_DIR` | `apps/web/dist` | Build del cliente web que sirve FastAPI. |
+| `FEEDBACK_DATABASE_URL` | `sqlite:///feedback.db` | Almacén aparte de las opiniones anónimas (`POST /api/v1/feedback`), en el directorio actual e ignorado por git. No puede ser `data/ideology.db`, la base de `DATABASE_URL` ni una base en memoria: la app no arranca. También vale `ideology feedback --feedback-database-url …`. |
 
 Los umbrales de Validación son valores por defecto del código decididos por el equipo. No los cambies para una ejecución concreta: por eso el comando de generación los desactiva con `env -u`.
 
