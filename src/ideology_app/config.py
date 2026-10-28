@@ -10,6 +10,9 @@ DEFAULT_DATABASE_URL = "sqlite:///ideology.db"
 DEFAULT_SOURCE_FILES_DIR = "source_files"
 DEFAULT_WEB_DIST_DIR = "apps/web/dist"
 DEFAULT_ELECTIONS_DATA_DIR = "data/elections"
+# The anonymous Voter feedback store (feedback-api): its own SQLite file in the
+# current directory, never the shared database. Ignored by git through *.db.
+DEFAULT_FEEDBACK_DATABASE_URL = "sqlite:///feedback.db"
 # The database committed to git and shared by every developer (shared-database).
 # Relative to the current directory, like the other defaults; selected only
 # through DATABASE_URL / --database-url (sqlite:///data/ideology.db).
@@ -116,6 +119,15 @@ def _is_int_in(value: object, low: int, high: int | None) -> bool:
 def database_url() -> str:
     """Return ``DATABASE_URL`` if set, else a SQLite file in the current directory."""
     return os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
+
+
+def feedback_database_url() -> str:
+    """Return ``FEEDBACK_DATABASE_URL`` (trimmed) if set, else ``sqlite:///feedback.db``.
+
+    The default file is relative to the current directory. The store must not be
+    the shared or ``DATABASE_URL`` database (``feedback.store.check_separate``).
+    """
+    return _env("FEEDBACK_DATABASE_URL") or DEFAULT_FEEDBACK_DATABASE_URL
 
 
 def source_files_dir() -> Path:

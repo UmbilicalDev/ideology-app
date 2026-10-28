@@ -50,10 +50,11 @@ Rules:
 | `SOURCE_INGESTION` | `upload`, `url` (both allowed) | Per Source Document: chosen by the CLI flag `ideology source add --file` or `--url`, not an environment variable. |
 | Validation thresholds | coverage %, statement range, topic share | Per Election overrides allowed. |
 | `DATABASE_URL` / `--database-url` | SQLAlchemy URL, default `sqlite:///ideology.db` | `sqlite:///data/ideology.db` (from the repo root) selects the shared database committed to git (`shared-database`); there is no other selector. On it, `pipeline run` / `run-queued` ask for confirmation (`--yes` skips it) and a missing file is refused instead of created. The default stays a local file so a stray command never writes the shared one. |
+| `FEEDBACK_DATABASE_URL` / `ideology feedback --feedback-database-url` | SQLAlchemy URL, default `sqlite:///feedback.db` (current directory, git-ignored) | The anonymous Voter feedback store (`feedback-api`), separate from the shared database: pointing it at `data/ideology.db`, at the `DATABASE_URL` database or at an in-memory database is refused at startup and by the CLI. PostgreSQL URLs are allowed for a deployment. |
 
 ## Data and Storage
 
-- No Voter data is stored on the server.
+- No Voter answers are stored on the server; anonymous feedback text is stored in a separate store (`feedback-api`): only the message, the screen it came from (`landing` / `results`) and the time.
 - Share Link: Dataset Version id plus compactly encoded Answers placed in the URL **fragment** (`#…`), so it isn't sent to the server or recorded in access logs.
 - Dataset Versions are immutable and kept indefinitely.
 - One SQLite database for all Elections is committed at `data/ideology.db` (`shared-database`), beside the bundles in `data/elections/<slug>/`. It is the single source of truth for every developer: Elections, Parties, Source Documents, Pipeline Runs with their recorded LLM calls, Statements, Party Positions and Dataset Versions, so run ids, Dataset Version ids and `request_hash` values agree on every machine. It is built from scratch with `ideology db upgrade` + `ideology data import <bundle>` per Election, stays in `delete` journal mode, is tracked as `binary` and is never downgraded. `ideology db check` (read-only) is the safe-to-commit gate. The app never invokes git: the Operator commits and pushes it by hand (see "Shared database" under Integrations).

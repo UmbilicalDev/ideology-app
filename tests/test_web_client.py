@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from pipeline_fixtures import offline_guard
 
 from ideology_app import config
+from ideology_app.api.feedback_routes import feedback_router
 from ideology_app.api.routes import router
 from ideology_app.main import create_app
 
@@ -135,7 +136,11 @@ def test_api_and_health_keep_precedence(migrated_client: TestClient) -> None:
 
 def test_openapi_paths_have_no_catch_all(dist: Path) -> None:
     paths = set(create_app("sqlite://", web_dist_dir=dist).openapi()["paths"])
-    expected = {r.path for r in router.routes if getattr(r, "path", "").startswith("/api/")}
+    expected = {
+        r.path
+        for r in [*router.routes, *feedback_router.routes]
+        if getattr(r, "path", "").startswith("/api/")
+    }
 
     assert paths == expected | {"/health"}
 

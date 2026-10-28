@@ -177,6 +177,13 @@ export function MethodologyPage() {
           navegador con la misma versión del cuestionario; si después se ha publicado una más
           reciente, se avisa.
         </p>
+        <p>
+          Si nos envías tu opinión sobre la herramienta, se guarda solo el texto que escribas, la
+          pantalla desde la que la envías (la de inicio o la de resultados) y la fecha. No se
+          guardan tus respuestas, tu dirección IP ni ningún otro dato sobre ti. Para frenar los
+          envíos masivos, el servidor cuenta durante unos minutos, solo en memoria, los envíos de
+          cada conexión. No escribas datos personales en el mensaje.
+        </p>
       </section>
 
       <section className="card" aria-labelledby="methodology-disclaimer-title">

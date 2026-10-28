@@ -47,12 +47,21 @@ export type { Results } from "./domain/results";
 export { isQuestionnaireAvailable, sharedVersionStatus } from "./domain/shared-result";
 export type { SharedVersionStatus } from "./domain/shared-result";
 export type { PublicApi } from "./application/public-api";
+export type { FeedbackApi, FeedbackInput } from "./application/feedback-api";
+export {
+  FEEDBACK_MAX_CHARS,
+  countFeedbackChars,
+  feedbackProblem,
+  trimFeedback,
+} from "./domain/feedback";
+export type { FeedbackOrigin, FeedbackProblem } from "./domain/feedback";
 export { openShareLink } from "./application/open-share-link";
 export type { OpenShareLinkResult } from "./application/open-share-link";
 export { PublicApiError, createPublicApiClient } from "./infrastructure/http/public-api-client";
 export type {
   FetchLike,
   HttpResponseLike,
+  PublicApiClient,
   PublicApiClientOptions,
   PublicApiErrorKind,
 } from "./infrastructure/http/public-api-client";
