@@ -9,6 +9,7 @@ import { METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
+import { ShareApp } from "./ShareApp";
 import { useSharedResult } from "./useSharedResult";
 
 export const SHARED_RESULTS_TITLE = "Resultado compartido · IdeologiApp";
@@ -155,6 +156,9 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
           </Link>
         </p>
       ) : null}
+      <div className="share-card">
+        <ShareApp />
+      </div>
       <ResultsBreakdown rows={results.breakdown} answerOwner="link" />
       <p className="questionnaire__note">{NOTE}</p>
       <HomeButton />

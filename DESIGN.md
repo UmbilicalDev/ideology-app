@@ -117,6 +117,8 @@ components:
   election-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, hover: "border primary, elevation-2", cta: "button-primary pill: Realizar cuestionario" }
   summary-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, donut: "64px, arc primary, track surface-container-highest, decorative", star: "secondary, filled when Important > 0" }
   brand-title: { logo: "apps/web/src/assets/ideologiapp-logo.svg, 40px (48px from 600px), decorative", name: IdeologiApp, typography: page title }
+  share-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, holds: "share (Comparte tu resultado) then share-app (Comparte IdeologiApp)", divider: "1px outline-variant between the two sections" }
+  share-target: { icon: "48px circle, 1px outline, card background, icon on-surface", caption: "label-md on-surface-variant", minTarget: 48px, hover: "8% on-surface", colours: "neutral tokens only, never brand colours" }
   important-mark: { backgroundColor: secondary-container, textColor: on-secondary-container, rounded: full, typography: label-md }
   evidence-quote: { backgroundColor: surface-container-high, textColor: on-surface, borderLeft: "4px outline", typography: body-lg, fontStyle: normal }
   progress: { track: surface-container-highest, value: primary, height: 8px, rounded: full }
@@ -171,7 +173,7 @@ Exactly two themes, chosen by the operating system through `prefers-color-scheme
 ## Colors
 
 - **Primary** (dark teal / bright cyan in dark): filled buttons, links, progress, ranking bars, agree states.
-- **Secondary** (gold): focus ring, the Important flag (toggle and mark) and the tonal `Copiar enlace` button. Gold means "focus" or "marked by you", never a party.
+- **Secondary** (gold): focus ring, the Important flag (toggle and mark) and the tonal result `Copiar enlace` button (share targets don't use it, except for their focus ring). Gold means "focus" or "marked by you", never a party.
 - **Tertiary / info pair**: `Baja cobertura` and the shield tile on the disclosure card. Light uses `tertiary-fixed` with `on-tertiary-fixed-variant`; dark uses `tertiary-container` with `on-tertiary-container`. An "AI-generated" tag, if one is ever added, uses the same pair.
 - **Surfaces**: the page is `surface`; cards are `surface-container-lowest` in light and `surface-container-low` in dark; a disclosure nested inside a card is one tier up.
 - **Party logo tile**: `party-logo-tile` (`#ffffff`) with `on-party-logo-tile` (`#3f484d`) for the placeholder, the same pair in both themes, so dark-on-transparent logos stay legible in dark mode and every Party looks the same. Its border is `outline-variant` and follows the theme.
@@ -203,7 +205,7 @@ One Statement per screen in the Questionnaire. The Results breakdown stays stack
 Tonal elevation, as in the source. Only levels 0–2 are used (there are no sticky bars or dialogs).
 
 - **Level 0:** the `surface` page.
-- **Level 1:** cards (`card` surface, 1px `outline-variant`, no shadow): the Landing AI card, election cards, ranking rows, breakdown rows, the share card, the superseded notice. An election card gets the `elevation-2` shadow and a `primary` border on hover.
+- **Level 1:** cards (`card` surface, 1px `outline-variant`, no shadow): the Landing AI card, election cards, ranking rows, breakdown rows, the share card (one card for both share sections), the superseded notice. An election card gets the `elevation-2` shadow and a `primary` border on hover.
 - **Level 2:** the Questionnaire's Statement card, with the soft ambient `elevation-2` shadow.
 
 ## Shapes
@@ -216,7 +218,7 @@ Tonal elevation, as in the source. Only levels 0–2 are used (there are no stic
 
 ## Components
 
-- **Buttons.** Filled (`button-primary`): Siguiente, Revisar mis respuestas, Reintentar, shared-result CTAs, the `Realizar cuestionario` pill inside an election card. Outlined (`button-secondary`): Saltar esta afirmación, Anterior, Volver a la última afirmación, and `Volver al inicio` (a link styled as a button) on every screen that offers it; the end screen shows it before `Detalle por afirmación` and again at the end. Tonal (`button-tonal`): only `Copiar enlace`. Hover adds an 8% state layer. Disabled filled buttons use the M3 12% `on-surface` container with a 38% label. DOM order stays the reading and focus order (Siguiente first).
+- **Buttons.** Filled (`button-primary`): Siguiente, Revisar mis respuestas, Reintentar, shared-result CTAs, the `Realizar cuestionario` pill inside an election card. Outlined (`button-secondary`): Saltar esta afirmación, Anterior, Volver a la última afirmación, and `Volver al inicio` (a link styled as a button) on every screen that offers it; the end screen shows it before `Detalle por afirmación` and again at the end. Tonal (`button-tonal`): only the result `Copiar enlace`; the IdeologiApp share targets are not tonal buttons. Hover adds an 8% state layer. Disabled filled buttons use the M3 12% `on-surface` container with a 38% label. DOM order stays the reading and focus order (Siguiente first).
 - **Statement card** (Level 2): the progress label and bar, the Statement, the Important row (toggle and hint), the 5-option scale, the skipped note and the controls.
 - **Scale option**: a full-width radio row with its label. A custom circle radio (filled dot when checked; the native radio returns under forced colours). Checked states: agree → `primary-container` with a 2px `primary` border and `on-primary-container` text; neutral → `surface-container-high` with `on-surface-variant`; disagree → slate `outline-variant` with `on-surface` text and a 2px `outline` border. All checked states use weight 600.
 - **Important toggle**: an outlined pill with an outline star in `secondary`; pressed, it becomes a `secondary-container` pill with a filled star and weight 600. The star shape and `aria-pressed` carry the state.
@@ -230,17 +232,20 @@ Tonal elevation, as in the source. Only levels 0–2 are used (there are no stic
 - **External link**: the methodology link opening in a new tab ends in an external-link icon; `(se abre en una pestaña nueva)` stays in its accessible name as visually hidden text.
 - **Breakdown row**: the Statement, the Voter's answer (Saltada / `Importante (cuenta el doble)` mark on `secondary-container`), and each party's position in ranking order as a native disclosure whose summary is the chevron, the 32px party-logo tile and one text box beside the tile with the name, short name and value (the text wraps inside the box, so the tile is never alone on its line) revealing the Evidence quote and its locator: a link to `url#page=N`, or the page alone for uploaded documents; `Sin posición en el programa` for no stance.
 - **Evidence quote**: Public Sans body-lg on `surface-container-high` with a 4px `outline` left border; never serif, never italic.
-- **Share card**: a decorative share icon before the `Comparte tu resultado` title; `Copiar enlace` (tonal, with a link icon) copies the Share Link to the clipboard; if copying fails, the link is shown in a read-only field, focused and selected, to copy by hand. A short note says that nothing is stored on any server and that anyone with the link can see the answers.
-- **Icons**: inline SVG drawn for this app, 24px (20px inside buttons and chips), `currentColor`, `aria-hidden`; meaning always lives in the adjacent text.
+- **Share card**: one Level 1 card with two sections, separated by a 1px `outline-variant` divider when both show.
+  - **Comparte tu resultado** (end screen with scores only): a decorative share icon before the title; `Copiar enlace` (tonal, with a link icon) copies the Share Link to the clipboard; if copying fails, the link is shown in a read-only field, focused and selected, to copy by hand. A short note says that nothing is stored on any server and that anyone with the link can see the answers.
+  - **Comparte IdeologiApp** (no title icon): the intro `Recomienda esta web a otras personas. Solo se comparte su dirección, sin ninguna respuesta.`, then a wrapping row of six share targets, in this order and with these captions: Copiar enlace, Facebook, WhatsApp, Instagram, X, Correo. They share only the home URL (`origin + '/'`), never a result. Each target is a 48px circle (1px `outline` border, `card` background, icon in `on-surface`) above a `label-md` caption in `on-surface-variant`; the whole tile is the hit area and gets the focus ring; hover adds an 8% `on-surface` state layer to the circle. Facebook, WhatsApp and X are plain links that open in a new tab; Correo is a `mailto:` link opened in place. Instagram has no web share link: it opens the system share sheet where the browser has one, otherwise it copies the home URL and says it is ready to paste in Instagram. Copy results are announced in the section's own status line; if copying fails, the home URL is shown in a read-only field, focused and selected. At 375px the row wraps (3 + 3); at about 700px and wider it fits on one line.
+  - The end screen without scores and the shared result (`ready` only) show the IdeologiApp section alone.
+- **Icons**: inline SVG drawn for this app, 24px (20px inside buttons and chips), `currentColor`, `aria-hidden`; meaning always lives in the adjacent text. Brand glyphs (Facebook, WhatsApp, Instagram, X) on the share targets are simplified filled marks drawn for this app in `currentColor`, never in brand colours and never copied from a brand kit or icon pack. They are the only icons without adjacent full text: the caption names the network and the accessible name says the action (`Compartir IdeologiApp en Facebook`).
 - **Focus**: a 3px solid `secondary` ring with a 2px offset on every link, button, summary and scale option.
 
 ## Core Screens
 
 1. Landing: brand title, choose an Election (election cards with a call to action), a short methodology summary, and an "AI-generated" disclosure card.
 2. Questionnaire: Statement card plus disclosure card.
-3. Results: ranking + per-Statement breakdown + share.
+3. Results: ranking + share card (Comparte tu resultado, Comparte IdeologiApp) + per-Statement breakdown.
 4. Methodology: how Statements and Positions are generated and validated.
-5. Shared result (`/resultados#…`): read-only ranking + breakdown from a Share Link, a neutral superseded notice (a card, not an alert), and friendly link errors.
+5. Shared result (`/resultados#…`): read-only ranking + breakdown from a Share Link, a neutral superseded notice (a card, not an alert), the share card with the Comparte IdeologiApp part only (before the breakdown), and friendly link errors.
 6. Not found.
 
 ## Accessibility Baseline
@@ -275,6 +280,7 @@ The scale is a native radio group usable by keyboard and screen reader.
 - Don't recolour, crop or resize a logo per Party; every Party gets the same tile.
 - Don't use red/green on the agreement scale.
 - Don't load fonts, styles, scripts or images from another origin.
+- Don't load share widgets, SDKs, scripts or brand images; share targets are plain links (or the system share sheet).
 
 ## Open Design Questions
 

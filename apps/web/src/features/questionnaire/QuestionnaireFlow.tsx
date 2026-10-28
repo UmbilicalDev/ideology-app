@@ -26,6 +26,7 @@ import { ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
 import { SCALE_LABELS } from "../scale-labels";
+import { ShareApp } from "../share/ShareApp";
 import { ShareResults } from "../share/ShareResults";
 
 // The five options in scale order. Meaning is carried by the text, never by
@@ -269,7 +270,10 @@ function EndScreen({
       ) : (
         <p>{NO_RESULTS_PROMPT}</p>
       )}
-      {hasScores ? <ShareResults datasetVersionId={datasetVersionId} state={state} /> : null}
+      <div className="share-card">
+        {hasScores ? <ShareResults datasetVersionId={datasetVersionId} state={state} /> : null}
+        <ShareApp />
+      </div>
       <div className="questionnaire__controls">
         <button type="button" className="button-primary" onClick={onFirst}>
           Revisar mis respuestas
