@@ -134,6 +134,17 @@ def test_api_and_health_keep_precedence(migrated_client: TestClient) -> None:
         assert response.json() == NOT_FOUND, path
 
 
+def test_admin_is_a_reserved_prefix(migrated_client: TestClient, dist: Path) -> None:
+    # feedback-admin: the catch-all never serves admin/..., even a real file there.
+    (dist / "admin").mkdir()
+    (dist / "admin" / "index.html").write_text("admin")
+    for path in ("/admin/index.html", "/admin/x", "/admin/api", "/admin/api/v1/nope", "/admin/x.js"):
+        response = migrated_client.get(path)
+        assert response.status_code == 404, path
+        assert response.json() == NOT_FOUND, path
+    assert migrated_client.get("/administracion").status_code == 200  # only the exact prefix
+
+
 def test_openapi_paths_have_no_catch_all(dist: Path) -> None:
     paths = set(create_app("sqlite://", web_dist_dir=dist).openapi()["paths"])
     expected = {

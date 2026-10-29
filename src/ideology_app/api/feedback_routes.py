@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from ideology_app.api.http_cache import ERROR_CACHE_CONTROL
+from ideology_app.api.request_body import _declared_too_large, _is_json, _read_body
 from ideology_app.api.schemas import ErrorOut, FeedbackAcceptedOut, FeedbackIn
 from ideology_app.feedback.message import trim
 from ideology_app.feedback.store import add_message
@@ -47,22 +48,6 @@ def _too_large() -> JSONResponse:
     return _error(413, "payload_too_large", f"The body must be at most {MAX_BODY_BYTES} bytes.")
 
 
-def _is_json(content_type: str | None) -> bool:
-    if not content_type:
-        return False
-    return content_type.split(";", 1)[0].strip().lower() == "application/json"
-
-
-async def _read_body(request: Request) -> bytes | None:
-    """The body, or ``None`` as soon as it passes ``MAX_BODY_BYTES``."""
-    body = bytearray()
-    async for chunk in request.stream():
-        body += chunk
-        if len(body) > MAX_BODY_BYTES:
-            return None
-    return bytes(body)
-
-
 _RESPONSES: dict[int | str, dict[str, Any]] = {
     201: {"model": FeedbackAcceptedOut, "description": "Received (also for the honeypot)."},
     413: {"model": ErrorOut, "description": "Body larger than 8192 bytes."},
@@ -89,10 +74,9 @@ async def send_feedback(request: Request) -> Response:
     """Store one anonymous feedback message. Only ``message`` and ``origin`` are kept."""
     if not _is_json(request.headers.get("content-type")):
         return _error(415, "unsupported_media_type", "Content-Type must be application/json.")
-    length = request.headers.get("content-length")
-    if length is not None and length.strip().isdigit() and int(length) > MAX_BODY_BYTES:
+    if _declared_too_large(request, MAX_BODY_BYTES):
         return _too_large()
-    body = await _read_body(request)
+    body = await _read_body(request, MAX_BODY_BYTES)
     if body is None:
         return _too_large()
     try:

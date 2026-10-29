@@ -54,7 +54,7 @@ Otras rutas del servidor:
 
 - `/health` responde `{"status":"ok"}`.
 - La API pública está bajo `/api/v1/`, con Swagger UI en `/api/docs` y OpenAPI en `/api/openapi.json`.
-- `POST /api/v1/feedback` guarda una opinión anónima (`{"message": "...", "origin": "landing" | "results"}`, de 1 a 500 caracteres) en `FEEDBACK_DATABASE_URL` (por defecto `feedback.db` en el directorio actual, creado al arrancar). Para leerlas: `.venv/bin/ideology feedback list [--since AAAA-MM-DD]` (solo lectura, desde el mismo directorio).
+- `POST /api/v1/feedback` guarda una opinión anónima (`{"message": "...", "origin": "landing" | "results"}`, de 1 a 500 caracteres) en `FEEDBACK_DATABASE_URL` (por defecto `feedback.db` en el directorio actual, creado al arrancar). Para leerlas: la página de administración (`/admin`, ver abajo) o `.venv/bin/ideology feedback list [--since AAAA-MM-DD]` (solo lectura, desde el mismo directorio; un mensaje revisado termina su cabecera con `reviewed <fecha UTC>`).
 - El cliente web se sirve desde `WEB_DIST_DIR` (por defecto `apps/web/dist`). Si falta `index.html`, el servidor registra un aviso y `/` responde 404: ejecuta `./init.sh` o `npm run build`.
 
 Recarga en caliente del cliente (opcional), con uvicorn corriendo en el puerto 8000:
@@ -63,7 +63,35 @@ Recarga en caliente del cliente (opcional), con uvicorn corriendo en el puerto 8
 npm run dev -w @ideology-app/web
 ```
 
-Vite arranca en su puerto por defecto y reenvía `/api` y `/health` a `http://127.0.0.1:8000`.
+Vite arranca en su puerto por defecto y reenvía `/api`, `/health` y `/admin/api` a `http://127.0.0.1:8000`; la página de administración está en `/admin/`.
+
+### Cuentas de Operador y página de administración
+
+La página `/admin` deja a un Operador leer las opiniones anónimas de los Votantes, filtrarlas por fecha y estado, marcarlas como revisadas (o deshacerlo) y borrarlas (con confirmación; el borrado es definitivo). Ninguna página de Votante la enlaza y los Votantes nunca necesitan cuenta ni reciben cookies.
+
+1. Crea el hash de tu contraseña (se pide dos veces sin mostrarla; de 12 a 1024 caracteres; no abre ninguna base de datos):
+
+   ```bash
+   .venv/bin/ideology admin hash-password --username miguel
+   ```
+
+   Imprime una sola línea `miguel:scrypt.15.8.1.…`. La contraseña no se guarda en ningún sitio.
+2. Pon las cuentas en el entorno del servidor, separadas por comas, **nunca en git** (ni en un `.env` versionado):
+
+   ```bash
+   export ADMIN_USERS='miguel:scrypt.15.8.1.…,enrique:scrypt.15.8.1.…'
+   ```
+
+   Cada Operador crea su propio hash y lo pasa a quien despliega. Usuario: minúsculas, dígitos, `.`, `_` o `-`, hasta 32 caracteres. Un valor mal formado impide arrancar la app (el error dice qué entrada falla, nunca su valor).
+3. Arranca (o reinicia) el servidor y abre <http://127.0.0.1:8000/admin>. Sin `ADMIN_USERS` la página explica cómo configurarlo y no deja entrar a nadie.
+
+Notas:
+
+- La sesión dura como mucho 8 horas y caduca tras 30 minutos sin uso; cerrar el navegador también la cierra. Reiniciar el servidor o cambiar `ADMIN_USERS` cierra todas las sesiones.
+- Se permiten 5 intentos de inicio de sesión por cliente (30 en total) cada 15 minutos.
+- Sesiones y límite de intentos viven en memoria: despliega con **un solo worker** de uvicorn.
+- Fuera de `localhost` sirve la app solo por **HTTPS**: la cookie de sesión lleva `Secure`.
+- Al arrancar, la app actualiza el almacén de opiniones a su última versión sin perder mensajes. Para hacerlo sin arrancar el servidor: `.venv/bin/ideology feedback upgrade` (desde el mismo directorio, o con `--feedback-database-url`). `ideology feedback list` pide esa actualización si el almacén es antiguo.
 
 > **Atención: la base de datos compartida.** `data/ideology.db` está versionada en git y la comparte todo el equipo. No dejes un servidor ni un proceso `ideology` abierto sobre ella mientras haces `git pull`, cambias de rama o generas: git sustituye el fichero, y el proceso abierto sigue escribiendo en la copia antigua, así que esas escrituras se pierden. Detalles en [`docs/technical-discovery.md`](docs/technical-discovery.md) ("Shared database").
 
@@ -146,6 +174,7 @@ Variables de entorno (lee `src/ideology_app/config.py`):
 | `SOURCE_REFETCH_INTERVAL_HOURS` | `6` | Antigüedad mínima para que `source refetch` vuelva a descargar una URL. |
 | `WEB_DIST_DIR` | `apps/web/dist` | Build del cliente web que sirve FastAPI. |
 | `FEEDBACK_DATABASE_URL` | `sqlite:///feedback.db` | Almacén aparte de las opiniones anónimas (`POST /api/v1/feedback`), en el directorio actual e ignorado por git. No puede ser `data/ideology.db`, la base de `DATABASE_URL` ni una base en memoria: la app no arranca. También vale `ideology feedback --feedback-database-url …`. |
+| `ADMIN_USERS` | (ninguno) | Cuentas de Operador de la página `/admin`: `usuario:hash,usuario:hash`, con hashes de `ideology admin hash-password`. Solo en el entorno del servidor, nunca en git. Sin valor, nadie puede entrar. |
 
 Los umbrales de Validación son valores por defecto del código decididos por el equipo. No los cambies para una ejecución concreta: por eso el comando de generación los desactiva con `env -u`.
 

@@ -1,5 +1,8 @@
 """Per-process abuse guard for ``POST /api/v1/feedback`` (feedback-api, Decision 8).
 
+Reused, as a second instance with its own limits, for Operator sign-in at
+``POST /admin/api/v1/session`` (feedback-admin, Decision 8).
+
 Sliding windows: at most ``per_client`` accepted requests per client and
 ``global_limit`` in total per ``window_seconds``. A request is counted only
 when both limits allow it. At most ``max_keys`` clients are tracked; when the

@@ -27,11 +27,21 @@ from ideology_app import pipeline as pipelines
 from ideology_app import shared_db
 from ideology_app import source_bundle
 from ideology_app import source_documents as sources
+from ideology_app.admin.accounts import (
+    MAX_PASSWORD_LENGTH,
+    MIN_PASSWORD_LENGTH,
+    hash_password,
+    is_valid_username,
+)
 from ideology_app.feedback.store import (
     FeedbackStoreError,
     check_separate,
     has_schema,
+    head_revision as feedback_head_revision,
+    is_at_head as feedback_is_at_head,
     list_messages,
+    make_feedback_engine,
+    upgrade_schema as upgrade_feedback_schema,
 )
 from ideology_app.pdf_text import EXTRACTOR, PdfTextError, extract_pages
 from ideology_app.db import (
@@ -1360,7 +1370,7 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
 )
 @click.pass_context
 def feedback(ctx: click.Context, feedback_database_url: str | None) -> None:
-    """Anonymous Voter feedback (read-only; the API stores it)."""
+    """Anonymous Voter feedback: list it (read-only) or upgrade the store."""
     ctx.meta["feedback_url"] = (
         feedback_database_url or ""
     ).strip() or config.feedback_database_url()
@@ -1368,6 +1378,42 @@ def feedback(ctx: click.Context, feedback_database_url: str | None) -> None:
 
 def _feedback_timestamp(value: dt.datetime) -> str:
     return value.astimezone(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _feedback_store(ctx: click.Context, *, read_only: bool) -> tuple[Engine, str]:
+    """The checked feedback store's Engine (read-only for SQLite when asked) and its name."""
+    app = ctx.find_object(AppContext)
+    assert app is not None
+    url: str = ctx.meta["feedback_url"]
+    try:
+        check_separate(url, app.url)
+    except FeedbackStoreError as exc:
+        raise click.ClickException(str(exc)) from exc
+    path = shared_db.sqlite_path(url)
+    if path is not None and not path.exists():
+        raise click.ClickException(f"no feedback store at {path}; the server creates it on startup")
+    try:
+        if read_only and path is not None:
+            engine = make_engine(shared_db.read_only_url(path))
+        else:
+            engine = make_feedback_engine(url)
+    except SQLAlchemyError as exc:
+        raise click.ClickException(f"invalid feedback database URL: {exc}") from exc
+    except ImportError as exc:
+        raise click.ClickException(f"database driver not installed: {exc}") from exc
+    where = str(path) if path is not None else _safe_url(url)
+    return engine, where
+
+
+def _is_feedback_store(engine: Engine, where: str, is_sqlite_file: bool) -> None:
+    try:
+        ready = has_schema(engine)
+    except SQLAlchemyError as exc:
+        if not is_sqlite_file:
+            raise click.ClickException(f"cannot open the feedback store: {exc}") from exc
+        ready = False  # not a SQLite database at all
+    if not ready:
+        raise click.ClickException(f"{where} is not a feedback store")
 
 
 @feedback.command("list")
@@ -1380,32 +1426,14 @@ def _feedback_timestamp(value: dt.datetime) -> str:
 @click.pass_context
 def feedback_list(ctx: click.Context, since: dt.datetime | None) -> None:
     """Print the stored feedback messages, oldest first. Never writes or creates a file."""
-    app = ctx.find_object(AppContext)
-    assert app is not None
     url: str = ctx.meta["feedback_url"]
+    engine, where = _feedback_store(ctx, read_only=True)
     try:
-        check_separate(url, app.url)
-    except FeedbackStoreError as exc:
-        raise click.ClickException(str(exc)) from exc
-    path = shared_db.sqlite_path(url)
-    if path is not None and not path.exists():
-        raise click.ClickException(f"no feedback store at {path}; the server creates it on startup")
-    try:
-        engine = make_engine(shared_db.read_only_url(path) if path is not None else url)
-    except SQLAlchemyError as exc:
-        raise click.ClickException(f"invalid feedback database URL: {exc}") from exc
-    except ImportError as exc:
-        raise click.ClickException(f"database driver not installed: {exc}") from exc
-    where = str(path) if path is not None else _safe_url(url)
-    try:
-        try:
-            ready = has_schema(engine)
-        except SQLAlchemyError as exc:
-            if path is None:
-                raise click.ClickException(f"cannot open the feedback store: {exc}") from exc
-            ready = False  # not a SQLite database at all
-        if not ready:
-            raise click.ClickException(f"{where} is not a feedback store")
+        _is_feedback_store(engine, where, shared_db.sqlite_path(url) is not None)
+        if not feedback_is_at_head(engine):
+            raise click.ClickException(
+                f'{where} needs an upgrade; run "ideology feedback upgrade" or start the server'
+            )
         messages = list_messages(
             engine, since.replace(tzinfo=dt.UTC) if since is not None else None
         )
@@ -1415,8 +1443,60 @@ def feedback_list(ctx: click.Context, since: dt.datetime | None) -> None:
         click.echo("No feedback messages.")
         return
     for message in messages:
-        click.echo(f"#{message.id}  {_feedback_timestamp(message.created_at)}  {message.origin}")
+        header = f"#{message.id}  {_feedback_timestamp(message.created_at)}  {message.origin}"
+        if message.reviewed_at is not None:
+            header += f"  reviewed {_feedback_timestamp(message.reviewed_at)}"
+        click.echo(header)
         for line in message.message.split("\n"):
             click.echo(f"  {line}")
         click.echo("")
     click.echo(f"{len(messages)} message(s)")
+
+
+@feedback.command("upgrade")
+@click.pass_context
+def feedback_upgrade(ctx: click.Context) -> None:
+    """Upgrade the feedback store to its newest revision, keeping every message."""
+    engine, where = _feedback_store(ctx, read_only=False)
+    try:
+        try:
+            upgrade_feedback_schema(engine)
+        except SQLAlchemyError as exc:
+            raise click.ClickException(f"cannot upgrade the feedback store: {exc}") from exc
+    finally:
+        engine.dispose()
+    click.echo(f"Feedback store {where} is at revision {feedback_head_revision()} (head).")
+
+
+@main.group()
+def admin() -> None:
+    """Operator accounts for the admin page (feedback-admin)."""
+
+
+def _check_username(_ctx: click.Context, _param: click.Parameter, value: str | None) -> str | None:
+    if value is not None and not is_valid_username(value):
+        raise click.BadParameter(
+            "use 1 to 32 characters: lower-case letters, digits, '.', '_' or '-', "
+            "starting with a letter or digit"
+        )
+    return value
+
+
+@admin.command("hash-password")
+@click.option(
+    "--username",
+    default=None,
+    callback=_check_username,
+    help="Print NAME:hash, ready for ADMIN_USERS.",
+)
+def admin_hash_password(username: str | None) -> None:
+    """Print a salted scrypt hash of a password typed at a hidden prompt. Opens no database."""
+    password: str = click.prompt(
+        "Password", hide_input=True, confirmation_prompt=True, err=True
+    )
+    if not MIN_PASSWORD_LENGTH <= len(password) <= MAX_PASSWORD_LENGTH:
+        raise click.ClickException(
+            f"the password must have {MIN_PASSWORD_LENGTH} to {MAX_PASSWORD_LENGTH} characters"
+        )
+    encoded = hash_password(password)
+    click.echo(f"{username}:{encoded}" if username is not None else encoded)

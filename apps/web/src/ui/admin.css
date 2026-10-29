@@ -1,0 +1,190 @@
+/* Operator admin page (DESIGN.md "Operator Admin Page"). Loaded only by the
+   admin entry (src/admin/main.tsx), never by a Voter page. Tokens only: no
+   hard-coded colour, font or shadow. */
+
+.admin__status,
+.admin__notice,
+.admin__empty,
+.admin-header__user {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+}
+
+.admin__status {
+  min-height: 20px;
+  margin: 0 0 var(--space-md);
+}
+
+/* Focused by script after the last card is deleted: not interactive. */
+.admin__status:focus {
+  outline: none;
+}
+
+.admin__notice {
+  margin: 0 0 var(--space-md);
+}
+
+.admin__empty {
+  font: var(--md-sys-typescale-body-lg);
+  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
+}
+
+.admin__error {
+  margin: 0 0 var(--space-md);
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+  font-weight: 600;
+}
+
+/* Text fields: card background, 1px outline, small corner, 16px, 48px. */
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-md);
+  min-width: 0;
+}
+
+.admin-field label {
+  color: var(--md-sys-color-on-surface);
+  font: var(--md-sys-typescale-label-lg);
+  letter-spacing: var(--md-sys-typescale-label-lg-tracking);
+}
+
+.admin-field input,
+.admin-field select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-card);
+  color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-small);
+  font: var(--md-sys-typescale-body-lg);
+  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
+}
+
+.admin-field select:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.admin-sign-in {
+  max-inline-size: 75ch;
+  margin: 0 0 var(--space-lg);
+}
+
+.admin-sign-in form {
+  max-inline-size: 28rem;
+}
+
+/* Signed in: user line and Cerrar sesión, wrapping at compact. */
+.admin-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-md);
+  margin: 0 0 var(--space-md);
+}
+
+.admin-header__user {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-filters {
+  margin: 0 0 var(--space-md);
+}
+
+.admin-filters fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.admin-filters legend {
+  padding: 0;
+  margin: 0 0 var(--space-sm);
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
+}
+
+/* Stacked at compact, one row from 600px. */
+.admin-filters__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--space-md);
+}
+
+@media (min-width: 600px) {
+  .admin-filters__fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.admin-list {
+  list-style: none;
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.admin-message {
+  margin: 0;
+}
+
+.admin-message__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin: 0 0 var(--space-sm);
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+}
+
+.admin-message__text {
+  margin: 0 0 var(--space-md);
+  max-inline-size: 75ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: var(--md-sys-typescale-body-lg);
+  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
+}
+
+.admin-message__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.admin-message__confirm p {
+  margin: 0 0 var(--space-sm);
+  font-weight: 600;
+}
+
+.button-secondary:disabled {
+  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
+  border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  cursor: not-allowed;
+}
+
+.button-secondary:disabled:hover {
+  background: transparent;
+}
+
+.admin-load-error {
+  margin: 0 0 var(--space-md);
+}
+
+.admin-more {
+  justify-self: start;
+}
