@@ -1,6 +1,6 @@
 import { useParams } from "react-router";
 
-import type { PublicApi } from "@ideology-app/core";
+import type { FeedbackApi, PublicApi } from "@ideology-app/core";
 
 import { BrandTitle } from "../common/BrandTitle";
 import { HomeButton } from "../common/HomeButton";
@@ -11,7 +11,7 @@ import { useQuestionnaireData } from "./useQuestionnaireData";
 
 // Questionnaire route (`/elecciones/:electionId/cuestionario`). An invalid id
 // is not found without any request.
-export function QuestionnairePage({ api }: { readonly api: PublicApi }) {
+export function QuestionnairePage({ api }: { readonly api: PublicApi & FeedbackApi }) {
   const { electionId: raw } = useParams();
   const electionId = parseElectionId(raw);
   if (electionId === null) {
@@ -24,7 +24,7 @@ function QuestionnaireLoader({
   api,
   electionId,
 }: {
-  readonly api: PublicApi;
+  readonly api: PublicApi & FeedbackApi;
   readonly electionId: number;
 }) {
   const { state, retry } = useQuestionnaireData(api, electionId);
@@ -69,6 +69,7 @@ function QuestionnaireLoader({
                 key={state.datasetVersion.id}
                 election={state.election}
                 datasetVersion={state.datasetVersion}
+                feedbackApi={api}
               />
             );
         }

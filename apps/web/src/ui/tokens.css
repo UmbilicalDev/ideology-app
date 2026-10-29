@@ -43,6 +43,10 @@
   --color-party-logo-tile: #ffffff;
   --color-on-party-logo-tile: #3f484d;
   --elevation-2: 0 2px 8px -2px rgba(0, 31, 42, 0.08);
+  /* Level 4: the feedback dialog only, over the scrim (same in both themes,
+     so the dark block does not override --color-scrim). */
+  --elevation-4: 0 8px 24px -4px rgba(0, 31, 42, 0.16);
+  --color-scrim: rgba(0, 0, 0, 0.32);
 
   /* Type scale: <weight> <size>/<line-height> <family>, plus tracking. */
   --md-sys-typescale-headline-lg: 600 2rem/2.5rem var(--md-ref-typeface-plain);
@@ -127,6 +131,7 @@
     --color-info-container: var(--md-sys-color-tertiary-container);
     --color-on-info-container: var(--md-sys-color-on-tertiary-container);
     --elevation-2: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+    --elevation-4: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
   }
 }
 

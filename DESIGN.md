@@ -65,6 +65,8 @@ semantic:
   party-logo-tile: { light: "#ffffff", dark: "#ffffff", note: "fixed in both themes (the light surface-container-lowest), so dark-on-transparent logos stay legible" }
   on-party-logo-tile: { light: "#3f484d", dark: "#3f484d", note: "placeholder text, fixed in both themes (the light on-surface-variant)" }
   elevation-2: { light: "0 2px 8px -2px rgba(0, 31, 42, 0.08)", dark: "0 2px 8px -2px rgba(0, 0, 0, 0.4)" }
+  elevation-4: { light: "0 8px 24px -4px rgba(0, 31, 42, 0.16)", dark: "0 8px 24px -4px rgba(0, 0, 0, 0.5)", note: "the feedback dialog only" }
+  scrim: { light: "rgba(0, 0, 0, 0.32)", dark: "rgba(0, 0, 0, 0.32)", note: "the feedback dialog backdrop" }
 typography:
   fontFamily: "Public Sans (self-hosted variable font), system-ui, sans-serif"
   headline-lg: { fontSize: 32px, lineHeight: 40px, fontWeight: 600, letterSpacing: 0px }
@@ -129,6 +131,10 @@ components:
     image: { source: "the API's same-origin logoUrl only", fit: "object-fit contain, no extra padding (the committed PNGs carry 6% padding)", alt: "" }
     placeholder: { content: "Party short name, at most 2 lines (split once at the first space or hyphen when longer than 4 characters)", textColor: on-party-logo-tile, typography: "600 10px/12px, scaled to fit by an SVG viewBox" }
     failure: "a logo that fails to load becomes the placeholder in the same tile (no layout shift)"
+  feedback-button: { style: "button-secondary (outlined)", label: "Danos tu opinión", icon: "feedback speech bubble before the text, decorative", placement: "Landing: last in main, after Cómo funciona; end screen: after the Cómo se calcula la afinidad link, before the first Volver al inicio" }
+  feedback-dialog: { level: 4, element: "native dialog, showModal", backgroundColor: surface-container-highest, textColor: on-surface, rounded: extra-large, shadow: elevation-4, backdrop: scrim, width: "min(36rem, 100% - 2 * layout margin)", padding: lg, title: "Ayúdanos a mejorar (title-lg)", subtitle: "Dinos qué te ha parecido IdeologiApp (body-md on-surface-variant)" }
+  text-area: { backgroundColor: card, border: "1px outline", textColor: on-surface, rounded: small, fontSize: 16px, minHeight: 8rem, resize: vertical, label: "visible, above the field" }
+  icon-button: { size: 48px, rounded: full, backgroundColor: transparent, iconColor: on-surface-variant, hover: "8% on-surface", label: "aria-label only (Cerrar)" }
 ---
 
 # Design Direction
@@ -178,6 +184,7 @@ Exactly two themes, chosen by the operating system through `prefers-color-scheme
 - **Surfaces**: the page is `surface`; cards are `surface-container-lowest` in light and `surface-container-low` in dark; a disclosure nested inside a card is one tier up.
 - **Party logo tile**: `party-logo-tile` (`#ffffff`) with `on-party-logo-tile` (`#3f484d`) for the placeholder, the same pair in both themes, so dark-on-transparent logos stay legible in dark mode and every Party looks the same. Its border is `outline-variant` and follows the theme.
 - Never put text on `outline` or `outline-variant` except the disagree state, whose pair is checked below.
+- **Errors** use text only (a `role="alert"` message, the feedback dialog's problem line); there is no error colour role.
 
 ## Typography
 
@@ -202,23 +209,24 @@ One Statement per screen in the Questionnaire. The Results breakdown stays stack
 
 ## Elevation & Depth
 
-Tonal elevation, as in the source. Only levels 0–2 are used (there are no sticky bars or dialogs).
+Tonal elevation, as in the source. Levels 0–2 and Level 4 are used (there are no sticky bars; the feedback dialog is the only dialog).
 
 - **Level 0:** the `surface` page.
 - **Level 1:** cards (`card` surface, 1px `outline-variant`, no shadow): the Landing AI card, election cards, ranking rows, breakdown rows, the share card (one card for both share sections), the superseded notice. An election card gets the `elevation-2` shadow and a `primary` border on hover.
 - **Level 2:** the Questionnaire's Statement card, with the soft ambient `elevation-2` shadow.
+- **Level 4:** the feedback dialog: `surface-container-highest` with the `elevation-4` shadow over a `scrim` backdrop (32% black, both themes). The page behind it is inert and does not scroll.
 
 ## Shapes
 
 - Cards: large (16px). The Statement card: extra-large (24px).
 - Scale options: default (8px) inside the extra-large Statement card.
 - Buttons, the Important toggle, badges and progress/ranking bars: full pill.
-- Nested positions: medium (12px). Text field: small (4px).
+- Nested positions: medium (12px). Text field and text area: small (4px). The feedback dialog: extra-large (24px).
 - Minimum tap target 48px for every control and text link.
 
 ## Components
 
-- **Buttons.** Filled (`button-primary`): Siguiente, Revisar mis respuestas, Reintentar, shared-result CTAs, the `Realizar cuestionario` pill inside an election card. Outlined (`button-secondary`): Saltar esta afirmación, Anterior, Volver a la última afirmación, and `Volver al inicio` (a link styled as a button) on every screen that offers it; the end screen shows it before `Detalle por afirmación` and again at the end. Tonal (`button-tonal`): only the result `Copiar enlace`; the IdeologiApp share targets are not tonal buttons. Hover adds an 8% state layer. Disabled filled buttons use the M3 12% `on-surface` container with a 38% label. DOM order stays the reading and focus order (Siguiente first).
+- **Buttons.** Filled (`button-primary`): Siguiente, Revisar mis respuestas, Reintentar, `Enviar` and `Cerrar` in the feedback dialog, shared-result CTAs, the `Realizar cuestionario` pill inside an election card. Outlined (`button-secondary`): Saltar esta afirmación, Anterior, Volver a la última afirmación, `Danos tu opinión` (with a decorative speech-bubble icon), and `Volver al inicio` (a link styled as a button) on every screen that offers it; the end screen shows it before `Detalle por afirmación` and again at the end. Tonal (`button-tonal`): only the result `Copiar enlace`; the IdeologiApp share targets are not tonal buttons. Hover adds an 8% state layer. Disabled filled buttons use the M3 12% `on-surface` container with a 38% label. DOM order stays the reading and focus order (Siguiente first).
 - **Statement card** (Level 2): the progress label and bar, the Statement, the Important row (toggle and hint), the 5-option scale, the skipped note and the controls.
 - **Scale option**: a full-width radio row with its label. A custom circle radio (filled dot when checked; the native radio returns under forced colours). Checked states: agree → `primary-container` with a 2px `primary` border and `on-primary-container` text; neutral → `surface-container-high` with `on-surface-variant`; disagree → slate `outline-variant` with `on-surface` text and a 2px `outline` border. All checked states use weight 600.
 - **Important toggle**: an outlined pill with an outline star in `secondary`; pressed, it becomes a `secondary-container` pill with a filled star and weight 600. The star shape and `aria-pressed` carry the state.
@@ -236,14 +244,18 @@ Tonal elevation, as in the source. Only levels 0–2 are used (there are no stic
   - **Comparte tu resultado** (end screen with scores only): a decorative share icon before the title; `Copiar enlace` (tonal, with a link icon) copies the Share Link to the clipboard; if copying fails, the link is shown in a read-only field, focused and selected, to copy by hand. A short note says that nothing is stored on any server and that anyone with the link can see the answers.
   - **Comparte IdeologiApp** (no title icon): the intro `Recomienda esta web a otras personas. Solo se comparte su dirección, sin ninguna respuesta.`, then a wrapping row of six share targets, in this order and with these captions: Copiar enlace, Facebook, WhatsApp, Instagram, X, Correo. They share only the home URL (`origin + '/'`), never a result. Each target is a 48px circle (1px `outline` border, `card` background, icon in `on-surface`) above a `label-md` caption in `on-surface-variant`; the whole tile is the hit area and gets the focus ring; hover adds an 8% `on-surface` state layer to the circle. Facebook, WhatsApp and X are plain links that open in a new tab; Correo is a `mailto:` link opened in place. Instagram has no web share link: it opens the system share sheet where the browser has one, otherwise it copies the home URL and says it is ready to paste in Instagram. Copy results are announced in the section's own status line; if copying fails, the home URL is shown in a read-only field, focused and selected. At 375px the row wraps (3 + 3); at about 700px and wider it fits on one line.
   - The end screen without scores and the shared result (`ready` only) show the IdeologiApp section alone.
+- **Feedback button**: `Danos tu opinión`, an outlined pill (not tonal: gold stays for focus, Important and the result copy) with a decorative speech-bubble icon before the text and `aria-haspopup="dialog"`. On the Landing it is the last item of the page, after `Cómo funciona`, with no heading of its own. On the end screen it follows the `Cómo se calcula la afinidad` link and comes before the first `Volver al inicio`. It is not on the shared result, the methodology page, Statement steps or Not found.
+- **Feedback dialog** (Level 4, a native modal `<dialog>`): a header with the title `Ayúdanos a mejorar` (title-lg) and a 48px close icon button (`Cerrar`) at its end, then the subtitle `Dinos qué te ha parecido IdeologiApp` (body-md, `on-surface-variant`); the title names the dialog and the subtitle describes it. Below, the form: the visible label `Tu opinión`, the text area, a privacy hint (note style), the counter `N/500` right-aligned in body-md `on-surface-variant` (weight 600 and `on-surface` when over the limit; it counts Unicode code points of the trimmed text, as the server does), a problem line when the text is too long or holds invisible characters, a polite status line that announces the limit bands (50, 25, 10, at and over the limit), the error alert (plain text, `role="alert"`; there is no error colour), the sending status `Enviando tu opinión…`, and an end-aligned actions row with the filled `Enviar`. Enviar is disabled while the text is empty, has a problem or a request is in flight. After sending, the form is replaced by a decorative check icon in `primary`, `¡Gracias por tu opinión!` (title-md), `Nos ayuda a mejorar IdeologiApp.` and a filled `Cerrar`, which gets focus. Focus starts in the text area, Tab and Shift+Tab wrap inside the dialog, and Escape, the close icon button, `Cerrar` or a click on the backdrop close it; focus then returns to `Danos tu opinión`. At 375px the dialog sits 16px from the edges and the actions wrap; from 600px it is at most 36rem wide and centred.
+- **Text area** (feedback dialog): the text-field look (`card` background, 1px `outline` border, small corner, 16px text so iOS does not zoom), full width, at least 8rem tall, resizable vertically, with the focus ring like every control. No `maxlength`: a pasted text is never cut; the counter and Enviar enforce the limit.
+- **Icon button**: a 48px transparent circle with a 24px icon in `on-surface-variant` and an `aria-label`; hover adds an 8% `on-surface` state layer. Used only for the dialog's close button.
 - **Icons**: inline SVG drawn for this app, 24px (20px inside buttons and chips), `currentColor`, `aria-hidden`; meaning always lives in the adjacent text. Brand glyphs (Facebook, WhatsApp, Instagram, X) on the share targets are simplified filled marks drawn for this app in `currentColor`, never in brand colours and never copied from a brand kit or icon pack. They are the only icons without adjacent full text: the caption names the network and the accessible name says the action (`Compartir IdeologiApp en Facebook`).
-- **Focus**: a 3px solid `secondary` ring with a 2px offset on every link, button, summary and scale option.
+- **Focus**: a 3px solid `secondary` ring with a 2px offset on every link, button, text field, text area, summary and scale option.
 
 ## Core Screens
 
-1. Landing: brand title, choose an Election (election cards with a call to action), a short methodology summary, and an "AI-generated" disclosure card.
+1. Landing: brand title, choose an Election (election cards with a call to action), a short methodology summary, an "AI-generated" disclosure card, and the `Danos tu opinión` feedback button last.
 2. Questionnaire: Statement card plus disclosure card.
-3. Results: ranking + share card (Comparte tu resultado, Comparte IdeologiApp) + per-Statement breakdown.
+3. Results: ranking + share card (Comparte tu resultado, Comparte IdeologiApp) + the `Danos tu opinión` feedback button (after the methodology link) + per-Statement breakdown.
 4. Methodology: how Statements and Positions are generated and validated.
 5. Shared result (`/resultados#…`): read-only ranking + breakdown from a Share Link, a neutral superseded notice (a card, not an alert), the share card with the Comparte IdeologiApp part only (before the breakdown), and friendly link errors.
 6. Not found.
@@ -295,6 +307,12 @@ WCAG 2.1 AA contrast for every text pair in both themes, and at least 3:1 for bo
 | focus ring secondary on surface / card (≥ 3) | 6.1 / 6.4 | 10.9 / 10.0 |
 | surface on on-surface (coverage tooltip) | 16.4 | 14.4 |
 | on-party-logo-tile on party-logo-tile (placeholder) | 9.4 | 9.4 |
+| on-surface on surface-container-highest (feedback dialog) | 13.3 | 9.5 |
+| on-surface-variant on surface-container-highest (subtitle, hint, counter) | 7.2 | 7.2 |
+| primary on surface-container-highest (check icon) | 7.2 | 7.2 |
+| focus ring secondary on surface-container-highest (≥ 3) | 5.0 | 7.2 |
+| outline (text-area border) on surface-container-highest (≥ 3) | 3.5 | 3.9 |
+| on-surface on card (text-area text) | 17.2 | 13.3 |
 
 The scale is a native radio group usable by keyboard and screen reader.
 

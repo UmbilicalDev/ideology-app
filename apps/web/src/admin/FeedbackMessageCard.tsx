@@ -1,6 +1,6 @@
 // One feedback message on the admin page, with its actions and the inline
 // delete confirmation (DESIGN.md "Operator Admin Page").
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type { AdminFeedbackMessage } from "./admin-api";
 import { formatUtcDateTime, originLabel } from "./format";
@@ -19,10 +19,12 @@ export function FeedbackMessageCard({ message, pending, error, onToggleReviewed,
   const [confirming, setConfirming] = useState(false);
   const deleteButton = useRef<HTMLButtonElement>(null);
   const cancelButton = useRef<HTMLButtonElement>(null);
-  // Focus moves only after the user opened or closed the confirmation.
+  // Focus moves only after the user opened or closed the confirmation. A
+  // layout effect, so focus has moved before the browser paints (and before
+  // a test's next assertion).
   const moveFocus = useRef<"cancel" | "delete" | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (moveFocus.current === "cancel") cancelButton.current?.focus();
     if (moveFocus.current === "delete") deleteButton.current?.focus();
     moveFocus.current = null;
