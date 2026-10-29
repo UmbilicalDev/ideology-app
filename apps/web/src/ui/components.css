@@ -71,6 +71,7 @@ a {
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
+textarea:focus-visible,
 summary:focus-visible {
   outline: 3px solid var(--color-focus-ring);
   outline-offset: 2px;
@@ -1075,4 +1076,165 @@ main h1[tabindex="-1"]:focus {
 .shared-notice h2 {
   font: var(--md-sys-typescale-title-md);
   letter-spacing: var(--md-sys-typescale-title-md-tracking);
+}
+
+/* Feedback (DESIGN.md "Feedback button", "Feedback dialog", "Text area",
+   "Icon button"). A native modal <dialog> (Level 4): the surface is an inner
+   wrapper, so a click whose target is the <dialog> itself is the backdrop. */
+.feedback-entry {
+  margin: 0 0 var(--space-lg);
+}
+
+:root:has(.feedback-dialog[open]) {
+  overflow: hidden;
+}
+
+/* `dialog.` matches the specificity of global.css `main > * > :last-child`
+   (which zeroes margin-bottom); loaded later, the auto margins keep it centred. */
+dialog.feedback-dialog {
+  box-sizing: border-box;
+  margin: auto;
+  width: min(36rem, 100% - 2 * var(--layout-margin));
+  max-width: none;
+  max-height: calc(100dvh - 2 * var(--space-md));
+  padding: 0;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-surface-container-highest);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--elevation-4);
+}
+
+.feedback-dialog::backdrop {
+  background: var(--color-scrim);
+}
+
+.feedback-dialog__surface {
+  box-sizing: border-box;
+  max-height: calc(100dvh - 2 * var(--space-md));
+  padding: var(--space-lg);
+  overflow: auto;
+}
+
+.feedback-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.feedback-dialog__header h2 {
+  margin: var(--space-sm) 0 0;
+}
+
+.feedback-dialog__subtitle,
+.feedback__hint {
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+}
+
+.feedback-dialog__subtitle {
+  margin: 0 0 var(--space-md);
+}
+
+.feedback__label {
+  display: block;
+  margin: 0 0 var(--space-sm);
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
+}
+
+.feedback__field {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 8rem;
+  margin: 0 0 var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: var(--color-card);
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  font-size: 16px; /* 16px or more: no zoom on focus in iOS Safari */
+  resize: vertical;
+}
+
+.feedback__counter {
+  margin: 0 0 var(--space-sm);
+  text-align: end;
+  color: var(--md-sys-color-on-surface-variant);
+  font: var(--md-sys-typescale-body-md);
+  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+}
+
+.feedback__counter--over {
+  color: var(--md-sys-color-on-surface);
+  font-weight: 600;
+}
+
+.feedback__problem,
+.feedback__alert,
+.feedback__sending {
+  margin: 0 0 var(--space-sm);
+}
+
+.feedback__problem,
+.feedback__alert {
+  font-weight: 600;
+}
+
+.feedback__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0 0;
+}
+
+.feedback__thanks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.feedback__thanks > .icon {
+  width: 40px;
+  height: 40px;
+  color: var(--md-sys-color-primary);
+}
+
+.feedback__thanks-title {
+  margin: 0;
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
+}
+
+.feedback__thanks p {
+  margin: 0;
+}
+
+.feedback__thanks .feedback__actions {
+  align-self: stretch;
+}
+
+.icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
 }

@@ -11,6 +11,7 @@ import {
   type AnswerValue,
   type DatasetVersion,
   type Election,
+  type FeedbackApi,
   type QuestionnaireAction,
   type QuestionnaireState,
   type Results,
@@ -20,6 +21,7 @@ import {
 
 import { ExternalLinkIcon, StarIcon } from "../../ui/icons";
 import { HomeButton } from "../common/HomeButton";
+import { FeedbackButton } from "../feedback/FeedbackButton";
 import { NoticeCard } from "../common/NoticeCard";
 import { METHODOLOGY_PATH } from "../paths";
 import { ResultsBreakdown } from "../results/ResultsBreakdown";
@@ -74,9 +76,12 @@ const IMPORTANT_HINT = "Las afirmaciones importantes cuentan el doble al calcula
 export function QuestionnaireFlow({
   election,
   datasetVersion,
+  feedbackApi,
 }: {
   readonly election: Election;
   readonly datasetVersion: DatasetVersion;
+  /** Only the feedback port: the dialog never receives Questionnaire state. */
+  readonly feedbackApi: FeedbackApi;
 }) {
   const [state, dispatch] = useReducer(reduceQuestionnaire, datasetVersion, init);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -110,6 +115,7 @@ export function QuestionnaireFlow({
           state={state}
           results={results}
           headingRef={headingRef}
+          feedbackApi={feedbackApi}
           onBack={() => move({ type: "back" })}
           onFirst={() => move({ type: "first" })}
         />
@@ -237,6 +243,7 @@ function EndScreen({
   state,
   results,
   headingRef,
+  feedbackApi,
   onBack,
   onFirst,
 }: {
@@ -244,6 +251,7 @@ function EndScreen({
   readonly state: QuestionnaireState;
   readonly results: Results;
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
+  readonly feedbackApi: FeedbackApi;
   readonly onBack: () => void;
   readonly onFirst: () => void;
 }) {
@@ -290,6 +298,9 @@ function EndScreen({
           <ExternalLinkIcon />
         </Link>
       </p>
+      <div className="feedback-entry">
+        <FeedbackButton api={feedbackApi} origin="results" />
+      </div>
       <HomeButton />
       <ResultsBreakdown rows={breakdown} />
       <p className="questionnaire__note">

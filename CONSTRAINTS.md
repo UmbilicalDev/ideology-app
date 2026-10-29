@@ -132,6 +132,8 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Application code MUST NOT log feedback message text or client addresses. Reason: logs would become an unlisted store of Voter data.
 - The abuse guard (`feedback.rate_limit.FeedbackRateLimiter`) MUST keep only per-process HMAC keys (random key per instance, never persisted) in memory, never an address. Reason: no IP is stored anywhere, even transiently in a readable form.
 - The message rule MUST live only in `src/ideology_app/feedback/message.py` and `packages/core/src/domain/feedback.ts`, kept equal by the shared vectors in `tests/test_feedback_message.py` and `packages/core/test/domain/feedback.test.ts`. Reason: the client counter and the server must agree on every message.
+- The feedback dialog MUST count with `countFeedbackChars(trimFeedback(...))` (after replacing tabs with spaces) and gate `Enviar` on `feedbackProblem`, never on `maxLength` or `.length`. Reason: those count UTF-16 units, so the counter and the server would disagree on emoji and the limit would cut pasted text.
+- The feedback dialog MUST receive no Questionnaire state (only the `FeedbackApi` port and the origin) and MUST send only through `sendFeedback`. Reason: feedback must never carry Answers, an Election or a Dataset Version, and components never call `fetch`.
 - Tests MUST use a temporary feedback store (`feedback_database_url=` / `--feedback-database-url`, or the `./feedback.db` default inside `tmp_path`; `tests/conftest.py` unsets `FEEDBACK_DATABASE_URL`). Reason: no `feedback.db` may be left in the repository tree.
 
 ## Shared Database

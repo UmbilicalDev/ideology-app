@@ -1,16 +1,17 @@
 import { Link } from "react-router";
 
-import type { Election, PublicApi } from "@ideology-app/core";
+import type { Election, FeedbackApi, PublicApi } from "@ideology-app/core";
 
 import { ArrowForwardIcon } from "../../ui/icons";
 import { BrandTitle } from "../common/BrandTitle";
+import { FeedbackButton } from "../feedback/FeedbackButton";
 import { METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { formatElectionDate } from "./format-date";
 import { useElections, type ElectionsState } from "./useElections";
 
 // Landing screen (DESIGN.md Core Screens 1). Lists exactly what the API
 // returns (active Elections, API order); no party names or colours.
-export function LandingPage({ api }: { readonly api: PublicApi }) {
+export function LandingPage({ api }: { readonly api: PublicApi & FeedbackApi }) {
   const { state, retry } = useElections(api);
   return (
     <main>
@@ -54,6 +55,10 @@ export function LandingPage({ api }: { readonly api: PublicApi }) {
           </Link>
         </p>
       </section>
+
+      <div className="feedback-entry">
+        <FeedbackButton api={api} origin="landing" />
+      </div>
     </main>
   );
 }
