@@ -1,8 +1,9 @@
 // Composition root: the route table. `main.tsx` provides the router and the
-// public API client; pages receive `api` as a prop and never call fetch.
+// public API client (read-only `PublicApi` plus `sendFeedback`); pages
+// receive `api` as a prop and never call fetch.
 import { Route, Routes } from "react-router";
 
-import type { PublicApi } from "@ideology-app/core";
+import type { PublicApiClient } from "@ideology-app/core";
 
 import { LandingPage } from "../features/landing/LandingPage";
 import { MethodologyPage } from "../features/methodology/MethodologyPage";
@@ -11,7 +12,7 @@ import { HOME_PATH, METHODOLOGY_PATH, QUESTIONNAIRE_ROUTE, SHARED_RESULTS_PATH }
 import { QuestionnairePage } from "../features/questionnaire/QuestionnairePage";
 import { SharedResultsPage } from "../features/share/SharedResultsPage";
 
-export function App({ api }: { readonly api: PublicApi }) {
+export function App({ api }: { readonly api: PublicApiClient }) {
   return (
     <Routes>
       <Route path={HOME_PATH} element={<LandingPage api={api} />} />

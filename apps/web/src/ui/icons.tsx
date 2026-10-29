@@ -78,6 +78,32 @@ export function ArrowForwardIcon() {
   );
 }
 
+export function FeedbackIcon() {
+  return (
+    <Icon>
+      <path d="M5 4.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-4.5 3.5v-3.5H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z" />
+      <path d="M7.5 9h9M7.5 13h6" />
+    </Icon>
+  );
+}
+
+export function CloseIcon() {
+  return (
+    <Icon>
+      <path d="M6 6l12 12M18 6L6 18" />
+    </Icon>
+  );
+}
+
+export function CheckCircleIcon() {
+  return (
+    <Icon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8 12.5l2.7 2.7L16 9.8" />
+    </Icon>
+  );
+}
+
 export function MailIcon() {
   return (
     <Icon>

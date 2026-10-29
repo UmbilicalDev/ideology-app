@@ -109,6 +109,35 @@ describe("LandingPage", () => {
     expect(screen.getAllByRole("link")).toHaveLength(2);
   });
 
+  test("feedback-dialog: Danos tu opinión is last in main and sends origin landing", async () => {
+    const fetch = vi.fn<FetchLike>(async (url) =>
+      url === "/api/v1/feedback"
+        ? jsonResponse({ status: "ok" }, 201)
+        : jsonResponse({ elections: [electionJson()] }),
+    );
+    renderLanding(fetch);
+    await screen.findByRole("link", { name: /Generales 2023/ });
+    const main = screen.getByRole("main");
+    const feedback = screen.getByRole("button", { name: "Danos tu opinión" });
+    expect(feedback.className).toBe("button-secondary");
+    expect(feedback.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(main.lastElementChild).toBe(feedback.parentElement);
+    expect(feedback.parentElement?.className).toBe("feedback-entry");
+    const methodology = screen.getByRole("region", { name: "Cómo funciona" });
+    expect(methodology.nextElementSibling).toBe(feedback.parentElement);
+
+    fireEvent.click(feedback);
+    const dialog = screen.getByRole("dialog", { name: "Ayúdanos a mejorar" });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Tu opinión" }), {
+      target: { value: "Muy útil" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Enviar" }));
+    expect(await within(dialog).findByText("¡Gracias por tu opinión!")).toBeTruthy();
+    const post = fetch.mock.calls.find(([url]) => url === "/api/v1/feedback")!;
+    expect(post[1]?.method).toBe("POST");
+    expect(JSON.parse(String(post[1]?.body))).toEqual({ message: "Muy útil", origin: "landing" });
+  });
+
   test("Scenario 4: an empty list shows the empty message and no link", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [] })));
     expect(

@@ -754,5 +754,65 @@ describe("QuestionnairePage", () => {
       expect(checkedRadios()).toHaveLength(0);
       expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("false");
     });
+
+    test("feedback-dialog Scenario 7: sending feedback keeps the Answers, the URL and history", async () => {
+      const fetch = routes({
+        [ELECTION_URL]: () => jsonResponse(electionJson()),
+        [VERSION_URL]: () => jsonResponse(datasetVersionJson({ statements: 6 })),
+        "/api/v1/feedback": () => jsonResponse({ status: "ok" }, 201),
+      });
+      await openSix(fetch);
+      walk([AGREE, AGREE, AGREE, AGREE, AGREE, { label: "Muy de acuerdo", important: true }]);
+      const before = {
+        ranking: rowTexts(),
+        summary: screen.getByText(/Muestra evaluada:/).textContent,
+        url: currentUrl,
+        history: window.history.length,
+      };
+
+      // Placement: after the methodology link, before the first Volver al inicio.
+      const feedback = button("Danos tu opinión");
+      expect(feedback.className).toBe("button-secondary");
+      const methodology = screen.getByRole("link", { name: /Cómo se calcula la afinidad/ });
+      expect(methodology.closest("p")?.nextElementSibling).toBe(feedback.parentElement);
+      const home = screen.getAllByRole("link", { name: "Volver al inicio" })[0]!;
+      expect(feedback.parentElement?.nextElementSibling).toBe(home.closest("p"));
+
+      fireEvent.click(feedback);
+      const dialog = screen.getByRole("dialog", { name: "Ayúdanos a mejorar" });
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "Tu opinión" }), {
+        target: { value: "Interesante" },
+      });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Enviar" }));
+      await within(dialog).findByText("¡Gracias por tu opinión!");
+      fireEvent.click(within(dialog).getAllByRole("button", { name: "Cerrar" })[1]!);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.activeElement).toBe(button("Danos tu opinión"));
+
+      const posts = fetch.mock.calls.filter(([url]) => url === "/api/v1/feedback");
+      expect(posts).toHaveLength(1);
+      expect(posts[0]![1]?.method).toBe("POST");
+      const body = JSON.parse(String(posts[0]![1]?.body)) as Record<string, unknown>;
+      expect(body).toEqual({ message: "Interesante", origin: "results" });
+      expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+        ELECTION_URL,
+        VERSION_URL,
+        "/api/v1/feedback",
+      ]);
+
+      expect({
+        ranking: rowTexts(),
+        summary: screen.getByText(/Muestra evaluada:/).textContent,
+        url: currentUrl,
+        history: window.history.length,
+      }).toEqual(before);
+      expect(localStorage.length).toBe(0);
+      expect(sessionStorage.length).toBe(0);
+
+      fireEvent.click(button("Volver a la última afirmación"));
+      expect(heading2().textContent).toBe("Afirmación de prueba 6");
+      expect(radio("Muy de acuerdo").checked).toBe(true);
+      expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("true");
+    });
   });
 });
