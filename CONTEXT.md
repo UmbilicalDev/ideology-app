@@ -63,7 +63,10 @@ Percentage affinity between a user's Answers and a Party's Positions.
 A URL that encodes the Dataset Version and the user's Answers so the result can be reopened or shared without server-side storage.
 
 ### Operator
-The person who runs the system: registers Elections, Parties and Source Documents, and triggers Pipeline Runs. Cannot edit AI output.
+The person who runs the system: registers Elections, Parties and Source Documents, and triggers Pipeline Runs. Cannot edit AI output. An Operator also reads and moderates Feedback Messages on the admin page (`/admin`), signed in with their own account (username and password). Voters never have an account.
+
+### Feedback Message
+An anonymous message a Voter sends about the tool (from the Landing or the results). An Operator may mark it as reviewed (and undo that) or delete it. It is never Answers and carries none.
 
 ### Generation Mode
 Configuration that decides when Pipeline Runs happen: `precomputed` (the Operator triggers runs; static data is served) or `live` (a Pipeline Run is queued automatically when a Source Document is added or its content changes, and executed by the Operator's queue command, `ideology pipeline run-queued`). Neither mode generates per user.

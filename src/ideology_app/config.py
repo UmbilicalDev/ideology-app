@@ -130,6 +130,15 @@ def feedback_database_url() -> str:
     return _env("FEEDBACK_DATABASE_URL") or DEFAULT_FEEDBACK_DATABASE_URL
 
 
+def admin_users_raw() -> str | None:
+    """Return ``ADMIN_USERS`` (trimmed), or ``None`` when unset or blank (no Operator account).
+
+    The Operator accounts for the admin page (feedback-admin), parsed by
+    ``admin.accounts.parse_admin_users``. Never logged or echoed.
+    """
+    return _env("ADMIN_USERS")
+
+
 def source_files_dir() -> Path:
     """Return ``SOURCE_FILES_DIR`` if set, else ``source_files`` in the current directory."""
     return Path(os.environ.get("SOURCE_FILES_DIR") or DEFAULT_SOURCE_FILES_DIR)

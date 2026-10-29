@@ -50,7 +50,8 @@ Rules:
 | `SOURCE_INGESTION` | `upload`, `url` (both allowed) | Per Source Document: chosen by the CLI flag `ideology source add --file` or `--url`, not an environment variable. |
 | Validation thresholds | coverage %, statement range, topic share | Per Election overrides allowed. |
 | `DATABASE_URL` / `--database-url` | SQLAlchemy URL, default `sqlite:///ideology.db` | `sqlite:///data/ideology.db` (from the repo root) selects the shared database committed to git (`shared-database`); there is no other selector. On it, `pipeline run` / `run-queued` ask for confirmation (`--yes` skips it) and a missing file is refused instead of created. The default stays a local file so a stray command never writes the shared one. |
-| `FEEDBACK_DATABASE_URL` / `ideology feedback --feedback-database-url` | SQLAlchemy URL, default `sqlite:///feedback.db` (current directory, git-ignored) | The anonymous Voter feedback store (`feedback-api`), separate from the shared database: pointing it at `data/ideology.db`, at the `DATABASE_URL` database or at an in-memory database is refused at startup and by the CLI. PostgreSQL URLs are allowed for a deployment. |
+| `FEEDBACK_DATABASE_URL` / `ideology feedback --feedback-database-url` | SQLAlchemy URL, default `sqlite:///feedback.db` (current directory, git-ignored) | The anonymous Voter feedback store (`feedback-api`), separate from the shared database: pointing it at `data/ideology.db`, at the `DATABASE_URL` database or at an in-memory database is refused at startup and by the CLI. PostgreSQL URLs are allowed for a deployment. Its schema has its own Alembic environment (`feedback_alembic_version`), applied at startup and by `ideology feedback upgrade`. |
+| `ADMIN_USERS` | `username:scrypt-hash` entries, comma-separated; unset = no Operator account | Operator accounts for the admin page (`feedback-admin`); hashes from `ideology admin hash-password`. Only in the deployment environment, never in git. Malformed values stop startup. Sessions are in memory, so one worker. |
 
 ## Data and Storage
 
@@ -90,7 +91,7 @@ Rules:
 ## Authentication and Authorization
 
 - Voters: none.
-- Operator: a single admin credential or CLI-only access for the MVP.
+- Operator: the CLI, plus per-Operator username and password accounts for the admin page (`feedback-admin`): salted scrypt hashes in `ADMIN_USERS`, a server-side in-memory session in an `HttpOnly`, `SameSite=Strict` cookie limited to `/admin/api`, CSRF and origin checks, and a sign-in rate limit.
 
 ## Deployment and Operations
 

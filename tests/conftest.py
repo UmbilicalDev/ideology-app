@@ -16,6 +16,8 @@ def _no_default_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.delenv("ELECTIONS_DATA_DIR", raising=False)
     # The feedback store then defaults to ./feedback.db, inside tmp_path.
     monkeypatch.delenv("FEEDBACK_DATABASE_URL", raising=False)
+    # No Operator account unless a test passes admin_users= (feedback-admin).
+    monkeypatch.delenv("ADMIN_USERS", raising=False)
     monkeypatch.chdir(tmp_path)
 
 

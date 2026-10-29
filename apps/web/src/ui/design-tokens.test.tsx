@@ -24,7 +24,12 @@ const componentSheets = Object.entries(sheets).filter(([path]) => path !== TOKEN
 
 describe("design tokens", () => {
   test("the stylesheets are found", () => {
-    expect(Object.keys(sheets).sort()).toEqual(["./components.css", "./global.css", "./tokens.css"]);
+    expect(Object.keys(sheets).sort()).toEqual([
+      "./admin.css",
+      "./components.css",
+      "./global.css",
+      "./tokens.css",
+    ]);
   });
 
   test.each(componentSheets)("%s has no hard-coded colour", (_path, css) => {

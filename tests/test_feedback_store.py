@@ -15,7 +15,7 @@ from ideology_app.feedback.store import (
     FeedbackStoreError,
     add_message,
     check_separate,
-    create_schema,
+    upgrade_schema,
     has_schema,
     list_messages,
 )
@@ -117,8 +117,8 @@ def test_unparsable_url_is_refused() -> None:
 def test_add_and_list_messages_in_utc_whole_seconds(tmp_path: Path) -> None:
     engine = make_engine(f"sqlite:///{tmp_path}/fb.db")
     try:
-        create_schema(engine)
-        create_schema(engine)  # checkfirst: a second start is a no-op
+        upgrade_schema(engine)
+        upgrade_schema(engine)  # a second start is a no-op
         madrid = dt.timezone(dt.timedelta(hours=2))
         add_message(engine, "b", "results", dt.datetime(2026, 10, 5, 12, 0, 0, 999, tzinfo=madrid))
         add_message(engine, "a", "landing", dt.datetime(2026, 10, 1, 9, 30, 5, 500_000, tzinfo=dt.UTC))
@@ -136,16 +136,17 @@ def test_add_and_list_messages_in_utc_whole_seconds(tmp_path: Path) -> None:
         engine.dispose()
 
 
-def test_table_holds_only_id_message_origin_created_at(tmp_path: Path) -> None:
+def test_table_holds_only_id_message_origin_created_and_reviewed_at(tmp_path: Path) -> None:
     engine = make_engine(f"sqlite:///{tmp_path}/fb.db")
     try:
         assert not has_schema(engine)
-        create_schema(engine)
+        upgrade_schema(engine)
         assert has_schema(engine)
         inspector = inspect(engine)
-        assert inspector.get_table_names() == ["feedback_messages"]
+        # The data table plus the feedback store's own Alembic version table (feedback-admin).
+        assert inspector.get_table_names() == ["feedback_alembic_version", "feedback_messages"]
         columns = [c["name"] for c in inspector.get_columns("feedback_messages")]
-        assert columns == ["id", "message", "origin", "created_at"]
+        assert columns == ["id", "message", "origin", "created_at", "reviewed_at"]
         # The origin CHECK constraint is enforced by the database too.
         with engine.begin() as connection, pytest.raises(Exception):
             connection.exec_driver_sql(

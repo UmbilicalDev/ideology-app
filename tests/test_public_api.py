@@ -786,17 +786,21 @@ def test_lifespan_disposes_engine(db_url: str, monkeypatch: pytest.MonkeyPatch) 
     from ideology_app import main
 
     disposed: list[Engine] = []
-    real_make = main.make_engine
 
-    def tracking(url: str | None = None) -> Engine:
-        engine = real_make(url)
-        real_dispose = engine.dispose
-        monkeypatch.setattr(
-            engine, "dispose", lambda: (disposed.append(engine), real_dispose())
-        )
-        return engine
+    def tracking(real_make: Any) -> Any:
+        def make(url: str | None = None) -> Engine:
+            engine = real_make(url)
+            real_dispose = engine.dispose
+            monkeypatch.setattr(
+                engine, "dispose", lambda: (disposed.append(engine), real_dispose())
+            )
+            return engine
 
-    monkeypatch.setattr(main, "make_engine", tracking)
+        return make
+
+    monkeypatch.setattr(main, "make_engine", tracking(main.make_engine))
+    # The feedback Engine comes from make_feedback_engine (feedback-admin).
+    monkeypatch.setattr(main, "make_feedback_engine", tracking(main.make_feedback_engine))
     with TestClient(create_app(db_url)) as client:
         engine = client.app.state.engine  # type: ignore[attr-defined]
         feedback_engine = client.app.state.feedback_engine  # type: ignore[attr-defined]

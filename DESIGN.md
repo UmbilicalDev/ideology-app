@@ -248,6 +248,33 @@ Tonal elevation, as in the source. Only levels 0–2 are used (there are no stic
 5. Shared result (`/resultados#…`): read-only ranking + breakdown from a Share Link, a neutral superseded notice (a card, not an alert), the share card with the Comparte IdeologiApp part only (before the breakdown), and friendly link errors.
 6. Not found.
 
+## Operator Admin Page
+
+A private page for Operators at `/admin` (`feedback-admin`), never linked from a Voter page and never indexed (`noindex`). It is a separate build entry (`apps/web/admin/index.html`), so the Voter bundle holds no admin code. Same tokens, both themes, Public Sans and the M3 grid as every other page; running text keeps the 75ch measure. No new token.
+
+- **Frame.** No brand logo. The `h1` reads `Administración` and is focused on load (`tabIndex=-1`, no ring). Tab title `Administración · IdeologiApp`.
+- **Checking.** A `role="status"` line, `Cargando…`.
+- **Not configured.** A notice card (info tile, as the results notice) with `No hay ninguna cuenta de Operador configurada. Define ADMIN_USERS en el servidor; el README explica cómo (ideology admin hash-password).` No form.
+- **Sign-in.** A Level 1 card titled `Iniciar sesión` (h2) with two labelled fields, `Usuario` (`autocomplete="username"`, `autocapitalize="none"`, no spellcheck) and `Contraseña` (`type="password"`, `autocomplete="current-password"`), then a filled `Entrar` button, disabled while the request runs.
+  - **Text field.** `card` background, 1px `outline` border, small (4px) corner, 16px body-lg text, 48px minimum height, the focus ring. Label above in label-lg.
+  - **Errors.** One `role="alert"` text line: `Usuario o contraseña incorrectos.`, `Demasiados intentos. Vuelve a intentarlo en N minutos.` or `No se pudo conectar. Inténtalo de nuevo.` On error the password is cleared and focused.
+  - **Session expired.** The form returns with the notice line `Tu sesión ha caducado. Vuelve a iniciar sesión.`
+- **Signed in.**
+  - **Header row.** `Sesión iniciada como <usuario>` (body-md, `on-surface-variant`) and an outlined `Cerrar sesión`; the row wraps at 375px.
+  - **Filters.** A `Filtrar` fieldset (Level 1 card, legend in title-md) with `Desde (UTC)` and `Hasta (UTC)` date fields and `Estado` (native select: `Todas` by default, `Sin revisar`, `Revisadas`), then an outlined `Filtrar` button. The fields use the text-field look, stack at compact and sit in one row from 600px. `Hasta` earlier than `Desde` shows a text problem line (`role="alert"`) and sends nothing.
+  - **Status line.** A `role="status"` line, `N mensajes mostrados`, or `Mensaje borrado.` after a delete.
+  - **List.** An `<ol>` of Level 1 cards, one per message, newest first:
+    - Meta line in body-md `on-surface-variant`: `#id · 29 oct 2026, 14:05 UTC · Inicio` (origin `Inicio` or `Resultados`).
+    - `Revisado` chip when reviewed: the `important-mark` pair (`secondary-container` / `on-secondary-container`, label-md, full pill): gold means "marked by you". The state is in the chip's text.
+    - The message in body-lg, `white-space: pre-wrap`, `overflow-wrap: anywhere`, always rendered as text (markup shows literally).
+    - Actions (wrap at 375px): outlined `Marcar como revisado` / `Marcar como no revisado` (disabled while pending) and outlined `Borrar`.
+    - An action error is a `role="alert"` line inside its card.
+  - **Paging.** An outlined `Cargar más` when there are more messages.
+  - **Empty states.** `Todavía no hay mensajes.` with no filters, `Ningún mensaje coincide con los filtros.` with filters.
+  - **Load error.** An alert line `No se pudieron cargar los mensajes.` with a filled `Reintentar`.
+- **Delete confirmation (inline, not a modal).** Inside the card the actions are replaced by `¿Borrar este mensaje para siempre? No se puede deshacer.`, a filled `Borrar definitivamente` and an outlined `Cancelar`. Focus goes to `Cancelar`; `Escape` or `Cancelar` closes it and focuses `Borrar` again. After the delete the card is gone, the status line says `Mensaje borrado.`, and focus moves to the next card's first action, or else to the status line.
+- **Accessibility.** Every pair used is already in the contrast table (`on-surface` / `on-surface-variant` on card, `outline` borders, `on-secondary-container` on `secondary-container`, the focus ring). 48px targets; DOM order is the focus order.
+
 ## Accessibility Baseline
 
 WCAG 2.1 AA contrast for every text pair in both themes, and at least 3:1 for borders that identify a control and for the focus ring. Checked pairs (light / dark):
