@@ -37,11 +37,20 @@
   --color-card-nested: var(--md-sys-color-surface-container-low);
   --color-info-container: var(--md-sys-color-tertiary-fixed);
   --color-on-info-container: var(--md-sys-color-on-tertiary-fixed-variant);
+  /* Warning pair (DESIGN.md Colors): an amber tonal tile, only on the
+     Landing trial notice. Not gold: gold stays for focus and Important. */
+  --color-warning-container: #ffddb8;
+  --color-on-warning-container: #653e00;
   --color-focus-ring: var(--md-sys-color-secondary);
   /* Party logo tile (DESIGN.md "Party logo"): fixed in both themes, so the
      dark block MUST NOT override these two. */
   --color-party-logo-tile: #ffffff;
   --color-on-party-logo-tile: #3f484d;
+  /* Landing brand header (DESIGN.md "Brand header"): the logo's sky blue
+     with dark text, fixed in both themes like the logo itself. */
+  --color-brand: #33c6fc;
+  --color-on-brand: #004d64;
+  --color-on-brand-variant: #003546;
   --elevation-2: 0 2px 8px -2px rgba(0, 31, 42, 0.08);
   /* Level 4: the feedback dialog only, over the scrim (same in both themes,
      so the dark block does not override --color-scrim). */
@@ -96,6 +105,7 @@
   --election-columns: 1;
   --card-padding: var(--space-md);
   --brand-logo-size: 40px;
+  --brand-header-logo-size: 64px;
   --party-logo-size-ranking: 40px;
   --party-logo-size-breakdown: 32px;
 }
@@ -130,6 +140,8 @@
     --color-card-nested: var(--md-sys-color-surface-container);
     --color-info-container: var(--md-sys-color-tertiary-container);
     --color-on-info-container: var(--md-sys-color-on-tertiary-container);
+    --color-warning-container: #653e00;
+    --color-on-warning-container: #ffddb8;
     --elevation-2: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
     --elevation-4: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
   }
@@ -146,6 +158,7 @@
     --election-columns: 2;
     --card-padding: var(--space-lg);
     --brand-logo-size: 48px;
+    --brand-header-logo-size: 80px;
     --party-logo-size-ranking: 48px;
   }
 }

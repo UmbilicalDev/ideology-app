@@ -13,6 +13,11 @@ const DISCLOSURE_TEXT =
   "contener errores. Cada posición se apoya en una cita literal del programa que podrás " +
   "consultar. Esta herramienta no es una recomendación de voto.";
 
+const TRIAL_NOTICE =
+  "Por ahora el cuestionario solo está disponible, a modo de prueba, para las elecciones " +
+  "generales de 2023. Próximamente añadiremos las de 2026, cuando los partidos actualicen sus " +
+  "programas electorales.";
+
 function renderLanding(fetch: FetchLike) {
   return render(
     <MemoryRouter initialEntries={["/"]}>
@@ -29,13 +34,21 @@ function fetchResolving(...responses: HttpResponseLike[]) {
   return fetch;
 }
 
+// Both cards render collapsed: the toggle sits in the h2, the panel is hidden.
 function expectDisclosureAndMethodology() {
+  for (const name of ["Contenido generado con IA", "Cómo funciona"]) {
+    expect(screen.getByRole("heading", { level: 2, name })).toBeTruthy();
+    expect(screen.getByRole("button", { name }).getAttribute("aria-expanded")).toBe("false");
+  }
   const disclosure = screen.getByRole("region", { name: "Contenido generado con IA" });
-  expect(within(disclosure).getByText(DISCLOSURE_TEXT)).toBeTruthy();
-  expect(screen.getByRole("heading", { level: 2, name: "Cómo funciona" })).toBeTruthy();
-  expect(
-    screen.getByRole("link", { name: "Lee la metodología completa" }).getAttribute("href"),
-  ).toBe("/metodologia");
+  expect(within(disclosure).getByText(DISCLOSURE_TEXT).closest("[hidden]")).not.toBeNull();
+  const methodology = screen.getByRole("region", { name: "Cómo funciona" });
+  const link = within(methodology).getByRole("link", {
+    name: "Lee la metodología completa",
+    hidden: true,
+  });
+  expect(link.getAttribute("href")).toBe("/metodologia");
+  expect(link.closest("[hidden]")).not.toBeNull();
 }
 
 function electionLinks() {
@@ -57,8 +70,10 @@ describe("LandingPage", () => {
     expect(screen.getByRole("status").textContent).toBe("Cargando elecciones…");
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toBe("IdeologiApp");
+    expect(h1.className).toBe("brand-title brand-title--on-brand");
     expect(h1.querySelector("img")?.getAttribute("alt")).toBe("");
-    expect(screen.getByText("Comparador de programas electorales").tagName).toBe("P");
+    expect(h1.querySelector("img")?.getAttribute("src")).toMatch(/ideologiapp-bulb\.svg$/);
+    expect(screen.getByText("Una forma sencilla de revisar los programas electorales").tagName).toBe("P");
     expectDisclosureAndMethodology();
 
     resolve(jsonResponse({ elections: [electionJson()] }));
@@ -84,25 +99,81 @@ describe("LandingPage", () => {
     });
   });
 
-  test("keeps the main content order: h1, intro, disclosure, Elections, methodology", async () => {
+  test("keeps the main content order: h1, intro, Elections, methodology, disclosure", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
     await screen.findByRole("link", { name: /Generales 2023/ });
     const main = screen.getByRole("main");
     const order = Array.from(main.querySelectorAll("h1, h2")).map((h) => h.textContent);
     expect(order).toEqual([
       "IdeologiApp",
-      "Contenido generado con IA",
       "Elecciones disponibles",
       "Cómo funciona",
+      "Contenido generado con IA",
     ]);
-    expect(main.firstElementChild?.tagName).toBe("H1");
+    const header = main.firstElementChild!;
+    expect(header.className).toBe("brand-header");
+    expect(Array.from(header.children).map((child) => child.tagName)).toEqual(["H1", "P"]);
+    expect(header.lastElementChild?.textContent).toBe("Una forma sencilla de revisar los programas electorales");
     expect(main.children[1]?.tagName).toBe("P");
   });
 
-  test("links to the methodology page", async () => {
+  test.each(["Contenido generado con IA", "Cómo funciona"])(
+    "%s expands and collapses from its heading button",
+    async (name) => {
+      renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
+      await screen.findByRole("link", { name: /Generales 2023/ });
+      const toggle = screen.getByRole("button", { name });
+      const panel = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+      expect(toggle.parentElement?.tagName).toBe("H2");
+      expect(screen.getByRole("region", { name }).contains(panel)).toBe(true);
+      expect(panel.hidden).toBe(true);
+
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(panel.hidden).toBe(false);
+
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(panel.hidden).toBe(true);
+    },
+  );
+
+  test.each([
+    ["a loaded list", jsonResponse({ elections: [electionJson()] })],
+    ["an empty list", jsonResponse({ elections: [] })],
+  ])("the trial notice follows the Elections title with %s", async (_label, response) => {
+    renderLanding(fetchResolving(response));
+    await screen.findByText(/Generales 2023|no hay elecciones/);
+    const elections = screen.getByRole("region", { name: "Elecciones disponibles" });
+    const card = within(elections).getByText(TRIAL_NOTICE).closest(".notice-card");
+    expect(card).toBe(within(elections).getByRole("heading", { level: 2 }).nextElementSibling);
+    expect(card?.className).toBe("notice-card notice-card--warning");
+    const title = within(elections).getByRole("heading", { level: 3, name: "Versión de prueba" });
+    expect(card?.contains(title)).toBe(true);
+    expect(title.nextElementSibling?.textContent).toBe(TRIAL_NOTICE);
+    expect(card?.querySelector(".notice-card__icon svg")?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  test("the disclosure card shows the AI text once expanded", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
     await screen.findByRole("link", { name: /Generales 2023/ });
+    fireEvent.click(screen.getByRole("button", { name: "Contenido generado con IA" }));
+    const disclosure = screen.getByRole("region", { name: "Contenido generado con IA" });
+    expect(within(disclosure).getByText(DISCLOSURE_TEXT).closest("[hidden]")).toBeNull();
+  });
+
+  test("links to the methodology page at the end of Cómo funciona", async () => {
+    renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
+    await screen.findByRole("link", { name: /Generales 2023/ });
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cómo funciona" }));
     const methodology = screen.getByRole("region", { name: "Cómo funciona" });
+    const panel = document.getElementById(
+      within(methodology).getByRole("button").getAttribute("aria-controls")!,
+    )!;
+    expect(panel.lastElementChild?.querySelector("a")?.textContent).toBe(
+      "Lee la metodología completa",
+    );
     const link = within(methodology).getByRole("link", { name: "Lee la metodología completa" });
     expect(link.getAttribute("href")).toBe("/metodologia");
     expect(link.className).toBe("text-link");
@@ -123,8 +194,8 @@ describe("LandingPage", () => {
     expect(feedback.getAttribute("aria-haspopup")).toBe("dialog");
     expect(main.lastElementChild).toBe(feedback.parentElement);
     expect(feedback.parentElement?.className).toBe("feedback-entry");
-    const methodology = screen.getByRole("region", { name: "Cómo funciona" });
-    expect(methodology.nextElementSibling).toBe(feedback.parentElement);
+    const disclosure = screen.getByRole("region", { name: "Contenido generado con IA" });
+    expect(disclosure.nextElementSibling).toBe(feedback.parentElement);
 
     fireEvent.click(feedback);
     const dialog = screen.getByRole("dialog", { name: "Ayúdanos a mejorar" });

@@ -77,6 +77,7 @@ describe("App routes", () => {
     renderAt("/", fetch);
     await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" });
 
+    fireEvent.click(screen.getByRole("button", { name: "Cómo funciona" }));
     fireEvent.click(screen.getByRole("link", { name: "Lee la metodología completa" }));
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toBe("Metodología");

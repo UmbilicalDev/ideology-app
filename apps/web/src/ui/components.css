@@ -41,6 +41,26 @@ section {
   height: var(--brand-logo-size);
 }
 
+/* Landing brand header: title and subtitle on the logo's blue, with the
+   larger bulb-only logo. */
+.brand-header {
+  margin: 0 0 var(--space-lg);
+  padding: var(--card-padding);
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+}
+
+.brand-title--on-brand .brand-title__logo {
+  width: var(--brand-header-logo-size);
+  height: var(--brand-header-logo-size);
+}
+
+.brand-header .brand-subtitle {
+  margin: 0;
+  color: var(--color-on-brand-variant);
+}
+
 .brand-subtitle {
   color: var(--md-sys-color-on-surface-variant);
   font: var(--md-sys-typescale-title-lg);
@@ -484,6 +504,94 @@ main h1[tabindex="-1"]:focus {
   margin: 0 0 var(--space-lg);
 }
 
+/* Expandable card (DESIGN.md "Expandable card"): a Level 1 card whose
+   heading is a full-width toggle (leading info tile, title, trailing
+   chevron); the panel below it is hidden until expanded. */
+.expandable-card {
+  background: var(--color-card);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-large);
+}
+
+.expandable-card + .expandable-card {
+  margin-top: calc(var(--space-sm) - var(--space-lg));
+}
+
+/* Card titles are title-md, a step below the page's section titles. */
+.expandable-card__heading {
+  margin: 0;
+  font: var(--md-sys-typescale-title-md);
+  letter-spacing: var(--md-sys-typescale-title-md-tracking);
+}
+
+.expandable-card__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-sm) var(--card-padding);
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-large);
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.expandable-card__toggle:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+
+.expandable-card__toggle[aria-expanded="true"] {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.expandable-card__icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--color-info-container);
+  color: var(--color-on-info-container);
+}
+
+.expandable-card__title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.expandable-card__chevron {
+  flex: none;
+  display: flex;
+  color: var(--md-sys-color-on-surface-variant);
+  transition: transform 0.2s ease;
+}
+
+.expandable-card__toggle[aria-expanded="true"] .expandable-card__chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expandable-card__chevron {
+    transition: none;
+  }
+}
+
+.expandable-card__panel {
+  padding: var(--space-xs) var(--card-padding) var(--card-padding);
+}
+
+.expandable-card__panel > :last-child {
+  margin-bottom: 0;
+}
+
 /* AI and privacy disclosure below the Statement card, and the notice card
    ("not a voting recommendation") on the results: an info tile and text. */
 .disclosure-card,
@@ -526,7 +634,17 @@ main h1[tabindex="-1"]:focus {
   height: 24px;
 }
 
-.disclosure-card__title {
+.notice-card--warning {
+  align-items: flex-start;
+}
+
+.notice-card--warning .notice-card__icon {
+  background: var(--color-warning-container);
+  color: var(--color-on-warning-container);
+}
+
+.disclosure-card__title,
+.notice-card__title {
   margin: 0 0 var(--space-xs);
   color: var(--md-sys-color-on-surface);
   font: var(--md-sys-typescale-label-lg);

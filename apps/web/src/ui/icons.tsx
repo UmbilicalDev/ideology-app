@@ -51,6 +51,61 @@ export function InfoIcon() {
   );
 }
 
+// Shield with a check: the AI disclosure on the Questionnaire and Landing.
+export function ShieldIcon() {
+  return (
+    <Icon>
+      <path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.5-4-1.2-7-5-7-9.5V6z" />
+      <path d="M9 12l2 2 4-4" />
+    </Icon>
+  );
+}
+
+// Filled robot head (the user's ic_robot.svg, recoloured to currentColor):
+// the AI content card on the Landing.
+export function RobotIcon() {
+  return (
+    <svg
+      className="icon"
+      aria-hidden="true"
+      focusable="false"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path d="M4,15q-1.25,0-2.13-0.88T1,12T1.88,9.88T4,9V7Q4,6.18 4.59,5.59T6,5H9Q9,3.75 9.88,2.88T12,2t2.13,0.88T15,5h3q0.82,0 1.41,0.59Q20,6.18 20,7V9q1.25,0 2.13,0.88T23,12t-0.88,2.13T20,15v4q0,0.82-0.59,1.41T18,21H6q-0.82,0-1.41-0.59T4,19V15Zm6.06-2.44q0.44-0.44 0.44-1.06t-0.44-1.06T9,10T7.94,10.44T7.5,11.5t0.44,1.06T9,13t1.06-0.44Zm6,0q0.44-0.44 0.44-1.06t-0.44-1.06T15,10t-1.06,0.44T13.5,11.5t0.44,1.06T15,13t1.06-0.44ZM8,17h8V15H8v2ZM6,19H18V7H6V19Zm6-6Z" />
+    </svg>
+  );
+}
+
+// Filled test tube (the user's ic_test.svg, recoloured to currentColor):
+// the Landing trial notice.
+export function TestTubeIcon() {
+  return (
+    <svg
+      className="icon"
+      aria-hidden="true"
+      focusable="false"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
+      <path d="M12,22q-2.07,0-3.54-1.46T7,17V8Q6.18,8 5.59,7.41T5,6V4Q5,3.17 5.59,2.59T7,2H17q0.82,0 1.41,0.59T19,4V6q0,0.82-0.59,1.41T17,8v9q0,2.07-1.46,3.54T12,22ZM7,6H17V4H7V6Zm7.13,13.13Q15,18.25 15,17H12V15h3V13H12V11h3V8H9v9q0,1.25 0.88,2.13T12,20t2.13-0.88ZM7,6V4V6Z" />
+    </svg>
+  );
+}
+
+// Trailing chevron of an expandable card; CSS turns it when expanded.
+export function ExpandMoreIcon() {
+  return (
+    <Icon>
+      <path d="M6 9l6 6 6-6" />
+    </Icon>
+  );
+}
+
 export function ExternalLinkIcon() {
   return (
     <Icon>

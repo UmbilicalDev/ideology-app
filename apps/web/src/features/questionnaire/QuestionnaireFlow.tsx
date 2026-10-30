@@ -19,7 +19,7 @@ import {
   type Statement,
 } from "@ideology-app/core";
 
-import { ExternalLinkIcon, StarIcon } from "../../ui/icons";
+import { ExternalLinkIcon, ShieldIcon, StarIcon } from "../../ui/icons";
 import { HomeButton } from "../common/HomeButton";
 import { FeedbackButton } from "../feedback/FeedbackButton";
 import { NoticeCard } from "../common/NoticeCard";
@@ -308,26 +308,5 @@ function EndScreen({
       </p>
       <HomeButton />
     </>
-  );
-}
-
-// Decorative shield on the disclosure card (an original drawing).
-function ShieldIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinejoin="round"
-      strokeLinecap="round"
-    >
-      <path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.5-4-1.2-7-5-7-9.5V6z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
   );
 }
