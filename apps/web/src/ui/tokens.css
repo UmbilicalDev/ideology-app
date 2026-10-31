@@ -1,82 +1,80 @@
 /* Mirrors DESIGN.md. Change DESIGN.md first.
-   Civic Horizon (docs/design/civic-horizon.md) on Material Design 3.
-   Light = the unprefixed roles; dark = the dark-* roles. The light-* roles are
-   not used. Every width media query of the app lives here and only switches
-   layout tokens; global.css and components.css have none. */
+   "Civic Slate": a web-app design (sidebar + canvas) on slate neutrals with a
+   single cyan accent. Dark is the reference theme; light is its mirror and is
+   picked by prefers-color-scheme: light. Every width media query of the app
+   lives here and only switches layout tokens, except the sidebar drawer in
+   components.css, which needs a structural switch at --bp-sidebar (768px). */
 :root {
-  color-scheme: light dark;
+  color-scheme: dark light;
 
-  --md-ref-typeface-plain: "Public Sans Variable", "Public Sans", system-ui, sans-serif;
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
 
-  /* Colour roles: light theme. */
-  --md-sys-color-primary: #004d64;
-  --md-sys-color-on-primary: #ffffff;
-  --md-sys-color-primary-container: #006684;
-  --md-sys-color-on-primary-container: #a2e1ff;
-  --md-sys-color-secondary: #715d02;
-  --md-sys-color-on-secondary: #ffffff;
-  --md-sys-color-secondary-container: #fade7d;
-  --md-sys-color-on-secondary-container: #756107;
-  --md-sys-color-tertiary-container: #006874;
-  --md-sys-color-on-tertiary-container: #97e4f2;
-  --md-sys-color-tertiary-fixed: #a2effd;
-  --md-sys-color-on-tertiary-fixed-variant: #004f58;
-  --md-sys-color-surface: #f5faff;
-  --md-sys-color-surface-container-lowest: #ffffff;
-  --md-sys-color-surface-container-low: #eef4fa;
-  --md-sys-color-surface-container: #e8eff4;
-  --md-sys-color-surface-container-high: #e2e9ef;
-  --md-sys-color-surface-container-highest: #dde3e9;
-  --md-sys-color-on-surface: #161c21;
-  --md-sys-color-on-surface-variant: #3f484d;
-  --md-sys-color-outline: #70787e;
-  --md-sys-color-outline-variant: #bfc8cd;
-
-  /* Semantic aliases: light theme. */
-  --color-card: var(--md-sys-color-surface-container-lowest);
-  --color-card-nested: var(--md-sys-color-surface-container-low);
-  --color-info-container: var(--md-sys-color-tertiary-fixed);
-  --color-on-info-container: var(--md-sys-color-on-tertiary-fixed-variant);
-  --color-focus-ring: var(--md-sys-color-secondary);
+  /* Colour roles: dark theme (reference). */
+  --color-bg: #020617;
+  --color-bg-sidebar: #0b1222;
+  --color-surface: #0f172a;
+  --color-surface-raised: #1e293b;
+  --color-surface-sunken: #020617;
+  --color-border: #1e293b;
+  --color-border-strong: #334155;
+  /* Borders that identify a control (options, fields, outlined buttons):
+     at least 3:1 against the surfaces they sit on. */
+  --color-border-control: #64748b;
+  --color-text: #f1f5f9;
+  --color-text-muted: #94a3b8;
+  --color-text-subtle: #64748b;
+  --color-accent: #22d3ee;
+  --color-accent-fill: #06b6d4;
+  --color-accent-fill-hover: #22d3ee;
+  --color-on-accent: #020617;
+  --color-accent-soft: rgba(6, 182, 212, 0.1);
+  --color-accent-border: rgba(6, 182, 212, 0.35);
+  --color-on-accent-soft: #67e8f9;
+  /* Amber: the Voter's Important mark and the "upcoming" status only. */
+  --color-highlight: #fbbf24;
+  --color-highlight-soft: rgba(245, 158, 11, 0.12);
+  --color-highlight-border: rgba(245, 158, 11, 0.35);
+  --color-on-highlight-soft: #fcd34d;
+  --color-focus-ring: #22d3ee;
+  --hero-glow: rgba(6, 182, 212, 0.14);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 24px 48px -12px rgba(0, 0, 0, 0.6);
+  --color-scrim: rgba(2, 6, 23, 0.8);
   /* Party logo tile (DESIGN.md "Party logo"): fixed in both themes, so the
-     dark block MUST NOT override these two. */
+     light block MUST NOT override these two. */
   --color-party-logo-tile: #ffffff;
-  --color-on-party-logo-tile: #3f484d;
-  --elevation-2: 0 2px 8px -2px rgba(0, 31, 42, 0.08);
-  /* Level 4: the feedback dialog only, over the scrim (same in both themes,
-     so the dark block does not override --color-scrim). */
-  --elevation-4: 0 8px 24px -4px rgba(0, 31, 42, 0.16);
-  --color-scrim: rgba(0, 0, 0, 0.32);
+  --color-on-party-logo-tile: #334155;
 
-  /* Type scale: <weight> <size>/<line-height> <family>, plus tracking. */
-  --md-sys-typescale-headline-lg: 600 2rem/2.5rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-headline-lg-tracking: 0;
-  --md-sys-typescale-headline-lg-mobile: 600 1.625rem/2.125rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-headline-lg-mobile-tracking: 0;
-  --md-sys-typescale-headline-sm: 500 1.5rem/2rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-headline-sm-tracking: 0;
-  --md-sys-typescale-title-lg: 500 1.375rem/1.75rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-title-lg-tracking: 0;
-  --md-sys-typescale-title-md: 600 1rem/1.5rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-title-md-tracking: 0.009375rem;
-  --md-sys-typescale-body-lg: 400 1rem/1.5rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-body-lg-tracking: 0.03125rem;
-  --md-sys-typescale-body-md: 400 0.875rem/1.25rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-body-md-tracking: 0.015625rem;
-  --md-sys-typescale-label-lg: 600 0.875rem/1.25rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-label-lg-tracking: 0.00625rem;
-  --md-sys-typescale-label-md: 500 0.75rem/1rem var(--md-ref-typeface-plain);
-  --md-sys-typescale-label-md-tracking: 0.03125rem;
+  /* Type scale: <weight> <size>/<line-height> <family>. */
+  --type-display: 700 1.75rem/2.25rem var(--font-sans);
+  --type-headline: 700 1.5rem/2rem var(--font-sans);
+  --type-title-lg: 600 1.125rem/1.75rem var(--font-sans);
+  --type-title: 600 1rem/1.5rem var(--font-sans);
+  --type-statement: 500 1.25rem/1.875rem var(--font-sans);
+  --type-body: 400 1rem/1.625rem var(--font-sans);
+  --type-body-sm: 400 0.875rem/1.375rem var(--font-sans);
+  --type-label: 600 0.875rem/1.25rem var(--font-sans);
+  --type-caption: 500 0.75rem/1rem var(--font-sans);
+  --type-overline: 600 0.6875rem/1rem var(--font-sans);
   /* Placeholder text in SVG user units (scaled to fit the tile). */
-  --party-logo-placeholder-font: 600 10px/12px var(--md-ref-typeface-plain);
+  --party-logo-placeholder-font: 600 10px/12px var(--font-sans);
 
-  /* Shapes. */
-  --md-sys-shape-corner-small: 0.25rem;
-  --md-sys-shape-corner-default: 0.5rem;
-  --md-sys-shape-corner-medium: 0.75rem;
-  --md-sys-shape-corner-large: 1rem;
-  --md-sys-shape-corner-extra-large: 1.5rem;
-  --md-sys-shape-corner-full: 9999px;
+  /* Statement matrix: how much accent a cell takes for each coincidence with
+     the Answer (one hue, never a colour per side). 60% keeps the cell text
+     at AA in both themes. */
+  --match-100: 60%;
+  --match-75: 42%;
+  --match-50: 26%;
+  --match-25: 12%;
+  --matrix-statement-width: 18rem;
+  --matrix-answer-width: 3.5rem;
+  --matrix-header-height: 4.5rem;
+
+  /* Shapes: moderate corners, never pill-heavy cards. */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 9999px;
 
   /* Spacing. */
   --space-xs: 0.25rem;
@@ -84,79 +82,81 @@
   --space-md: 1rem;
   --space-lg: 1.5rem;
   --space-xl: 2rem;
+  --space-2xl: 3rem;
 
-  /* Layout: M3 compact window class (0-599px). */
-  --layout-max-width: 1200px;
-  --layout-columns: 4;
-  --layout-margin: 1rem;
-  --layout-gutter: 1rem;
-  --layout-content-column: 1 / -1;
-  --page-title-font: var(--md-sys-typescale-headline-lg-mobile);
-  --page-title-tracking: var(--md-sys-typescale-headline-lg-mobile-tracking);
+  /* Layout: compact (0-639px). */
+  --sidebar-width: 16rem;
+  --topbar-height: 3.5rem;
+  --content-max-width: 72rem;
+  --reading-max-width: 48rem;
+  --page-gutter: 1rem;
+  --page-padding-block: 1.5rem;
+  --page-title-font: var(--type-headline);
+  --hero-title-font: var(--type-headline);
   --election-columns: 1;
-  --card-padding: var(--space-md);
-  --brand-logo-size: 40px;
+  --steps-columns: 1;
+  --card-padding: 1.25rem;
+  --brand-logo-size: 36px;
   --party-logo-size-ranking: 40px;
   --party-logo-size-breakdown: 32px;
 }
 
-@media (prefers-color-scheme: dark) {
+@media (prefers-color-scheme: light) {
   :root {
-    /* Colour roles: dark theme (the dark-* roles). */
-    --md-sys-color-primary: #65d3ff;
-    --md-sys-color-on-primary: #003546;
-    --md-sys-color-primary-container: #004d64;
-    --md-sys-color-on-primary-container: #bfe9ff;
-    --md-sys-color-secondary: #e9c336;
-    --md-sys-color-on-secondary: #3a2f00;
-    --md-sys-color-secondary-container: #534400;
-    --md-sys-color-on-secondary-container: #ffe082;
-    --md-sys-color-tertiary-container: #004f58;
-    --md-sys-color-on-tertiary-container: #9eeffd;
-    --md-sys-color-surface: #0f1416;
-    --md-sys-color-surface-container-lowest: #0a0f11;
-    --md-sys-color-surface-container-low: #171d1e;
-    --md-sys-color-surface-container: #1b2122;
-    --md-sys-color-surface-container-high: #262b2d;
-    --md-sys-color-surface-container-highest: #303638;
-    --md-sys-color-on-surface: #dee4e5;
-    --md-sys-color-on-surface-variant: #bfc8cc;
-    --md-sys-color-outline: #899296;
-    --md-sys-color-outline-variant: #40484c;
-
-    /* Semantic aliases: dark theme. The dark set has no fixed roles, and a
-       bright chip on a dark page would shout, so info uses the container. */
-    --color-card: var(--md-sys-color-surface-container-low);
-    --color-card-nested: var(--md-sys-color-surface-container);
-    --color-info-container: var(--md-sys-color-tertiary-container);
-    --color-on-info-container: var(--md-sys-color-on-tertiary-container);
-    --elevation-2: 0 2px 8px -2px rgba(0, 0, 0, 0.4);
-    --elevation-4: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
+    --color-bg: #f8fafc;
+    --color-bg-sidebar: #ffffff;
+    --color-surface: #ffffff;
+    --color-surface-raised: #f1f5f9;
+    --color-surface-sunken: #f8fafc;
+    --color-border: #e2e8f0;
+    --color-border-strong: #cbd5e1;
+    --color-border-control: #7c8ba1;
+    --color-text: #0f172a;
+    --color-text-muted: #475569;
+    --color-text-subtle: #64748b;
+    --color-accent: #0e7490;
+    --color-accent-fill: #0e7490;
+    --color-accent-fill-hover: #155e75;
+    --color-on-accent: #ffffff;
+    --color-accent-soft: rgba(8, 145, 178, 0.08);
+    --color-accent-border: rgba(8, 145, 178, 0.35);
+    --color-on-accent-soft: #155e75;
+    --color-highlight: #b45309;
+    --color-highlight-soft: rgba(245, 158, 11, 0.12);
+    --color-highlight-border: rgba(217, 119, 6, 0.4);
+    --color-on-highlight-soft: #92400e;
+    --color-focus-ring: #0891b2;
+    --hero-glow: rgba(6, 182, 212, 0.12);
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+    --shadow-lg: 0 24px 48px -12px rgba(15, 23, 42, 0.18);
+    --color-scrim: rgba(15, 23, 42, 0.5);
   }
 }
 
-/* M3 medium window class (600-839px). */
-@media (min-width: 600px) {
+/* Medium (640px and up). */
+@media (min-width: 640px) {
   :root {
-    --layout-columns: 8;
-    --layout-margin: 2rem;
-    --layout-gutter: 1.5rem;
-    --page-title-font: var(--md-sys-typescale-headline-lg);
-    --page-title-tracking: var(--md-sys-typescale-headline-lg-tracking);
+    --page-gutter: 1.5rem;
     --election-columns: 2;
-    --card-padding: var(--space-lg);
-    --brand-logo-size: 48px;
+    --steps-columns: 3;
+    --card-padding: 1.5rem;
     --party-logo-size-ranking: 48px;
   }
 }
 
-/* M3 expanded window class (840px and up, max 1200px). */
-@media (min-width: 840px) {
+/* Expanded (1024px and up): the sidebar is fixed beside the canvas. */
+@media (min-width: 1024px) {
   :root {
-    --layout-columns: 12;
-    --layout-margin: 3rem;
-    --layout-gutter: 2rem;
-    --layout-content-column: 2 / span 10;
-    --card-padding: var(--space-xl);
+    --page-gutter: 2rem;
+    --page-padding-block: 2rem;
+    --page-title-font: var(--type-display);
+    --hero-title-font: 700 2rem/2.5rem var(--font-sans);
+  }
+}
+
+/* Wide (1280px and up): room for a wider Statement column in the matrix. */
+@media (min-width: 1280px) {
+  :root {
+    --matrix-statement-width: 24rem;
   }
 }

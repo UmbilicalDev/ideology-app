@@ -2,13 +2,19 @@
    admin entry (src/admin/main.tsx), never by a Voter page. Tokens only: no
    hard-coded colour, font or shadow. */
 
+/* No app shell on the admin page: one centred column. */
+main.admin {
+  max-width: var(--content-max-width);
+  margin: 0 auto;
+  padding: var(--page-padding-block) var(--page-gutter) var(--space-2xl);
+}
+
 .admin__status,
 .admin__notice,
 .admin__empty,
 .admin-header__user {
-  color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-body-md);
-  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
 }
 
 .admin__status {
@@ -26,15 +32,13 @@
 }
 
 .admin__empty {
-  font: var(--md-sys-typescale-body-lg);
-  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
+  font: var(--type-body);
 }
 
 .admin__error {
   margin: 0 0 var(--space-md);
-  color: var(--md-sys-color-on-surface);
-  font: var(--md-sys-typescale-body-md);
-  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+  color: var(--color-text);
+  font: var(--type-body-sm);
   font-weight: 600;
 }
 
@@ -48,9 +52,8 @@
 }
 
 .admin-field label {
-  color: var(--md-sys-color-on-surface);
-  font: var(--md-sys-typescale-label-lg);
-  letter-spacing: var(--md-sys-typescale-label-lg-tracking);
+  color: var(--color-text);
+  font: var(--type-label);
 }
 
 .admin-field input,
@@ -59,16 +62,15 @@
   width: 100%;
   min-height: 48px;
   padding: var(--space-sm) var(--space-md);
-  background: var(--color-card);
-  color: var(--md-sys-color-on-surface);
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: var(--md-sys-shape-corner-small);
-  font: var(--md-sys-typescale-body-lg);
-  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-md);
+  font: var(--type-body);
 }
 
 .admin-field select:focus-visible {
-  outline: 3px solid var(--color-focus-ring);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
@@ -110,8 +112,7 @@
 .admin-filters legend {
   padding: 0;
   margin: 0 0 var(--space-sm);
-  font: var(--md-sys-typescale-title-md);
-  letter-spacing: var(--md-sys-typescale-title-md-tracking);
+  font: var(--type-title);
 }
 
 /* Stacked at compact, one row from 600px. */
@@ -146,9 +147,8 @@
   align-items: center;
   gap: var(--space-xs) var(--space-sm);
   margin: 0 0 var(--space-sm);
-  color: var(--md-sys-color-on-surface-variant);
-  font: var(--md-sys-typescale-body-md);
-  letter-spacing: var(--md-sys-typescale-body-md-tracking);
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
 }
 
 .admin-message__text {
@@ -156,8 +156,7 @@
   max-inline-size: 75ch;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: var(--md-sys-typescale-body-lg);
-  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
+  font: var(--type-body);
 }
 
 .admin-message__actions {
@@ -172,8 +171,8 @@
 }
 
 .button-secondary:disabled {
-  color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
-  border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+  color: color-mix(in srgb, var(--color-text) 38%, transparent);
+  border-color: color-mix(in srgb, var(--color-text) 12%, transparent);
   cursor: not-allowed;
 }
 

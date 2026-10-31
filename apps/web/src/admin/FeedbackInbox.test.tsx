@@ -38,7 +38,7 @@ describe("format", () => {
   });
 
   test("origins are screen names", () => {
-    expect(originLabel("landing")).toBe("Inicio");
+    expect(originLabel("landing")).toBe("General");
     expect(originLabel("results")).toBe("Resultados");
   });
 });
@@ -56,7 +56,7 @@ describe("FeedbackInbox", () => {
     ]);
     await screen.findByText("2 mensajes mostrados");
     const [second, first] = cards() as [HTMLElement, HTMLElement];
-    expect(first.textContent).toContain("#1 · 29 oct 2026, 14:05 UTC · Inicio");
+    expect(first.textContent).toContain("#1 · 29 oct 2026, 14:05 UTC · General");
     expect(second.textContent).toContain("#2 · 29 oct 2026, 15:30 UTC · Resultados");
     expect(within(second!).getByText("Revisado").classList.contains("important-mark")).toBe(true);
     expect(within(first!).queryByText("Revisado")).toBeNull();

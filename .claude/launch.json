@@ -4,8 +4,25 @@
     {
       "name": "api",
       "runtimeExecutable": ".venv/bin/uvicorn",
-      "runtimeArgs": ["ideology_app.main:app", "--port", "8000"],
+      "runtimeArgs": [
+        "ideology_app.main:app",
+        "--port",
+        "8000"
+      ],
       "port": 8000
+    },
+    {
+      "name": "web-shared-db",
+      "runtimeExecutable": ".venv/bin/uvicorn",
+      "runtimeArgs": [
+        "ideology_app.main:app",
+        "--port",
+        "8001"
+      ],
+      "env": {
+        "DATABASE_URL": "sqlite:///data/ideology.db"
+      },
+      "port": 8001
     }
   ]
 }

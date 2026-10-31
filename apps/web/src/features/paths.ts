@@ -2,6 +2,7 @@
 // server's SPA fallback answers such paths with 404 (see CONSTRAINTS.md).
 export const HOME_PATH = "/";
 export const METHODOLOGY_PATH = "/metodologia";
+export const TRANSPARENCY_PATH = "/transparencia";
 export const QUESTIONNAIRE_ROUTE = "/elecciones/:electionId/cuestionario";
 // A Share Link opens here; only the fragment ("#...") carries data, and
 // browsers never send the fragment in a request.

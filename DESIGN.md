@@ -1,320 +1,270 @@
 ---
-name: ideology-app (Civic Horizon)
-description: Neutral, civic, mobile-first voting advice tool on Material Design 3 with the Civic Horizon palette. Calm and trustworthy; no party colours in the base UI (only a party logo image carries its own colours).
+name: ideology-app (Civic Slate)
+description: Neutral, civic voting advice web app. A web-app layout (sidebar + canvas) on slate neutrals with one cyan accent, dark first with a light mirror. Calm and trustworthy; no party colours in the base UI (only a party logo image carries its own colours).
 designAssets:
   sourceOfTruth:
-    - docs/design/civic-horizon.md
-  generatedConcepts:
+    - DESIGN.md (this file; apps/web/src/ui/tokens.css mirrors it)
+  reference:
+    - docs/design/web-redesign-prototype.html (user prototype, 2026-10-30)
+  retired:
+    - docs/design/civic-horizon.md (Material 3 theme used until web-redesign)
     - docs/design/questionnaire-prototype.png
 themes:
-  light: "colors (the unprefixed Civic Horizon roles)"
-  dark: "colorsDark (the dark-* Civic Horizon roles), via prefers-color-scheme: dark"
-  unused: "the light-* Civic Horizon roles"
+  dark: "colors (reference theme, the default)"
+  light: "colorsLight, via prefers-color-scheme: light"
 colors:
-  primary: "#004d64"
-  on-primary: "#ffffff"
-  primary-container: "#006684"
-  on-primary-container: "#a2e1ff"
-  secondary: "#715d02"
-  on-secondary: "#ffffff"
-  secondary-container: "#fade7d"
-  on-secondary-container: "#756107"
-  tertiary-container: "#006874"
-  on-tertiary-container: "#97e4f2"
-  tertiary-fixed: "#a2effd"
-  on-tertiary-fixed-variant: "#004f58"
-  surface: "#f5faff"
-  surface-container-lowest: "#ffffff"
-  surface-container-low: "#eef4fa"
-  surface-container: "#e8eff4"
-  surface-container-high: "#e2e9ef"
-  surface-container-highest: "#dde3e9"
-  on-surface: "#161c21"
-  on-surface-variant: "#3f484d"
-  outline: "#70787e"
-  outline-variant: "#bfc8cd"
-colorsDark:
-  primary: "#65d3ff"
-  on-primary: "#003546"
-  primary-container: "#004d64"
-  on-primary-container: "#bfe9ff"
-  secondary: "#e9c336"
-  on-secondary: "#3a2f00"
-  secondary-container: "#534400"
-  on-secondary-container: "#ffe082"
-  tertiary-container: "#004f58"
-  on-tertiary-container: "#9eeffd"
-  tertiary-fixed: "#a2effd"
-  on-tertiary-fixed-variant: "#004f58"
-  surface: "#0f1416"
-  surface-container-lowest: "#0a0f11"
-  surface-container-low: "#171d1e"
-  surface-container: "#1b2122"
-  surface-container-high: "#262b2d"
-  surface-container-highest: "#303638"
-  on-surface: "#dee4e5"
-  on-surface-variant: "#bfc8cc"
-  outline: "#899296"
-  outline-variant: "#40484c"
-semantic:
-  card: { light: "{colors.surface-container-lowest}", dark: "{colorsDark.surface-container-low}" }
-  card-nested: { light: "{colors.surface-container-low}", dark: "{colorsDark.surface-container}" }
-  info-container: { light: "{colors.tertiary-fixed}", dark: "{colorsDark.tertiary-container}" }
-  on-info-container: { light: "{colors.on-tertiary-fixed-variant}", dark: "{colorsDark.on-tertiary-container}" }
-  focus-ring: "secondary"
-  party-logo-tile: { light: "#ffffff", dark: "#ffffff", note: "fixed in both themes (the light surface-container-lowest), so dark-on-transparent logos stay legible" }
-  on-party-logo-tile: { light: "#3f484d", dark: "#3f484d", note: "placeholder text, fixed in both themes (the light on-surface-variant)" }
-  elevation-2: { light: "0 2px 8px -2px rgba(0, 31, 42, 0.08)", dark: "0 2px 8px -2px rgba(0, 0, 0, 0.4)" }
-  elevation-4: { light: "0 8px 24px -4px rgba(0, 31, 42, 0.16)", dark: "0 8px 24px -4px rgba(0, 0, 0, 0.5)", note: "the feedback dialog only" }
-  scrim: { light: "rgba(0, 0, 0, 0.32)", dark: "rgba(0, 0, 0, 0.32)", note: "the feedback dialog backdrop" }
+  bg: "#020617"
+  bg-sidebar: "#0b1222"
+  surface: "#0f172a"
+  surface-raised: "#1e293b"
+  surface-sunken: "#020617"
+  border: "#1e293b"
+  border-strong: "#334155"
+  border-control: "#64748b"
+  text: "#f1f5f9"
+  text-muted: "#94a3b8"
+  text-subtle: "#64748b"
+  accent: "#22d3ee"
+  accent-fill: "#06b6d4"
+  accent-fill-hover: "#22d3ee"
+  on-accent: "#020617"
+  accent-soft: "rgba(6, 182, 212, 0.1)"
+  accent-border: "rgba(6, 182, 212, 0.35)"
+  on-accent-soft: "#67e8f9"
+  highlight: "#fbbf24"
+  highlight-soft: "rgba(245, 158, 11, 0.12)"
+  highlight-border: "rgba(245, 158, 11, 0.35)"
+  on-highlight-soft: "#fcd34d"
+  focus-ring: "#22d3ee"
+  scrim: "rgba(2, 6, 23, 0.8)"
+colorsLight:
+  bg: "#f8fafc"
+  bg-sidebar: "#ffffff"
+  surface: "#ffffff"
+  surface-raised: "#f1f5f9"
+  surface-sunken: "#f8fafc"
+  border: "#e2e8f0"
+  border-strong: "#cbd5e1"
+  border-control: "#7c8ba1"
+  text: "#0f172a"
+  text-muted: "#475569"
+  text-subtle: "#64748b"
+  accent: "#0e7490"
+  accent-fill: "#0e7490"
+  accent-fill-hover: "#155e75"
+  on-accent: "#ffffff"
+  accent-soft: "rgba(8, 145, 178, 0.08)"
+  accent-border: "rgba(8, 145, 178, 0.35)"
+  on-accent-soft: "#155e75"
+  highlight: "#b45309"
+  highlight-soft: "rgba(245, 158, 11, 0.12)"
+  highlight-border: "rgba(217, 119, 6, 0.4)"
+  on-highlight-soft: "#92400e"
+  focus-ring: "#0891b2"
+  scrim: "rgba(15, 23, 42, 0.5)"
+fixed:
+  party-logo-tile: { value: "#ffffff", note: "both themes" }
+  on-party-logo-tile: { value: "#334155", note: "placeholder text, both themes" }
+  shadow-sm: { dark: "0 1px 2px rgba(0, 0, 0, 0.4)", light: "0 1px 2px rgba(15, 23, 42, 0.06)" }
+  shadow-lg: { dark: "0 24px 48px -12px rgba(0, 0, 0, 0.6)", light: "0 24px 48px -12px rgba(15, 23, 42, 0.18)", note: "Statement card, hovered election card, drawer, dialog, tooltip" }
+  hero-glow: { dark: "rgba(6, 182, 212, 0.14)", light: "rgba(6, 182, 212, 0.12)", note: "decorative blurred circle behind the Landing hero" }
 typography:
-  fontFamily: "Public Sans (self-hosted variable font), system-ui, sans-serif"
-  headline-lg: { fontSize: 32px, lineHeight: 40px, fontWeight: 600, letterSpacing: 0px }
-  headline-lg-mobile: { fontSize: 26px, lineHeight: 34px, fontWeight: 600, letterSpacing: 0px }
-  headline-sm: { fontSize: 24px, lineHeight: 32px, fontWeight: 500, letterSpacing: 0px }
-  title-lg: { fontSize: 22px, lineHeight: 28px, fontWeight: 500, letterSpacing: 0px }
-  title-md: { fontSize: 16px, lineHeight: 24px, fontWeight: 600, letterSpacing: 0.15px }
-  body-lg: { fontSize: 16px, lineHeight: 24px, fontWeight: 400, letterSpacing: 0.5px }
-  body-md: { fontSize: 14px, lineHeight: 20px, fontWeight: 400, letterSpacing: 0.25px }
-  label-lg: { fontSize: 14px, lineHeight: 20px, fontWeight: 600, letterSpacing: 0.1px }
-  label-md: { fontSize: 12px, lineHeight: 16px, fontWeight: 500, letterSpacing: 0.5px }
+  fontFamily: "Inter (self-hosted variable font, @fontsource-variable/inter), system-ui, sans-serif"
+  display: { font: "700 28px/36px", from1024: "700 32px/40px (hero) and 700 28px/36px (page titles)", tracking: "-0.02em" }
+  headline: { font: "700 24px/32px", note: "page title below 1024px" }
+  title-lg: "600 18px/28px"
+  title: "600 16px/24px"
+  statement: "500 20px/30px"
+  body: "400 16px/26px"
+  body-sm: "400 14px/22px"
+  label: "600 14px/20px"
+  caption: "500 12px/16px"
+  overline: "600 11px/16px, uppercase, 0.08em tracking"
 rounded:
-  small: 0.25rem
-  default: 0.5rem
-  medium: 0.75rem
-  large: 1rem
-  extra-large: 1.5rem
+  sm: 6px
+  md: 8px
+  lg: 12px
   full: 9999px
-spacing:
-  xs: 4px
-  sm: 8px
-  md: 16px
-  lg: 24px
-  xl: 32px
+spacing: { xs: 4px, sm: 8px, md: 16px, lg: 24px, xl: 32px, 2xl: 48px }
 layout:
-  maxWidth: 1200px
-  compact: { range: "0-599px", columns: 4, margin: 16px, gutter: 16px, content: "1 / -1" }
-  medium: { range: "600-839px", columns: 8, margin: 32px, gutter: 24px, content: "1 / -1" }
-  expanded: { range: "840px+", columns: 12, margin: 48px, gutter: 32px, content: "2 / span 10" }
-  statementMeasure: "30em (about 65 characters of Public Sans at headline-sm; 65ch would fit about 80)"
-  textMeasure: 75ch
-components:
-  button-primary: { style: filled, backgroundColor: primary, textColor: on-primary, rounded: full, minHeight: 48px, typography: title-md }
-  button-secondary: { style: outlined, border: "1px outline", textColor: primary, rounded: full, minHeight: 48px, typography: title-md }
-  button-tonal: { style: tonal, backgroundColor: secondary-container, textColor: on-secondary-container, rounded: full, minHeight: 48px, typography: title-md }
-  card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, shadow: none }
-  statement-card: { level: 2, backgroundColor: card, border: "1px outline-variant", rounded: extra-large, shadow: elevation-2 }
-  disclosure-card: { backgroundColor: surface-container-low, border: "1px outline-variant", rounded: large, icon: "shield on info-container, rounded medium" }
-  scale-option:
-    base: { backgroundColor: card, border: "1px outline-variant", textColor: on-surface, rounded: default, minHeight: 48px }
-    agree-checked: { backgroundColor: primary-container, border: "2px primary", textColor: on-primary-container, fontWeight: 600 }
-    neutral-checked: { backgroundColor: surface-container-high, border: "2px outline", textColor: on-surface-variant, fontWeight: 600 }
-    disagree-checked: { backgroundColor: outline-variant, border: "2px outline", textColor: on-surface, fontWeight: 600 }
-  important-toggle:
-    off: { backgroundColor: transparent, border: "1px outline", textColor: on-surface, star: "outline, stroke secondary", rounded: full }
-    on: { backgroundColor: secondary-container, border: "1px secondary", textColor: on-secondary-container, star: "filled secondary", fontWeight: 600 }
-  coverage-badge: { backgroundColor: info-container, textColor: on-info-container, rounded: full, typography: label-md, icon: info, focusable: true }
-  coverage-tooltip: { backgroundColor: on-surface, textColor: surface, rounded: small, typography: body-md, maxWidth: "min(24rem, 100%)", shows: "hover, focus, tap; Escape closes" }
-  notice-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, icon: "info on info-container, rounded medium" }
-  election-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, hover: "border primary, elevation-2", cta: "button-primary pill: Realizar cuestionario" }
-  summary-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, donut: "64px, arc primary, track surface-container-highest, decorative", star: "secondary, filled when Important > 0" }
-  brand-title: { logo: "apps/web/src/assets/ideologiapp-logo.svg, 40px (48px from 600px), decorative", name: IdeologiApp, typography: page title }
-  share-card: { level: 1, backgroundColor: card, border: "1px outline-variant", rounded: large, holds: "share (Comparte tu resultado) then share-app (Comparte IdeologiApp)", divider: "1px outline-variant between the two sections" }
-  share-target: { icon: "48px circle, 1px outline, card background, icon on-surface", caption: "label-md on-surface-variant", minTarget: 48px, hover: "8% on-surface", colours: "neutral tokens only, never brand colours" }
-  important-mark: { backgroundColor: secondary-container, textColor: on-secondary-container, rounded: full, typography: label-md }
-  evidence-quote: { backgroundColor: surface-container-high, textColor: on-surface, borderLeft: "4px outline", typography: body-lg, fontStyle: normal }
-  progress: { track: surface-container-highest, value: primary, height: 8px, rounded: full }
-  ranking-bar: { track: surface-container-highest, fill: primary, height: 8px, rounded: full }
-  party-logo:
-    tile: { backgroundColor: party-logo-tile, border: "1px outline-variant", rounded: small, boxSizing: border-box, decorative: true }
-    size: { ranking: "40px (48px from 600px)", breakdown: 32px }
-    image: { source: "the API's same-origin logoUrl only", fit: "object-fit contain, no extra padding (the committed PNGs carry 6% padding)", alt: "" }
-    placeholder: { content: "Party short name, at most 2 lines (split once at the first space or hyphen when longer than 4 characters)", textColor: on-party-logo-tile, typography: "600 10px/12px, scaled to fit by an SVG viewBox" }
-    failure: "a logo that fails to load becomes the placeholder in the same tile (no layout shift)"
-  feedback-button: { style: "button-secondary (outlined)", label: "Danos tu opinión", icon: "feedback speech bubble before the text, decorative", placement: "Landing: last in main, after Cómo funciona; end screen: after the Cómo se calcula la afinidad link, before the first Volver al inicio" }
-  feedback-dialog: { level: 4, element: "native dialog, showModal", backgroundColor: surface-container-highest, textColor: on-surface, rounded: extra-large, shadow: elevation-4, backdrop: scrim, width: "min(36rem, 100% - 2 * layout margin)", padding: lg, title: "Ayúdanos a mejorar (title-lg)", subtitle: "Dinos qué te ha parecido IdeologiApp (body-md on-surface-variant)" }
-  text-area: { backgroundColor: card, border: "1px outline", textColor: on-surface, rounded: small, fontSize: 16px, minHeight: 8rem, resize: vertical, label: "visible, above the field" }
-  icon-button: { size: 48px, rounded: full, backgroundColor: transparent, iconColor: on-surface-variant, hover: "8% on-surface", label: "aria-label only (Cerrar)" }
+  sidebar: "256px, fixed beside the canvas from 768px; a modal drawer below"
+  topbar: "56px, sticky, translucent bg with blur"
+  contentMaxWidth: 72rem
+  readingMaxWidth: "48rem (Questionnaire column)"
+  gutter: { compact: 16px, from640: 24px, from1024: 32px }
+  electionColumns: { compact: 1, from640: 2 }
+  stepColumns: { compact: 1, from640: 3 }
+  textMeasure: 72ch
 ---
 
 # Design Direction
 
 ## Overview
 
-A calm, civic tool built on Material Design 3 with the Civic Horizon palette (`docs/design/civic-horizon.md`). The UI must never suggest a preference: identical treatment for every party, and no party colours anywhere except inside a party's own logo image.
+A calm, civic **web app** (decision of the user, 2026-10-30, `web-redesign`): Material 3 is retired. The layout is a sidebar plus a canvas, on slate neutrals with a single cyan accent, dark first. The UI must never suggest a preference: identical treatment for every party, and no party colours anywhere except inside a party's own logo image.
 
 ## Existing Design Assets
 
-- `apps/web/src/assets/ideologiapp-logo.svg`: the product logo (user-provided). It is an image with its own fixed colours (sky blue, white, gold); it is the product's mark, never a party's, and it is never recoloured or used next to a party. It is also the browser tab icon (`<link rel="icon">` in `apps/web/index.html`).
-- `apps/web/src/assets/ideologiapp-touch-icon.png`: the home-screen icon (`apple-touch-icon`), 180x180, the logo rendered with its sky-blue background filled to the corners (iOS shows transparent corners as black). Regenerate it from the SVG if the logo changes.
-- `apps/web/public/favicon.ico`: 16/32/48px fallback of the logo for clients that ask for `/favicon.ico` directly. Regenerate it with the touch icon.
-- Tab title: `IdeologiApp`; pages with their own title use `<Page> · IdeologiApp` (`Metodología · IdeologiApp`, `Resultado compartido · IdeologiApp`). The Landing subtitle `Comparador de programas electorales` stays as page text.
-- `docs/design/civic-horizon.md`: the source palette, type scale, shapes, elevation and grid. This file picks the parts the app uses; `apps/web/src/ui/tokens.css` mirrors this file.
-
-## Generated Concept Images
-
-- `docs/design/questionnaire-prototype.png`: a visual reference for the Questionnaire. Only its look and its disclosure card (shield and title) are adopted; its topic pill, `Inicio / N% completado / Finalización` labels and right-aligned arrow button are not.
+- `apps/web/src/assets/ideologiapp-logo.svg`: the product logo (user-provided 2026-10-31, `ic_ideologiapp.svg`): a white ballot box with a bulb cut out and a gold (`#F0C442`) ballot, on a transparent background. It is the **dark-theme** variant and the default. It is the product's mark, never a party's, and it is never used next to a party.
+- `apps/web/src/assets/ideologiapp-logo-light.svg`: the **light-theme** variant, the same drawing with the white (`#F9FBFA`) swapped for slate `#0F172A` (palette swap of the embedded PNGs, nothing else changed), because white vanishes on light surfaces. `ProductLogo` (`features/common/ProductLogo.tsx`) serves both through `<picture>` with `prefers-color-scheme: light`; it is used in the sidebar, the Landing hero (below 768px) and the focus bar.
+- `apps/web/src/assets/ideologiapp-favicon.svg`: the tab icon (`<link rel="icon">` in `apps/web/index.html` and `apps/web/admin/index.html`): both variants in one SVG, switched by an inner `@media (prefers-color-scheme: light)`.
+- `apps/web/src/assets/ideologiapp-touch-icon.png`: the home-screen icon (`apple-touch-icon`), 180x180, the dark variant on an opaque slate `#0F172A` square (iOS shows transparency as black). Regenerate it if the logo changes.
+- `apps/web/public/favicon.ico`: 16/32/48px PNG-in-ICO fallback of the light variant (slate box, readable on light and dark tab bars). Regenerate it with the touch icon.
+- Tab title: `IdeologiApp`; pages with their own title use `<Page> · IdeologiApp` (`Metodología · IdeologiApp`, `Transparencia IA · IdeologiApp`, `Resultado compartido · IdeologiApp`).
+- `docs/design/web-redesign-prototype.html`: the user's prototype of this direction. Adopted: the sidebar + canvas layout, the slate/cyan palette, Inter, moderate corners, the hero, the election grid with status badges, the numbered steps. Not adopted: its Tailwind CDN and Google Fonts (third-party requests), the Questionnaire as a modal over the shell (it is a focus page), the 3-option answer list (the scale keeps 5 options), the `Programas 2023 listos` and `v2.0 Web` badges, the emoji rating in the feedback dialog, and copy that does not match the method (statement counts, human validation, "distancia vectorial", "código abierto").
 
 ## Product Feel
 
-Trustworthy, quiet, readable, like a good public-service website. Evidence (quotes) is a first-class element, not hidden detail.
+Trustworthy, quiet, readable, like a modern public-service web app: dense enough on desktop to avoid dead space, one clear action per screen. Evidence (quotes) is a first-class element, not hidden detail.
 
 ## Neutrality Rules (unchanged)
 
 - Every party row and every party position looks the same, in every state. No winner styling: the first row is not emphasised (no number, medal, colour or size change).
-- No party colours for bars, backgrounds or text. The only exception: the logo image itself carries a Party's colours (logos shown, decided by the user on 2026-10-26).
-- Every Party gets the same party-logo tile (same size, shape, border and white background, in both themes), with its logo or, when it has none or the logo fails to load, a short-name placeholder. A logo is never recoloured, cropped or resized per Party.
-- No red/green on the agreement scale. Disagree states use a neutral slate (`outline-variant`), never red.
+- No party colours for bars, backgrounds or text. The only exception: the logo image itself carries a Party's colours.
+- Every Party gets the same party-logo tile (same size, shape, border and white background, in both themes), with its logo or a short-name placeholder. A logo is never recoloured, cropped or resized per Party.
+- No red/green on the agreement scale. Every checked option uses the same accent frame; the side of the scale is never a colour.
 - The meaning of the scale never relies on colour alone: the label text and the filled radio dot carry it.
 
 ## Themes
 
-Exactly two themes, chosen by the operating system through `prefers-color-scheme`; there is no in-app toggle.
+Exactly two themes, chosen by the operating system; there is no in-app toggle.
 
-- **Light** uses the unprefixed Civic Horizon roles (`colors` above).
-- **Dark** uses the `dark-*` roles (`colorsDark` above).
-- The `light-*` roles of the source are not used.
-- `color-scheme: light dark` is declared so native controls and scrollbars follow the theme.
+- **Dark** (`colors`) is the reference theme and the default.
+- **Light** (`colorsLight`) applies under `prefers-color-scheme: light`.
+- `color-scheme: dark light` is declared so native controls follow the theme.
 
 ## Colors
 
-- **Primary** (dark teal / bright cyan in dark): filled buttons, links, progress, ranking bars, agree states.
-- **Secondary** (gold): focus ring, the Important flag (toggle and mark) and the tonal result `Copiar enlace` button (share targets don't use it, except for their focus ring). Gold means "focus" or "marked by you", never a party.
-- **Tertiary / info pair**: `Baja cobertura` and the shield tile on the disclosure card. Light uses `tertiary-fixed` with `on-tertiary-fixed-variant`; dark uses `tertiary-container` with `on-tertiary-container`. An "AI-generated" tag, if one is ever added, uses the same pair.
-- **Surfaces**: the page is `surface`; cards are `surface-container-lowest` in light and `surface-container-low` in dark; a disclosure nested inside a card is one tier up.
-- **Party logo tile**: `party-logo-tile` (`#ffffff`) with `on-party-logo-tile` (`#3f484d`) for the placeholder, the same pair in both themes, so dark-on-transparent logos stay legible in dark mode and every Party looks the same. Its border is `outline-variant` and follows the theme.
-- Never put text on `outline` or `outline-variant` except the disagree state, whose pair is checked below.
-- **Errors** use text only (a `role="alert"` message, the feedback dialog's problem line); there is no error colour role.
+- **Accent** (cyan): links, the active nav item, filled buttons (`accent-fill` with `on-accent`), progress and ranking bars, the checked scale option, the donut, the evidence rule, icon tiles, the focus ring. One accent only.
+- **Highlight** (amber): only the Voter's Important flag (toggle, mark, summary star), the `Revisado` admin chip and the `Próximamente` status badge. Amber means "marked by you" or "not yet", never a party.
+- **Neutrals**: `bg` page, `bg-sidebar` sidebar, `surface` cards, `surface-raised` hover and nested tiles, `surface-sunken` inputs, options and positions. `border` hairlines separate; `border-control` frames anything you can operate.
+- **Party logo tile**: fixed white with `on-party-logo-tile` placeholder text, in both themes.
+- **Errors** use text only (`role="alert"`); there is no error colour.
 
 ## Typography
 
-**Public Sans** is the only typeface, self-hosted from the app's own `/assets/` (no third-party font request). Evidence quotes also use it; they are told apart by layout (a tinted block with a 4px left border), not by a serif or italics. No italic face is loaded.
+**Inter** is the only typeface, self-hosted (`@fontsource-variable/inter`, latin subset); no third-party font request. Evidence quotes use it too, told apart by layout (an accent left rule), never italics.
 
-- `h1` (page title): headline-lg (headline-lg-mobile below 600px). On the Landing and the Questionnaire the `h1` is the brand title: the decorative logo (40px, 48px from 600px) and the name **IdeologiApp**.
-- Statement text (`h2` on the Questionnaire): headline-sm, at most about 65 characters per line (`max-inline-size: 30em`; `65ch` measures the wide "0" glyph and would fit about 80 Public Sans characters).
-- Other `h2`: title-lg. `h3`, `h4`: title-md, except the `Detalle por afirmación` title, which uses title-lg like an `h2`.
-- Body: body-lg. Notes, hints, legends, dates and the breakdown number: body-md in `on-surface-variant` (14px rather than the source's 12px body-sm, which is too small for long privacy notes).
-- Buttons: title-md. Badges: label-md. Progress and Election labels: label-lg.
-- Running text is capped at 75 characters per line.
+- `h1`: `headline` below 1024px, `display` from 1024px; the Landing `h1` is the brand title (`IdeologiApp`, with the logo below 768px only, where the sidebar is hidden). The Questionnaire `h1` is the Election name in `overline` style (`Cuestionario` while loading).
+- Statement text (`h2` on the Questionnaire): `statement`, at most about 34em per line.
+- Other `h2`: `title-lg`. `h3`, `h4`: `title`.
+- Body: `body`. Notes, hints, dates, card copy: `body-sm` in `text-muted`. Badges and captions: `caption`. Eyebrows, the top-bar crumb, progress label, breakdown number: `overline`.
+- Running text is capped at 72ch.
 
 ## Layout
 
-The M3 responsive grid replaces the old 720px column. `main` is a CSS grid, at most 1200px wide and centred.
-
-- **Compact (0–599px):** 4 columns, 16px margins, 16px gutters; content spans all columns. Landing elections in 1 column.
-- **Medium (600–839px):** 8 columns, 32px margins, 24px gutters; content spans all columns. Landing elections in 2 columns.
-- **Expanded (840px+):** 12 columns, 48px margins, 32px gutters; content spans columns 2–11.
-
-One Statement per screen in the Questionnaire. The Results breakdown stays stacked at every width. No horizontal scroll at any width.
+- **App shell** (every Voter page except the Questionnaire): a 256px sidebar (`bg-sidebar`, right hairline) with the brand (logo + `IdeologiApp`, a link home), the tagline `Comparador de programas electorales`, the section nav (`Elecciones` `/`, `Cómo funciona` `/metodologia`, `Transparencia IA` `/transparencia`; the current one gets `surface-raised`, a `border-strong` frame, accent text and `aria-current="page"`) and, in its footer, `Danos tu opinión`. The canvas has a sticky 56px top bar with the crumb `IDEOLOGIAPP / <SECCIÓN>`, the page in a column at most 72rem wide, and a footer line saying the tool is not a voting recommendation and the content is AI-generated.
+- **Below 768px** the sidebar is a modal drawer (85vw, at most 256px) opened by the top bar's menu button (`Abrir menú`, `aria-expanded`, `aria-controls`). While open the canvas is `inert` and does not scroll, a scrim covers it, and focus moves into the drawer. Escape (unless the feedback dialog is open), the scrim, `Cerrar menú`, a link or growing past 768px close it. A link closes it in the same update as the navigation, so the new page can focus its `h1`; every other close (and a link to the current page) returns focus to the menu button.
+- **Focus shell** (the Questionnaire, `/elecciones/:id/cuestionario`): no sidebar, so no stray navigation loses the in-memory Answers. A sticky bar with the brand (not a link) and `Salir` (a link home), and one centred 48rem column for the steps and the results.
+- Landing elections: 1 column, 2 from 640px. Steps and Transparencia feature cards: 1 column, 3 from 640px. Methodology: a page index (`En esta página`) above the text, a sticky right column from 1024px.
+- One Statement per screen. The results breakdown stays stacked. No horizontal scroll at any width (the canvas clips the decorative hero glow).
 
 ## Elevation & Depth
 
-Tonal elevation, as in the source. Levels 0–2 and Level 4 are used (there are no sticky bars; the feedback dialog is the only dialog).
+Flat by default: borders, not shadows.
 
-- **Level 0:** the `surface` page.
-- **Level 1:** cards (`card` surface, 1px `outline-variant`, no shadow): the Landing AI card, election cards, ranking rows, breakdown rows, the share card (one card for both share sections), the superseded notice. An election card gets the `elevation-2` shadow and a `primary` border on hover.
-- **Level 2:** the Questionnaire's Statement card, with the soft ambient `elevation-2` shadow.
-- **Level 4:** the feedback dialog: `surface-container-highest` with the `elevation-4` shadow over a `scrim` backdrop (32% black, both themes). The page behind it is inert and does not scroll.
+- **Flat:** cards, rows, the sidebar, steps.
+- **`shadow-lg`:** the Questionnaire's Statement card, an election card on hover, the mobile drawer, the coverage tooltip and the feedback dialog (over the `scrim` with a light blur).
 
 ## Shapes
 
-- Cards: large (16px). The Statement card: extra-large (24px).
-- Scale options: default (8px) inside the extra-large Statement card.
-- Buttons, the Important toggle, badges and progress/ranking bars: full pill.
-- Nested positions: medium (12px). Text field and text area: small (4px). The feedback dialog: extra-large (24px).
-- Minimum tap target 48px for every control and text link.
+- Cards, rows, the dialog and the page index: `lg` (12px).
+- Buttons, fields, options, nav items, the Important toggle, positions, share tiles: `md` (8px).
+- Badges, chips, the party-logo tile: `sm` (6px). Progress and ranking bars: full.
+- Minimum target: 44px, 48px for buttons and the Important toggle on coarse pointers; scale options, position summaries and share tiles are 48px.
 
 ## Components
 
-- **Buttons.** Filled (`button-primary`): Siguiente, Revisar mis respuestas, Reintentar, `Enviar` and `Cerrar` in the feedback dialog, shared-result CTAs, the `Realizar cuestionario` pill inside an election card. Outlined (`button-secondary`): Saltar esta afirmación, Anterior, Volver a la última afirmación, `Danos tu opinión` (with a decorative speech-bubble icon), and `Volver al inicio` (a link styled as a button) on every screen that offers it; the end screen shows it before `Detalle por afirmación` and again at the end. Tonal (`button-tonal`): only the result `Copiar enlace`; the IdeologiApp share targets are not tonal buttons. Hover adds an 8% state layer. Disabled filled buttons use the M3 12% `on-surface` container with a 38% label. DOM order stays the reading and focus order (Siguiente first).
-- **Statement card** (Level 2): the progress label and bar, the Statement, the Important row (toggle and hint), the 5-option scale, the skipped note and the controls.
-- **Scale option**: a full-width radio row with its label. A custom circle radio (filled dot when checked; the native radio returns under forced colours). Checked states: agree → `primary-container` with a 2px `primary` border and `on-primary-container` text; neutral → `surface-container-high` with `on-surface-variant`; disagree → slate `outline-variant` with `on-surface` text and a 2px `outline` border. All checked states use weight 600.
-- **Important toggle**: an outlined pill with an outline star in `secondary`; pressed, it becomes a `secondary-container` pill with a filled star and weight 600. The star shape and `aria-pressed` carry the state.
-- **Disclosure card** (Questionnaire only, below the Statement card): a decorative shield (`aria-hidden`) in a 40px info tile, the title `Transparencia algorítmica y privacidad garantizada` and the unchanged AI/privacy note.
-- **Election card** (Landing): one link per Election holding its name, date and a filled `Realizar cuestionario` pill with an arrow, so the whole card is the target and reads as actionable.
-- **Summary card** (end screen and shared result, below the results title): a Level 1 card with a 64px donut of the answered share (`primary` arc on a `surface-container-highest` track, no arc at 0 %, the rounded percentage in its centre in label-md weight 600, decorative; the arc is 9.4 / 10.0 against the card in light / dark, the track is decorative like the ranking track), the title `Muestra evaluada: N/T afirmaciones contestadas` (title-md), the skipped count, and the Important sentence led by the Important star (`secondary`; filled when at least one Statement is marked, outline otherwise).
-- **Ranking row**: the party-logo tile, party name + short name, percentage, a `primary` bar on a `surface-container-highest` track, and a `Baja cobertura` chip (info pair) when it applies. Every row looks the same.
-- **Party logo** (ranking rows and breakdown positions only, on the end screen and the shared result): a decorative tile (`aria-hidden`, `alt=""`; the name stays as text next to it) with a fixed white `party-logo-tile` background in both themes, a 1px `outline-variant` border and the small (4px) corner. Ranking: 40px, 48px from 600px; breakdown: 32px at every width, filling the 48px summary row. The logo comes only from the API's same-origin `logoUrl` and fills the tile with `object-fit: contain`. Without a logo, or when it fails to load, the tile shows the short name in `on-party-logo-tile` (600 weight), scaled down by an SVG viewBox to fit inside the tile, on at most 2 lines (`EH`/`Bildu`, `EAJ-`/`PNV`). The swap happens inside the same fixed tile, so nothing moves. Logos are requested in Dataset Version Party order before the results render, never in ranking order.
-- **Coverage chip and tooltip**: the `Baja cobertura` chip is a focusable button with an info icon. Its explanation appears in a tooltip (`inverse` pair: `on-surface` background with `surface` text) on hover, keyboard focus or tap, stays while hovered, and closes with Escape; the chip is described by the tooltip. There is no legend under the ranking.
-- **Notice card**: the "not a voting recommendation" text on the end screen and the shared result, in a Level 1 card with a decorative info icon in a 40px info tile (same layout as the disclosure card).
-- **External link**: the methodology link opening in a new tab ends in an external-link icon; `(se abre en una pestaña nueva)` stays in its accessible name as visually hidden text.
-- **Breakdown row**: the Statement, the Voter's answer (Saltada / `Importante (cuenta el doble)` mark on `secondary-container`), and each party's position in ranking order as a native disclosure whose summary is the chevron, the 32px party-logo tile and one text box beside the tile with the name, short name and value (the text wraps inside the box, so the tile is never alone on its line) revealing the Evidence quote and its locator: a link to `url#page=N`, or the page alone for uploaded documents; `Sin posición en el programa` for no stance.
-- **Evidence quote**: Public Sans body-lg on `surface-container-high` with a 4px `outline` left border; never serif, never italic.
-- **Share card**: one Level 1 card with two sections, separated by a 1px `outline-variant` divider when both show.
-  - **Comparte tu resultado** (end screen with scores only): a decorative share icon before the title; `Copiar enlace` (tonal, with a link icon) copies the Share Link to the clipboard; if copying fails, the link is shown in a read-only field, focused and selected, to copy by hand. A short note says that nothing is stored on any server and that anyone with the link can see the answers.
-  - **Comparte IdeologiApp** (no title icon): the intro `Recomienda esta web a otras personas. Solo se comparte su dirección, sin ninguna respuesta.`, then a wrapping row of six share targets, in this order and with these captions: Copiar enlace, Facebook, WhatsApp, Instagram, X, Correo. They share only the home URL (`origin + '/'`), never a result. Each target is a 48px circle (1px `outline` border, `card` background, icon in `on-surface`) above a `label-md` caption in `on-surface-variant`; the whole tile is the hit area and gets the focus ring; hover adds an 8% `on-surface` state layer to the circle. Facebook, WhatsApp and X are plain links that open in a new tab; Correo is a `mailto:` link opened in place. Instagram has no web share link: it opens the system share sheet where the browser has one, otherwise it copies the home URL and says it is ready to paste in Instagram. Copy results are announced in the section's own status line; if copying fails, the home URL is shown in a read-only field, focused and selected. At 375px the row wraps (3 + 3); at about 700px and wider it fits on one line.
-  - The end screen without scores and the shared result (`ready` only) show the IdeologiApp section alone.
-- **Feedback button**: `Danos tu opinión`, an outlined pill (not tonal: gold stays for focus, Important and the result copy) with a decorative speech-bubble icon before the text and `aria-haspopup="dialog"`. On the Landing it is the last item of the page, after `Cómo funciona`, with no heading of its own. On the end screen it follows the `Cómo se calcula la afinidad` link and comes before the first `Volver al inicio`. It is not on the shared result, the methodology page, Statement steps or Not found.
-- **Feedback dialog** (Level 4, a native modal `<dialog>`): a header with the title `Ayúdanos a mejorar` (title-lg) and a 48px close icon button (`Cerrar`) at its end, then the subtitle `Dinos qué te ha parecido IdeologiApp` (body-md, `on-surface-variant`); the title names the dialog and the subtitle describes it. Below, the form: the visible label `Tu opinión`, the text area, a privacy hint (note style), the counter `N/500` right-aligned in body-md `on-surface-variant` (weight 600 and `on-surface` when over the limit; it counts Unicode code points of the trimmed text, as the server does), a problem line when the text is too long or holds invisible characters, a polite status line that announces the limit bands (50, 25, 10, at and over the limit), the error alert (plain text, `role="alert"`; there is no error colour), the sending status `Enviando tu opinión…`, and an end-aligned actions row with the filled `Enviar`. Enviar is disabled while the text is empty, has a problem or a request is in flight. After sending, the form is replaced by a decorative check icon in `primary`, `¡Gracias por tu opinión!` (title-md), `Nos ayuda a mejorar IdeologiApp.` and a filled `Cerrar`, which gets focus. Focus starts in the text area, Tab and Shift+Tab wrap inside the dialog, and Escape, the close icon button, `Cerrar` or a click on the backdrop close it; focus then returns to `Danos tu opinión`. At 375px the dialog sits 16px from the edges and the actions wrap; from 600px it is at most 36rem wide and centred.
-- **Text area** (feedback dialog): the text-field look (`card` background, 1px `outline` border, small corner, 16px text so iOS does not zoom), full width, at least 8rem tall, resizable vertically, with the focus ring like every control. No `maxlength`: a pasted text is never cut; the counter and Enviar enforce the limit.
-- **Icon button**: a 48px transparent circle with a 24px icon in `on-surface-variant` and an `aria-label`; hover adds an 8% `on-surface` state layer. Used only for the dialog's close button.
-- **Icons**: inline SVG drawn for this app, 24px (20px inside buttons and chips), `currentColor`, `aria-hidden`; meaning always lives in the adjacent text. Brand glyphs (Facebook, WhatsApp, Instagram, X) on the share targets are simplified filled marks drawn for this app in `currentColor`, never in brand colours and never copied from a brand kit or icon pack. They are the only icons without adjacent full text: the caption names the network and the accessible name says the action (`Compartir IdeologiApp en Facebook`).
-- **Focus**: a 3px solid `secondary` ring with a 2px offset on every link, button, text field, text area, summary and scale option.
+- **Buttons.** Solid (`button-primary`, `accent-fill`): Siguiente, Revisar mis respuestas, Reintentar, Enviar, Cerrar (dialog), shared-result CTAs. Outlined (`button-secondary`, `surface` with `border-control`): Saltar esta afirmación, Anterior, Volver a la última afirmación, Danos tu opinión, Volver al inicio. Soft (`button-tonal`, `accent-soft` with a `border-control` frame): only the result `Copiar enlace`. Disabled: `surface-raised`, `text-subtle` label. DOM order stays the reading and focus order.
+- **Status badge**: `Disponible` (accent soft), `En preparación` (neutral, an Election with no published Dataset Version), `Próximamente` (amber soft).
+- **Election card** (Landing grid): the status badge (outside the link), then one link stretched over the card with the name (`title-lg`, accent on hover), the date with a calendar icon above a hairline, and a solid `Realizar cuestionario →` bar; hover raises it (`border-strong`, `shadow-lg`), keyboard focus rings the whole card. The grid ends with a fixed **upcoming card** (`Próximamente`, `Elecciones generales 2026`, the trial notice and a decorative disabled bar), which is not a link.
+- **Hero** (Landing): the tagline as an accent `overline` eyebrow, the `h1` and a `title-lg` muted lead, over a decorative blurred `hero-glow`.
+- **Steps** (Landing `Cómo funciona`): three numbered tiles (`Responde a las afirmaciones`, `Comparamos con los programas`, `Consulta tu afinidad`), the checks/privacy sentence and the `Lee la metodología completa` link in the section head.
+- **Page index**: `En esta página` with in-page links to each section heading (scroll margin clears the top bar).
+- **Feature card** (Transparencia IA): an icon tile, a `title` heading and `body-sm` copy.
+- **Statement card**: the progress label (accent `overline`) and a 6px bar, the Statement, the Important row, the 5-option scale, the skipped note and the controls under a hairline.
+- **Scale option**: a 48px row on `surface-sunken` with a `border-control` frame and a custom circle radio (native under forced colours). Checked: `accent-soft` with an `accent` frame, an accent dot and weight 600, the same for every value.
+- **Important toggle**: outlined with an amber outline star; pressed, `highlight-soft` with a filled star and weight 600. The star shape and `aria-pressed` carry the state.
+- **Disclosure card / notice card**: a translucent `surface` panel with an accent icon tile (shield / info).
+- **Summary card**: the 64px donut (accent arc, `surface-raised` track, decorative), `Muestra evaluada: N/T afirmaciones contestadas`, the skipped count, the Important sentence with the amber star.
+- **Ranking row**: party-logo tile, name + short name, `title-lg` percentage, a 6px accent bar, `n afirmaciones en común` and the `Baja cobertura` chip (accent soft) with its tooltip (`surface-raised`, `shadow-lg`). Every row looks the same.
+- **Party logo**: as before: fixed white tile, `border-strong` frame, `sm` corner; 40px (48px from 640px) in the ranking, 32px in the breakdown; placeholder on failure; requested in Dataset Version Party order.
+- **Results dashboard** (end screen and shared result): below 1024px one column in reading order (summary, ranking, share card, controls, notice, links). From 1024px a two-column grid: summary and actions on the left; the ranking on the right as a sticky card (`surface`, `lg`) capped at the viewport height with its own scroll (a region `Afinidad por partido`, a tab stop only from 1024px, where it can scroll); ranking rows go compact on `surface-sunken`. The DOM order is the same at every width. On the Questionnaire the focus-shell column widens from 48rem to 72rem while the results show.
+- **Breakdown filters**: single-choice chips (`aria-pressed`, a `role="group"` `Filtrar afirmaciones`) with their row count: `Todas`, `De acuerdo` (De acuerdo + Muy de acuerdo), `Neutral`, `En desacuerdo` (+ Muy en desacuerdo), `Saltadas`, `Importantes`. Pill chips with a `border-control` frame; pressed: `accent-soft` with an `accent` frame. A visually hidden status says `N de T afirmaciones`; an empty filter shows `Ninguna afirmación coincide con este filtro.` They filter the matrix and the cards alike.
+- **Statement matrix** (from 1024px, user decision 2026-10-31; cards stay below): a table in a bordered scroll box (sticky header row; the `Afirmación` column, `--matrix-statement-width` 18rem, 24rem from 1280px, and the answer column, `--matrix-answer-width` 3.5rem, stay sticky on the left when a narrow canvas scrolls the Party columns sideways, as on the shared result at 1024px inside the app shell; the box's `scroll-padding` clears the sticky header and columns so a keyboard-focused cell is never hidden under them): `Afirmación` (number + text clamped to 2 lines, a button that opens every Party's Position), `Tú` / `Enlace` (the Answer as a short label, the amber star when Important, full label for screen readers), then one column per Party in ranking order (32px logo tile + short name, full name hidden). Each cell is a button with the stance as a short label (`MA`, `A`, `N`, `D`, `MD`, `—`) and the full stance and coincidence in its accessible name (`PSOE: De acuerdo, coincidencia 75 %. Ver la cita`). **Cell tint = coincidence with the Answer** (the matching rule's per-Statement agreement), one accent hue at `--match-100` 60 %, `--match-75` 42 %, `--match-50` 26 %, `--match-25` 12 % over `surface`, 0 % plain `surface`; no rated Answer or no stance: `surface-sunken` with muted text. Never a colour per side of the scale or per Party; every column and cell has the same markup. A legend under the table spells out the labels and shows the five swatches.
+- **Inspector panel**: a modal side sheet (native `<dialog>`, right edge, at most 32rem, full height, `surface`, `border-strong` left rule, `shadow-lg`, blurred `scrim`). It shows `Afirmación N`, the Statement (`title-lg`), the Answer line, then for the chosen cell (or every Party, in ranking order) the tile, name, stance, `coincidencia contigo N %` and the Evidence (quote and locator, or the no-stance sentence); from a cell, `Ver todos los partidos en esta afirmación` switches to every Party and moves focus to the Statement heading. Focus starts on `Cerrar`; Escape, `Cerrar` or a backdrop click close it and focus returns to the cell or Statement that opened it (to the `Detalle por afirmación` heading if the layout switched meanwhile). It shows only what the Dataset Version holds (stance, quote, page): there is no AI explanation to show.
+- **Breakdown row**: the accent `overline` number, the Statement, the Voter's answer (and the amber `Importante (cuenta el doble)` mark), then one `<details>` per Party on `surface-sunken` with a chevron, the 32px tile and the name/short/value text box.
+- **Evidence quote**: `body` on `surface` with a 3px accent left rule; never italic.
+- **Share card**: one card, `Comparte tu resultado` (soft `Copiar enlace`, fallback field) then `Comparte IdeologiApp` (six 48px square tiles with `border-control`, captions in `caption`), separated by a hairline. Behaviour unchanged.
+- **Feedback button**: `Danos tu opinión`, outlined, full width in the sidebar footer (every app-shell page; origin `landing`, shown as `General` to Operators) and on the results end screen (origin `results`). It is not in the Questionnaire steps.
+- **Feedback dialog**: a native modal `<dialog>`, `surface` with a `border-strong` frame, `lg` corner, `shadow-lg`, over the blurred `scrim`; at most 32rem wide. Content and behaviour unchanged (title `Ayúdanos a mejorar`, subtitle, `Tu opinión`, counter, hint, Enviar, thanks state).
+- **Text fields** (share fallback, feedback, admin): `surface-sunken`, `border-control`, `md` corner, 16px text.
+- **Icon button**: 44px, `md` corner, `text-muted` icon, `surface-raised` hover; the dialog close, `Abrir menú` and `Cerrar menú`.
+- **Icons**: inline SVG drawn for this app (now also menu, ballot, book, chip, calendar, shield), `currentColor`, `aria-hidden`; meaning in the adjacent text or `aria-label`. Brand glyphs on share targets stay neutral.
+- **Focus**: a 2px solid `focus-ring` outline with a 2px offset on every link, button, field, summary and scale option.
 
 ## Core Screens
 
-1. Landing: brand title, choose an Election (election cards with a call to action), a short methodology summary, an "AI-generated" disclosure card, and the `Danos tu opinión` feedback button last.
-2. Questionnaire: Statement card plus disclosure card.
-3. Results: ranking + share card (Comparte tu resultado, Comparte IdeologiApp) + the `Danos tu opinión` feedback button (after the methodology link) + per-Statement breakdown.
-4. Methodology: how Statements and Positions are generated and validated.
-5. Shared result (`/resultados#…`): read-only ranking + breakdown from a Share Link, a neutral superseded notice (a card, not an alert), the share card with the Comparte IdeologiApp part only (before the breakdown), and friendly link errors.
-6. Not found.
+1. Landing (`/`, app shell): hero, `Elecciones disponibles` grid (API order, then the upcoming card), `Cómo funciona` steps. No AI card (user decision 2026-10-31): the shell footer states it on every page and `Transparencia IA` explains it.
+2. Questionnaire (focus shell): Statement card plus disclosure card.
+3. Results (focus shell, end of the Questionnaire): the results dashboard (summary, ranking, share card, controls, disclaimer, methodology link (new tab), `Danos tu opinión`, `Volver al inicio`), then the breakdown with filters: the Statement matrix with the inspector from 1024px, cards below.
+4. Methodology (`/metodologia`, `Cómo funciona` in the nav): page index plus the full method.
+5. Shared result (`/resultados#…`, app shell): the same results dashboard and breakdown (answer column `Enlace`), superseded notice, Comparte IdeologiApp, link errors.
+6. Transparencia IA (`/transparencia`, app shell): what the AI does, what is checked, what stays in the browser, and what cannot be guaranteed; links to the methodology. Static, no request.
+7. Not found (app shell; inside the focus shell for a bad Questionnaire id).
 
 ## Operator Admin Page
 
-A private page for Operators at `/admin` (`feedback-admin`), never linked from a Voter page and never indexed (`noindex`). It is a separate build entry (`apps/web/admin/index.html`), so the Voter bundle holds no admin code. Same tokens, both themes, Public Sans and the M3 grid as every other page; running text keeps the 75ch measure. No new token.
+A private page for Operators at `/admin` (`feedback-admin`), never linked from a Voter page and never indexed (`noindex`). It is a separate build entry (`apps/web/admin/index.html`), so the Voter bundle holds no admin code. Same tokens, both themes and Inter as every other page, without the app shell: one centred column at most 72rem wide; running text keeps the 72ch measure. No new token.
 
 - **Frame.** No brand logo. The `h1` reads `Administración` and is focused on load (`tabIndex=-1`, no ring). Tab title `Administración · IdeologiApp`.
 - **Checking.** A `role="status"` line, `Cargando…`.
 - **Not configured.** A notice card (info tile, as the results notice) with `No hay ninguna cuenta de Operador configurada. Define ADMIN_USERS en el servidor; el README explica cómo (ideology admin hash-password).` No form.
-- **Sign-in.** A Level 1 card titled `Iniciar sesión` (h2) with two labelled fields, `Usuario` (`autocomplete="username"`, `autocapitalize="none"`, no spellcheck) and `Contraseña` (`type="password"`, `autocomplete="current-password"`), then a filled `Entrar` button, disabled while the request runs.
-  - **Text field.** `card` background, 1px `outline` border, small (4px) corner, 16px body-lg text, 48px minimum height, the focus ring. Label above in label-lg.
+- **Sign-in.** A card titled `Iniciar sesión` (h2) with two labelled fields, `Usuario` (`autocomplete="username"`, `autocapitalize="none"`, no spellcheck) and `Contraseña` (`type="password"`, `autocomplete="current-password"`), then a filled `Entrar` button, disabled while the request runs.
+  - **Text field.** `surface-sunken` background, 1px `border-control`, 8px corner, 16px body text, 48px minimum height, the focus ring. Label above in `label`.
   - **Errors.** One `role="alert"` text line: `Usuario o contraseña incorrectos.`, `Demasiados intentos. Vuelve a intentarlo en N minutos.` or `No se pudo conectar. Inténtalo de nuevo.` On error the password is cleared and focused.
   - **Session expired.** The form returns with the notice line `Tu sesión ha caducado. Vuelve a iniciar sesión.`
 - **Signed in.**
-  - **Header row.** `Sesión iniciada como <usuario>` (body-md, `on-surface-variant`) and an outlined `Cerrar sesión`; the row wraps at 375px.
-  - **Filters.** A `Filtrar` fieldset (Level 1 card, legend in title-md) with `Desde (UTC)` and `Hasta (UTC)` date fields and `Estado` (native select: `Todas` by default, `Sin revisar`, `Revisadas`), then an outlined `Filtrar` button. The fields use the text-field look, stack at compact and sit in one row from 600px. `Hasta` earlier than `Desde` shows a text problem line (`role="alert"`) and sends nothing.
+  - **Header row.** `Sesión iniciada como <usuario>` (body-sm, `text-muted`) and an outlined `Cerrar sesión`; the row wraps at 375px.
+  - **Filters.** A `Filtrar` fieldset (card, legend in `title`) with `Desde (UTC)` and `Hasta (UTC)` date fields and `Estado` (native select: `Todas` by default, `Sin revisar`, `Revisadas`), then an outlined `Filtrar` button. The fields use the text-field look, stack at compact and sit in one row from 600px. `Hasta` earlier than `Desde` shows a text problem line (`role="alert"`) and sends nothing.
   - **Status line.** A `role="status"` line, `N mensajes mostrados`, or `Mensaje borrado.` after a delete.
-  - **List.** An `<ol>` of Level 1 cards, one per message, newest first:
-    - Meta line in body-md `on-surface-variant`: `#id · 29 oct 2026, 14:05 UTC · Inicio` (origin `Inicio` or `Resultados`).
-    - `Revisado` chip when reviewed: the `important-mark` pair (`secondary-container` / `on-secondary-container`, label-md, full pill): gold means "marked by you". The state is in the chip's text.
-    - The message in body-lg, `white-space: pre-wrap`, `overflow-wrap: anywhere`, always rendered as text (markup shows literally).
+  - **List.** An `<ol>` of cards, one per message, newest first:
+    - Meta line in body-sm `text-muted`: `#id · 29 oct 2026, 14:05 UTC · General` (origin `General` for the sidebar button, stored as `landing`, or `Resultados`).
+    - `Revisado` chip when reviewed: the `important-mark` look (amber soft badge): amber means "marked by you". The state is in the chip's text.
+    - The message in body, `white-space: pre-wrap`, `overflow-wrap: anywhere`, always rendered as text (markup shows literally).
     - Actions (wrap at 375px): outlined `Marcar como revisado` / `Marcar como no revisado` (disabled while pending) and outlined `Borrar`.
     - An action error is a `role="alert"` line inside its card.
   - **Paging.** An outlined `Cargar más` when there are more messages.
   - **Empty states.** `Todavía no hay mensajes.` with no filters, `Ningún mensaje coincide con los filtros.` with filters.
   - **Load error.** An alert line `No se pudieron cargar los mensajes.` with a filled `Reintentar`.
 - **Delete confirmation (inline, not a modal).** Inside the card the actions are replaced by `¿Borrar este mensaje para siempre? No se puede deshacer.`, a filled `Borrar definitivamente` and an outlined `Cancelar`. Focus goes to `Cancelar`; `Escape` or `Cancelar` closes it and focuses `Borrar` again. After the delete the card is gone, the status line says `Mensaje borrado.`, and focus moves to the next card's first action, or else to the status line.
-- **Accessibility.** Every pair used is already in the contrast table (`on-surface` / `on-surface-variant` on card, `outline` borders, `on-secondary-container` on `secondary-container`, the focus ring). 48px targets; DOM order is the focus order.
+- **Accessibility.** Every pair used is already in the contrast table (`text` / `text-muted` on surface, `border-control` borders, `on-highlight-soft` on `highlight-soft`, the focus ring). 48px targets; DOM order is the focus order.
 
 ## Accessibility Baseline
 
-WCAG 2.1 AA contrast for every text pair in both themes, and at least 3:1 for borders that identify a control and for the focus ring. Checked pairs (light / dark):
+WCAG 2.1 AA contrast for every text pair in both themes, and at least 3:1 for borders that identify a control and for the focus ring. Checked pairs (dark / light):
 
-| Pair | Light | Dark |
+| Pair | Dark | Light |
 |---|---|---|
-| on-surface on surface / card | 16.4 / 17.2 | 14.4 / 13.3 |
-| on-surface-variant on surface / card | 8.9 / 9.4 | 10.9 / 10.0 |
-| primary (links) on surface / card | 8.9 / 9.4 | 10.9 / 10.0 |
-| on-primary on primary | 9.4 | 7.7 |
-| on-primary-container on primary-container (agree) | 4.56 | 7.3 |
-| on-surface-variant on surface-container-high (neutral) | 7.6 | 8.4 |
-| on-surface on outline-variant (disagree) | 10.1 | 7.3 |
-| on-secondary-container on secondary-container | 4.56 | 7.4 |
-| on-info on info-container (Baja cobertura) | 7.2 | 7.2 |
-| on-surface on surface-container-high (quote) | 14.0 | 11.1 |
-| outline border on card / surface (≥ 3) | 4.5 / 4.3 | 5.4 / 5.8 |
-| focus ring secondary on surface / card (≥ 3) | 6.1 / 6.4 | 10.9 / 10.0 |
-| surface on on-surface (coverage tooltip) | 16.4 | 14.4 |
-| on-party-logo-tile on party-logo-tile (placeholder) | 9.4 | 9.4 |
-| on-surface on surface-container-highest (feedback dialog) | 13.3 | 9.5 |
-| on-surface-variant on surface-container-highest (subtitle, hint, counter) | 7.2 | 7.2 |
-| primary on surface-container-highest (check icon) | 7.2 | 7.2 |
-| focus ring secondary on surface-container-highest (≥ 3) | 5.0 | 7.2 |
-| outline (text-area border) on surface-container-highest (≥ 3) | 3.5 | 3.9 |
-| on-surface on card (text-area text) | 17.2 | 13.3 |
+| text on surface / bg | 16.3 / 18.4 | 17.9 / 17.1 |
+| text-muted on surface / bg / surface-raised | 7.0 / 7.9 / 5.7 | 7.6 / 7.2 / 6.9 |
+| accent (links, active nav) on surface / bg | 9.9 / 11.2 | 5.4 / 5.1 |
+| on-accent on accent-fill (buttons, CTA) | 8.3 | 5.4 |
+| on-accent-soft on accent-soft (badges, chip, Copiar enlace) | 10.6 | 6.6 |
+| text on accent-soft (checked option) | 16.4 | 15.6 |
+| on-highlight-soft on highlight-soft (Important, Próximamente) | 10.3 | 6.5 |
+| highlight (star) on surface (≥ 3) | 10.7 | 5.0 |
+| text on surface-raised (tooltip, nested) | 13.4 | 16.3 |
+| on-party-logo-tile on party-logo-tile | 10.4 | 10.4 |
+| border-control on surface / surface-sunken (≥ 3) | 3.8 / 4.2 | 3.5 / 3.3 |
+| text-subtle radio circle on surface-sunken (≥ 3) | 4.2 | 4.6 |
+| focus-ring on surface / bg (≥ 3) | 9.9 / 11.2 | 3.7 / 3.5 |
+| text on matrix cell, 100 % tint (60 % accent-fill over surface) | 4.8 | 7.0 |
+| text on matrix cell, 75 % / 50 % / 25 % tint | 7.1 / 10.1 / 13.5 | 9.6 / 12.3 / 15.1 |
 
-The scale is a native radio group usable by keyboard and screen reader.
+`text-subtle` is used only for decorative marks, icons beside text and disabled labels, never for running text. `border` and `border-strong` are hairlines that separate, never the only cue for a control.
+
+The scale is a native radio group usable by keyboard and screen reader. The drawer is a labelled `aside` with a labelled `nav`; the canvas is `inert` while it is open.
 
 ## Do's and Don'ts
 
@@ -323,10 +273,11 @@ The scale is a native radio group usable by keyboard and screen reader.
 - Do take every colour, font and shadow from `tokens.css`.
 - Don't use party colours for bars or backgrounds.
 - Don't recolour, crop or resize a logo per Party; every Party gets the same tile.
-- Don't use red/green on the agreement scale.
-- Don't load fonts, styles, scripts or images from another origin.
+- Don't use red/green or per-side colours on the agreement scale.
+- Don't put navigation on the Questionnaire steps; the Answers live only in page state.
+- Don't load fonts, styles, scripts or images from another origin (the prototype's CDNs are not used).
 - Don't load share widgets, SDKs, scripts or brand images; share targets are plain links (or the system share sheet).
 
 ## Open Design Questions
 
-- None. (Party logos: settled by the user on 2026-10-26, shown in a fixed white tile; logo licensing stays open in `docs/risks-and-open-questions.md`.)
+- None. (Party logos: settled by the user on 2026-10-26; logo licensing stays open in `docs/risks-and-open-questions.md`.)

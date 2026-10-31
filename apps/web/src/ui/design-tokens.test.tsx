@@ -1,5 +1,5 @@
 // Guards the CONSTRAINTS.md "Web Client Styling" rules: every colour, font
-// and shadow comes from tokens.css, which mirrors DESIGN.md (light and dark),
+// and shadow comes from tokens.css, which mirrors DESIGN.md (dark and light),
 // and no stylesheet reaches another origin.
 import { describe, expect, test } from "vitest";
 
@@ -48,27 +48,27 @@ describe("design tokens", () => {
     expect(literal).toEqual([]);
   });
 
-  test("tokens.css has a dark theme and Public Sans, and no old typefaces", () => {
+  test("tokens.css has a light theme and Inter, and no old typefaces", () => {
     const tokens = sheets[TOKENS]!;
-    expect(tokens).toContain("prefers-color-scheme: dark");
-    expect(tokens).toContain("Public Sans");
-    expect(tokens).not.toMatch(/Georgia|Inter\b/);
+    expect(tokens).toContain("prefers-color-scheme: light");
+    expect(tokens).toContain("Inter Variable");
+    expect(tokens).not.toMatch(/Georgia|Public Sans/);
   });
 
   test("the party-logo tile colours are declared once and fixed in both themes", () => {
     const tokens = withoutComments(sheets[TOKENS]!);
     for (const [name, value] of [
       ["--color-party-logo-tile", "#ffffff"],
-      ["--color-on-party-logo-tile", "#3f484d"],
+      ["--color-on-party-logo-tile", "#334155"],
     ] as const) {
       expect(declarations(tokens, name)).toEqual([value]);
     }
-    const darkStart = tokens.indexOf("@media (prefers-color-scheme: dark)");
-    expect(darkStart).toBeGreaterThan(-1);
-    const darkEnd = tokens.indexOf("@media", darkStart + 1);
-    const dark = tokens.slice(darkStart, darkEnd === -1 ? undefined : darkEnd);
-    expect(dark).not.toContain("--color-party-logo-tile");
-    expect(dark).not.toContain("--color-on-party-logo-tile");
+    const lightStart = tokens.indexOf("@media (prefers-color-scheme: light)");
+    expect(lightStart).toBeGreaterThan(-1);
+    const lightEnd = tokens.indexOf("@media", lightStart + 1);
+    const light = tokens.slice(lightStart, lightEnd === -1 ? undefined : lightEnd);
+    expect(light).not.toContain("--color-party-logo-tile");
+    expect(light).not.toContain("--color-on-party-logo-tile");
   });
 
   test.each(Object.entries(sheets))("%s loads nothing from another origin", (_path, css) => {

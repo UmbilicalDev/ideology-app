@@ -22,7 +22,7 @@ export function formatUtcDateTime(iso: string): string {
 }
 
 const ORIGIN_LABELS: Record<FeedbackOriginCode, string> = {
-  landing: "Inicio",
+  landing: "General",
   results: "Resultados",
 };
 

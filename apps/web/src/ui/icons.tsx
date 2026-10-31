@@ -113,6 +113,61 @@ export function MailIcon() {
   );
 }
 
+export function MenuIcon() {
+  return (
+    <Icon>
+      <path d="M4 6.5h16M4 12h16M4 17.5h16" />
+    </Icon>
+  );
+}
+
+// Sidebar navigation: a ballot box, an open book and a chip.
+export function BallotIcon() {
+  return (
+    <Icon>
+      <path d="M4 11h16v8.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19.5z" />
+      <path d="M8 11V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V11" />
+      <path d="M10 7l1.5 1.5L14 6M4 15h16" />
+    </Icon>
+  );
+}
+
+export function BookIcon() {
+  return (
+    <Icon>
+      <path d="M12 6.5C10.5 5 8 4.5 4 4.5v13c4 0 6.5.5 8 2 1.5-1.5 4-2 8-2v-13c-4 0-6.5.5-8 2z" />
+      <path d="M12 6.5v13" />
+    </Icon>
+  );
+}
+
+export function ChipIcon() {
+  return (
+    <Icon>
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+      <path d="M9.5 9.5h5v5h-5zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
+    </Icon>
+  );
+}
+
+export function CalendarIcon() {
+  return (
+    <Icon>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M3.5 10h17M8 3v4M16 3v4" />
+    </Icon>
+  );
+}
+
+export function ShieldIcon() {
+  return (
+    <Icon>
+      <path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.5-4-1.2-7-5-7-9.5V6z" />
+      <path d="M9 12l2 2 4-4" />
+    </Icon>
+  );
+}
+
 // Simplified brand marks drawn for this app (DESIGN.md "Icons"): filled in
 // currentColor, never in brand colours, aria-hidden. The share target's
 // caption names the network and its accessible name says the action.

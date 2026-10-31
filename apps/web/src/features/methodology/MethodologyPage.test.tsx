@@ -42,8 +42,8 @@ const SHARE_TEXT =
   "versión del cuestionario; si después se ha publicado una más reciente, se avisa.";
 
 const FEEDBACK_TEXT =
-  "Si nos envías tu opinión sobre la herramienta, se guarda solo el texto que escribas, la " +
-  "pantalla desde la que la envías (la de inicio o la de resultados) y la fecha. No se guardan " +
+  "Si nos envías tu opinión sobre la herramienta, se guarda solo el texto que escribas, desde " +
+  "dónde la envías (el menú general o la pantalla de resultados) y la fecha. No se guardan " +
   "tus respuestas, tu dirección IP ni ningún otro dato sobre ti. Para frenar los envíos " +
   "masivos, el servidor cuenta durante unos minutos, solo en memoria, los envíos de cada " +
   "conexión. No escribas datos personales en el mensaje.";
@@ -205,13 +205,21 @@ describe("MethodologyPage", () => {
     expect(within(disclaimer).getByText(DISCLAIMER_TEXT)).toBeTruthy();
   });
 
-  test("the only link is Volver al inicio, there are no images and no request", () => {
+  test("main links only to its own sections and home, has no images and no request", () => {
     const fetch = renderMethodology();
-    const links = screen.getAllByRole("link");
+    const main = screen.getByRole("main");
+    const toc = within(main).getByRole("navigation", { name: "En esta página" });
+    const tocLinks = within(toc).getAllByRole("link");
+    expect(tocLinks).toHaveLength(HEADINGS.length);
+    for (const link of tocLinks) {
+      const target = main.querySelector(link.getAttribute("href")!);
+      expect(target?.tagName).toBe("H2");
+    }
+    const links = within(main).getAllByRole("link").filter((link) => !toc.contains(link));
     expect(links).toHaveLength(1);
     expect(links[0]?.textContent).toBe("Volver al inicio");
     expect(links[0]?.getAttribute("href")).toBe("/");
-    expect(screen.getByRole("main").querySelectorAll("img, svg")).toHaveLength(0);
+    expect(main.querySelectorAll("img, svg")).toHaveLength(0);
     expect(fetch).not.toHaveBeenCalled();
   });
 });

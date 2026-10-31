@@ -90,13 +90,16 @@ describe("QuestionnairePage", () => {
   test("Scenario 1: loading, then the first Statement with five unchecked radios", async () => {
     const fetch = happyFetch();
     renderAt("/elecciones/1/cuestionario", fetch);
-    const h1 = screen.getByRole("heading", { level: 1 });
-    expect(h1.textContent).toBe("IdeologiApp");
-    expect(h1.querySelector("img")?.getAttribute("alt")).toBe("");
+    // Focus shell: no sidebar, only the brand and Salir.
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.getByRole("link", { name: "Salir" }).getAttribute("href")).toBe("/");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Cuestionario");
     expect(screen.getByRole("status").textContent).toBe("Cargando cuestionario…");
 
     const group = await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" });
-    expect(screen.getByText("Generales 2023").className).toBe("questionnaire__election");
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.textContent).toBe("Generales 2023");
+    expect(h1.className).toBe("questionnaire__election");
     expect(screen.getByText("Afirmación 1 de 3")).toBeTruthy();
     const progress = screen.getByRole("progressbar", { name: "Afirmación 1 de 3" });
     expect(progress.getAttribute("value")).toBe("1");
