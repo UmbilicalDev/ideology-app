@@ -6,8 +6,8 @@ import { createRoot } from "react-dom/client";
 
 import { createAdminApiClient } from "./admin-api";
 import { AdminApp } from "./AdminApp";
-// Public Sans, self-hosted: Vite emits the woff2 files to /assets/ (no third-party request).
-import "@fontsource-variable/public-sans/wght.css";
+// Inter, self-hosted: Vite emits the woff2 files to /assets/ (no third-party request).
+import "@fontsource-variable/inter/wght.css";
 import "../ui/global.css";
 import "../ui/components.css";
 import "../ui/admin.css";

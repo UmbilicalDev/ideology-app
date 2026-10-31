@@ -6,7 +6,8 @@ import { summarize, type OpenShareLinkResult, type PublicApi } from "@ideology-a
 import { HomeButton } from "../common/HomeButton";
 import { NoticeCard } from "../common/NoticeCard";
 import { METHODOLOGY_PATH, questionnairePath } from "../paths";
-import { ResultsBreakdown } from "../results/ResultsBreakdown";
+import { useMediaQuery } from "../common/useMediaQuery";
+import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
 import { ShareApp } from "./ShareApp";
@@ -111,6 +112,7 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
   const { election, state, results, versionStatus, questionnaireAvailable } = result;
   const { answered, skipped, important, total } = summarize(state);
   const superseded = versionStatus === "superseded";
+  const wide = useMediaQuery(MATRIX_QUERY);
   return (
     <>
       <p className="questionnaire__election">{election.name}</p>
@@ -128,36 +130,46 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
         </section>
       ) : null}
       <h2 id="results-title">Afinidad con cada partido</h2>
-      <ResultsSummary
-        answered={answered}
-        skipped={skipped}
-        important={important}
-        total={total}
-        voice="link"
-      />
-      {results.hasScores ? (
-        <>
-          <p>{RESULTS_INTRO}</p>
-          <ResultsRanking ranking={results.ranking} />
-        </>
-      ) : (
-        <p>{NO_SCORES}</p>
-      )}
-      <NoticeCard text={DISCLAIMER} />
-      <p>
-        <Link className="text-link" to={METHODOLOGY_PATH}>
-          Cómo se calcula la afinidad
-        </Link>
-      </p>
-      {!superseded && questionnaireAvailable ? (
+      <div className="results-dashboard">
+        <ResultsSummary
+          answered={answered}
+          skipped={skipped}
+          important={important}
+          total={total}
+          voice="link"
+        />
+        <div
+          className="results-dashboard__ranking"
+          role="region"
+          aria-label="Afinidad por partido"
+          // Scrollable (and so a tab stop) only in the wide layout.
+          tabIndex={wide ? 0 : undefined}
+        >
+          {results.hasScores ? (
+            <>
+              <p>{RESULTS_INTRO}</p>
+              <ResultsRanking ranking={results.ranking} />
+            </>
+          ) : (
+            <p>{NO_SCORES}</p>
+          )}
+        </div>
+        <NoticeCard text={DISCLAIMER} />
         <p>
-          <Link className="button-primary" to={questionnairePath(election.id)}>
-            Haz tú el cuestionario
+          <Link className="text-link" to={METHODOLOGY_PATH}>
+            Cómo se calcula la afinidad
           </Link>
         </p>
-      ) : null}
-      <div className="share-card">
-        <ShareApp />
+        {!superseded && questionnaireAvailable ? (
+          <p>
+            <Link className="button-primary" to={questionnairePath(election.id)}>
+              Haz tú el cuestionario
+            </Link>
+          </p>
+        ) : null}
+        <div className="share-card">
+          <ShareApp />
+        </div>
       </div>
       <ResultsBreakdown rows={results.breakdown} answerOwner="link" />
       <p className="questionnaire__note">{NOTE}</p>

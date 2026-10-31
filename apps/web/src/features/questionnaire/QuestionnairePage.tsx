@@ -2,22 +2,27 @@ import { useParams } from "react-router";
 
 import type { FeedbackApi, PublicApi } from "@ideology-app/core";
 
-import { BrandTitle } from "../common/BrandTitle";
 import { HomeButton } from "../common/HomeButton";
 import { NotFoundPage } from "../not-found/NotFoundPage";
 import { parseElectionId } from "../paths";
+import { FocusShell } from "../shell/FocusShell";
 import { QuestionnaireFlow } from "./QuestionnaireFlow";
 import { useQuestionnaireData } from "./useQuestionnaireData";
 
-// Questionnaire route (`/elecciones/:electionId/cuestionario`). An invalid id
-// is not found without any request.
+// Questionnaire route (`/elecciones/:electionId/cuestionario`), in the focus
+// shell (no sidebar). An invalid id is not found without any request.
 export function QuestionnairePage({ api }: { readonly api: PublicApi & FeedbackApi }) {
   const { electionId: raw } = useParams();
   const electionId = parseElectionId(raw);
-  if (electionId === null) {
-    return <NotFoundPage />;
-  }
-  return <QuestionnaireLoader key={electionId} api={api} electionId={electionId} />;
+  return (
+    <FocusShell>
+      {electionId === null ? (
+        <NotFoundPage />
+      ) : (
+        <QuestionnaireLoader key={electionId} api={api} electionId={electionId} />
+      )}
+    </FocusShell>
+  );
 }
 
 function QuestionnaireLoader({
@@ -31,9 +36,12 @@ function QuestionnaireLoader({
   if (state.kind === "not_found") {
     return <NotFoundPage />;
   }
+  // The page title is the Election's name once it is known.
   return (
-    <main>
-      <BrandTitle />
+    <main className="questionnaire">
+      <h1 className="questionnaire__election">
+        {state.kind === "ready" ? state.election.name : "Cuestionario"}
+      </h1>
       {(() => {
         switch (state.kind) {
           case "loading":
@@ -67,7 +75,6 @@ function QuestionnaireLoader({
             return (
               <QuestionnaireFlow
                 key={state.datasetVersion.id}
-                election={state.election}
                 datasetVersion={state.datasetVersion}
                 feedbackApi={api}
               />

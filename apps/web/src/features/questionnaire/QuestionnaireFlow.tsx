@@ -10,7 +10,6 @@ import {
   summarize,
   type AnswerValue,
   type DatasetVersion,
-  type Election,
   type FeedbackApi,
   type QuestionnaireAction,
   type QuestionnaireState,
@@ -19,12 +18,13 @@ import {
   type Statement,
 } from "@ideology-app/core";
 
-import { ExternalLinkIcon, StarIcon } from "../../ui/icons";
+import { ExternalLinkIcon, ShieldIcon, StarIcon } from "../../ui/icons";
 import { HomeButton } from "../common/HomeButton";
 import { FeedbackButton } from "../feedback/FeedbackButton";
 import { NoticeCard } from "../common/NoticeCard";
 import { METHODOLOGY_PATH } from "../paths";
-import { ResultsBreakdown } from "../results/ResultsBreakdown";
+import { useMediaQuery } from "../common/useMediaQuery";
+import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
 import { SCALE_LABELS } from "../scale-labels";
@@ -74,11 +74,9 @@ const IMPORTANT_HINT = "Las afirmaciones importantes cuentan el doble al calcula
  * URL or browser storage, so a reload or leaving the page discards them.
  */
 export function QuestionnaireFlow({
-  election,
   datasetVersion,
   feedbackApi,
 }: {
-  readonly election: Election;
   readonly datasetVersion: DatasetVersion;
   /** Only the feedback port: the dialog never receives Questionnaire state. */
   readonly feedbackApi: FeedbackApi;
@@ -108,7 +106,6 @@ export function QuestionnaireFlow({
 
   return (
     <>
-      <p className="questionnaire__election">{election.name}</p>
       {statement === undefined ? (
         <EndScreen
           datasetVersionId={datasetVersion.id}
@@ -258,76 +255,69 @@ function EndScreen({
   const { answered, skipped, important, total } = summarize(state);
   // A ranking needs one rated Statement on which some Party has a stance.
   const { ranking, breakdown, hasScores } = results;
+  const wide = useMediaQuery(MATRIX_QUERY);
   return (
     <>
       <h2 id="results-title" tabIndex={-1} ref={headingRef}>
         Tus resultados
       </h2>
-      <ResultsSummary
-        answered={answered}
-        skipped={skipped}
-        important={important}
-        total={total}
-        voice="voter"
-      />
-      {hasScores ? (
-        <>
-          <p>{RESULTS_INTRO}</p>
-          <ResultsRanking ranking={ranking} />
-        </>
-      ) : (
-        <p>{NO_RESULTS_PROMPT}</p>
-      )}
-      <div className="share-card">
-        {hasScores ? <ShareResults datasetVersionId={datasetVersionId} state={state} /> : null}
-        <ShareApp />
+      {/* DESIGN.md "Results dashboard": from 1024px the ranking is a sticky
+          right column beside the summary and actions; DOM order is the
+          reading order at every width. */}
+      <div className="results-dashboard">
+        <ResultsSummary
+          answered={answered}
+          skipped={skipped}
+          important={important}
+          total={total}
+          voice="voter"
+        />
+        <div
+          className="results-dashboard__ranking"
+          role="region"
+          aria-label="Afinidad por partido"
+          // Scrollable (and so a tab stop) only in the wide layout.
+          tabIndex={wide ? 0 : undefined}
+        >
+          {hasScores ? (
+            <>
+              <p>{RESULTS_INTRO}</p>
+              <ResultsRanking ranking={ranking} />
+            </>
+          ) : (
+            <p>{NO_RESULTS_PROMPT}</p>
+          )}
+        </div>
+        <div className="share-card">
+          {hasScores ? <ShareResults datasetVersionId={datasetVersionId} state={state} /> : null}
+          <ShareApp />
+        </div>
+        <div className="questionnaire__controls">
+          <button type="button" className="button-primary" onClick={onFirst}>
+            Revisar mis respuestas
+          </button>
+          <button type="button" className="button-secondary" onClick={onBack}>
+            Volver a la última afirmación
+          </button>
+        </div>
+        <NoticeCard text={DISCLAIMER} />
+        <p>
+          <Link className="text-link" to={METHODOLOGY_PATH} target="_blank" rel="noopener">
+            Cómo se calcula la afinidad{" "}
+            <span className="visually-hidden">(se abre en una pestaña nueva)</span>
+            <ExternalLinkIcon />
+          </Link>
+        </p>
+        <div className="feedback-entry">
+          <FeedbackButton api={feedbackApi} origin="results" />
+        </div>
+        <HomeButton />
       </div>
-      <div className="questionnaire__controls">
-        <button type="button" className="button-primary" onClick={onFirst}>
-          Revisar mis respuestas
-        </button>
-        <button type="button" className="button-secondary" onClick={onBack}>
-          Volver a la última afirmación
-        </button>
-      </div>
-      <NoticeCard text={DISCLAIMER} />
-      <p>
-        <Link className="text-link" to={METHODOLOGY_PATH} target="_blank" rel="noopener">
-          Cómo se calcula la afinidad{" "}
-          <span className="visually-hidden">(se abre en una pestaña nueva)</span>
-          <ExternalLinkIcon />
-        </Link>
-      </p>
-      <div className="feedback-entry">
-        <FeedbackButton api={feedbackApi} origin="results" />
-      </div>
-      <HomeButton />
       <ResultsBreakdown rows={breakdown} />
       <p className="questionnaire__note">
         {hasScores ? `${RESULTS_NOTE} ${RESULTS_NOTE_SHARE}` : RESULTS_NOTE}
       </p>
       <HomeButton />
     </>
-  );
-}
-
-// Decorative shield on the disclosure card (an original drawing).
-function ShieldIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      focusable="false"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinejoin="round"
-      strokeLinecap="round"
-    >
-      <path d="M12 3l7 3v5c0 4.5-3 8.3-7 9.5-4-1.2-7-5-7-9.5V6z" />
-      <path d="M9 12l2 2 4-4" />
-    </svg>
   );
 }

@@ -26,10 +26,10 @@ describe("App routes", () => {
     renderAt("/", fetch);
 
     fireEvent.click(await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }));
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("IdeologiApp");
     expect(
       await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" }),
     ).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Generales 2023");
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Saltar esta afirmación" }));

@@ -7,11 +7,9 @@ import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@i
 import { App } from "../../app/App";
 import { electionJson, jsonResponse, textResponse } from "../../test/fetch-mocks";
 
-const DISCLOSURE_TEXT =
-  "Las afirmaciones y las posiciones de los partidos las ha generado automáticamente una " +
-  "inteligencia artificial a partir de sus programas electorales, sin revisión humana, y pueden " +
-  "contener errores. Cada posición se apoya en una cita literal del programa que podrás " +
-  "consultar. Esta herramienta no es una recomendación de voto.";
+const FOOTER_TEXT =
+  "IdeologiApp no es una recomendación de voto. Las afirmaciones y las posiciones las genera " +
+  "una inteligencia artificial y pueden contener errores.";
 
 function renderLanding(fetch: FetchLike) {
   return render(
@@ -29,9 +27,11 @@ function fetchResolving(...responses: HttpResponseLike[]) {
   return fetch;
 }
 
+// The AI disclosure is no longer a Landing card (web-redesign): the shell
+// footer states it on every page and /transparencia explains it.
 function expectDisclosureAndMethodology() {
-  const disclosure = screen.getByRole("region", { name: "Contenido generado con IA" });
-  expect(within(disclosure).getByText(DISCLOSURE_TEXT)).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Contenido generado con IA" })).toBeNull();
+  expect(screen.getByRole("contentinfo").textContent).toBe(FOOTER_TEXT);
   expect(screen.getByRole("heading", { level: 2, name: "Cómo funciona" })).toBeTruthy();
   expect(
     screen.getByRole("link", { name: "Lee la metodología completa" }).getAttribute("href"),
@@ -58,7 +58,8 @@ describe("LandingPage", () => {
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toBe("IdeologiApp");
     expect(h1.querySelector("img")?.getAttribute("alt")).toBe("");
-    expect(screen.getByText("Comparador de programas electorales").tagName).toBe("P");
+    const main = screen.getByRole("main");
+    expect(within(main).getByText("Comparador de programas electorales").tagName).toBe("P");
     expectDisclosureAndMethodology();
 
     resolve(jsonResponse({ elections: [electionJson()] }));
@@ -84,14 +85,13 @@ describe("LandingPage", () => {
     });
   });
 
-  test("keeps the main content order: h1, intro, disclosure, Elections, methodology", async () => {
+  test("keeps the main content order: h1, intro, Elections, methodology", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
     await screen.findByRole("link", { name: /Generales 2023/ });
     const main = screen.getByRole("main");
     const order = Array.from(main.querySelectorAll("h1, h2")).map((h) => h.textContent);
     expect(order).toEqual([
       "IdeologiApp",
-      "Contenido generado con IA",
       "Elecciones disponibles",
       "Cómo funciona",
     ]);
@@ -106,10 +106,40 @@ describe("LandingPage", () => {
     const link = within(methodology).getByRole("link", { name: "Lee la metodología completa" });
     expect(link.getAttribute("href")).toBe("/metodologia");
     expect(link.className).toBe("text-link");
-    expect(screen.getAllByRole("link")).toHaveLength(2);
+    const main = screen.getByRole("main");
+    expect(
+      within(main)
+        .getAllByRole("link")
+        .map((l) => l.getAttribute("href")),
+    ).toEqual(["/elecciones/1/cuestionario", "/metodologia"]);
   });
 
-  test("feedback-dialog: Danos tu opinión is last in main and sends origin landing", async () => {
+  test("the upcoming card follows the Elections and is not a link", async () => {
+    renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
+    await screen.findByRole("link", { name: /Generales 2023/ });
+    const items = within(screen.getByRole("region", { name: "Elecciones disponibles" })).getAllByRole(
+      "listitem",
+    );
+    expect(items).toHaveLength(2);
+    expect(within(items[0]!).getByText("Disponible").className).toBe("status-badge");
+    expect(within(items[1]!).getByRole("heading", { level: 3 }).textContent).toBe(
+      "Elecciones generales 2026",
+    );
+    expect(within(items[1]!).queryByRole("link")).toBeNull();
+  });
+
+  test("an Election without a published Dataset Version is marked En preparación", async () => {
+    renderLanding(
+      fetchResolving(
+        jsonResponse({ elections: [electionJson({ published_dataset_version_id: null })] }),
+      ),
+    );
+    await screen.findByRole("link", { name: /Generales 2023/ });
+    expect(screen.getByText("En preparación").className).toBe("status-badge status-badge--muted");
+    expect(screen.queryByText("Disponible")).toBeNull();
+  });
+
+  test("feedback-dialog: Danos tu opinión is in the sidebar footer and sends origin landing", async () => {
     const fetch = vi.fn<FetchLike>(async (url) =>
       url === "/api/v1/feedback"
         ? jsonResponse({ status: "ok" }, 201)
@@ -117,14 +147,12 @@ describe("LandingPage", () => {
     );
     renderLanding(fetch);
     await screen.findByRole("link", { name: /Generales 2023/ });
-    const main = screen.getByRole("main");
-    const feedback = screen.getByRole("button", { name: "Danos tu opinión" });
+    const sidebar = screen.getByRole("complementary", { name: "Menú principal" });
+    const feedback = within(sidebar).getByRole("button", { name: "Danos tu opinión" });
     expect(feedback.className).toBe("button-secondary");
     expect(feedback.getAttribute("aria-haspopup")).toBe("dialog");
-    expect(main.lastElementChild).toBe(feedback.parentElement);
-    expect(feedback.parentElement?.className).toBe("feedback-entry");
-    const methodology = screen.getByRole("region", { name: "Cómo funciona" });
-    expect(methodology.nextElementSibling).toBe(feedback.parentElement);
+    expect(feedback.parentElement?.className).toBe("sidebar__footer");
+    expect(within(screen.getByRole("main")).queryByRole("button", { name: "Danos tu opinión" })).toBeNull();
 
     fireEvent.click(feedback);
     const dialog = screen.getByRole("dialog", { name: "Ayúdanos a mejorar" });
@@ -146,7 +174,9 @@ describe("LandingPage", () => {
       ),
     ).toBeTruthy();
     expect(electionLinks()).toHaveLength(0);
-    expect(screen.queryByRole("list")).toBeNull();
+    // Only the fixed upcoming card is left in the grid.
+    const elections = screen.getByRole("region", { name: "Elecciones disponibles" });
+    expect(within(elections).getAllByRole("listitem")).toHaveLength(1);
     expectDisclosureAndMethodology();
   });
 

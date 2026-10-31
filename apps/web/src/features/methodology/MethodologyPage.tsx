@@ -2,8 +2,20 @@
 import { useEffect, useRef } from "react";
 
 import { HomeButton } from "../common/HomeButton";
+import { PageToc, type TocEntry } from "../common/PageToc";
 
 export const METHODOLOGY_TITLE = "Metodología · IdeologiApp";
+
+const TOC: readonly TocEntry[] = [
+  { id: "methodology-sources-title", label: "Programas electorales" },
+  { id: "methodology-statements-title", label: "Las afirmaciones" },
+  { id: "methodology-positions-title", label: "La posición de cada partido" },
+  { id: "methodology-selection-title", label: "El cuestionario" },
+  { id: "methodology-validation-title", label: "Comprobaciones" },
+  { id: "methodology-matching-title", label: "La afinidad" },
+  { id: "methodology-privacy-title", label: "Tus respuestas" },
+  { id: "methodology-disclaimer-title", label: "Aviso" },
+];
 
 // Methodology screen (DESIGN.md Core Screens 4). Static copy, no API request.
 // It states the default Validation thresholds and the matching rule; keep it in
@@ -21,183 +33,189 @@ export function MethodologyPage() {
   }, []);
 
   return (
-    <main>
-      <h1 ref={headingRef} tabIndex={-1}>
-        Metodología
-      </h1>
-      <p>
-        Esta página explica de dónde salen las afirmaciones y las posiciones de los partidos, cómo
-        se comprueban antes de publicarse, cómo se calcula la afinidad y qué pasa con tus
-        respuestas.
-      </p>
+    <main className="doc-page">
+      <div className="doc-page__header">
+        <h1 ref={headingRef} tabIndex={-1}>
+          Metodología
+        </h1>
+        <p className="doc-page__lead">
+          Esta página explica de dónde salen las afirmaciones y las posiciones de los partidos, cómo
+          se comprueban antes de publicarse, cómo se calcula la afinidad y qué pasa con tus
+          respuestas.
+        </p>
+      </div>
+      <div className="doc-page__layout">
+        <PageToc entries={TOC} />
+        <div className="doc-page__body">
+          <section aria-labelledby="methodology-sources-title">
+            <h2 id="methodology-sources-title">Programas electorales</h2>
+            <p>
+              Se usan los programas electorales de las candidaturas con representación en el
+              Congreso de los Diputados, ya sean partidos o coaliciones, tal como se presentaron a
+              las elecciones. Si el programa conjunto de una coalición contradice el de uno de sus
+              partidos, la inteligencia artificial debe dar prioridad al programa conjunto.
+            </p>
+            <p>
+              Las instrucciones que recibe la inteligencia artificial nunca incluyen el nombre del
+              partido: solo el texto de su programa, que puede mencionarlo. Todos los programas se
+              procesan con las mismas instrucciones.
+            </p>
+          </section>
 
-      <section aria-labelledby="methodology-sources-title">
-        <h2 id="methodology-sources-title">Programas electorales</h2>
-        <p>
-          Se usan los programas electorales de las candidaturas con representación en el Congreso
-          de los Diputados, ya sean partidos o coaliciones, tal como se presentaron a las
-          elecciones. Si el programa conjunto de una coalición contradice el de uno de sus
-          partidos, la inteligencia artificial debe dar prioridad al programa conjunto.
-        </p>
-        <p>
-          Las instrucciones que recibe la inteligencia artificial nunca incluyen el nombre del
-          partido: solo el texto de su programa, que puede mencionarlo. Todos los programas se
-          procesan con las mismas instrucciones.
-        </p>
-      </section>
+          <section aria-labelledby="methodology-statements-title">
+            <h2 id="methodology-statements-title">Cómo se redactan las afirmaciones</h2>
+            <p>
+              Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones
+              candidatas: propuestas políticas con las que se puede estar de acuerdo o en
+              desacuerdo. Después, un procedimiento automático, sin inteligencia artificial y sin
+              azar, toma el mismo número de candidatas de cada partido, sea cual sea la extensión de
+              su programa, repartidas entre los temas que más trata cada programa. Un partido con
+              menos candidatas aporta todas las que tiene.
+            </p>
+            <p>
+              Con esas candidatas, la inteligencia artificial redacta una lista más amplia, de unas
+              55 afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación
+              política con una dirección clara, como subir o bajar un impuesto, y no una medida de
+              detalle, para que el mayor número posible de partidos se pueda situar en ella.
+            </p>
+            <p>
+              Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres
+              de partidos o de políticos, una sola propuesta por afirmación, temas variados,
+              orientaciones en las que los partidos discrepen y no añadir nada que no esté en las
+              candidatas. Nadie modifica a mano el resultado.
+            </p>
+          </section>
 
-      <section aria-labelledby="methodology-statements-title">
-        <h2 id="methodology-statements-title">Cómo se redactan las afirmaciones</h2>
-        <p>
-          Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones
-          candidatas: propuestas políticas con las que se puede estar de acuerdo o en desacuerdo.
-          Después, un procedimiento automático, sin inteligencia artificial y sin azar, toma el
-          mismo número de candidatas de cada partido, sea cual sea la extensión de su programa,
-          repartidas entre los temas que más trata cada programa. Un partido con menos candidatas
-          aporta todas las que tiene.
-        </p>
-        <p>
-          Con esas candidatas, la inteligencia artificial redacta una lista más amplia, de unas 55
-          afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación
-          política con una dirección clara, como subir o bajar un impuesto, y no una medida de
-          detalle, para que el mayor número posible de partidos se pueda situar en ella.
-        </p>
-        <p>
-          Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres de
-          partidos o de políticos, una sola propuesta por afirmación, temas variados, orientaciones
-          en las que los partidos discrepen y no añadir nada que no esté en las candidatas. Nadie
-          modifica a mano el resultado.
-        </p>
-      </section>
+          <section aria-labelledby="methodology-positions-title">
+            <h2 id="methodology-positions-title">Cómo se sitúa a cada partido</h2>
+            <p>
+              La inteligencia artificial vuelve a leer el programa de cada partido y, en cada
+              afirmación que el programa trata de forma explícita, le asigna una posición en una
+              escala de cinco puntos, de «totalmente en desacuerdo» a «totalmente de acuerdo», y
+              copia una cita literal del programa, con su página, que la respalda.
+            </p>
+            <p>
+              Si el programa no trata una afirmación, el partido queda sin posición en ella: sus
+              instrucciones le prohíben deducir la posición de la ideología general del partido o de
+              que el programa no mencione el asunto. Sí cuenta como tratarla una propuesta concreta
+              del programa que va claramente en la dirección de la afirmación o en la contraria, y
+              la cita debe contener esa propuesta.
+            </p>
+            <p>
+              En los resultados puedes abrir la posición de cada partido en cada afirmación para
+              leer la cita y comprobarla. Las comprobaciones automáticas verifican que la cita está
+              en el programa, pero no pueden confirmar que respalde la posición asignada; por eso es
+              importante que puedas leerla.
+            </p>
+          </section>
 
-      <section aria-labelledby="methodology-positions-title">
-        <h2 id="methodology-positions-title">Cómo se sitúa a cada partido</h2>
-        <p>
-          La inteligencia artificial vuelve a leer el programa de cada partido y, en cada
-          afirmación que el programa trata de forma explícita, le asigna una posición en una escala
-          de cinco puntos, de «totalmente en desacuerdo» a «totalmente de acuerdo», y copia una
-          cita literal del programa, con su página, que la respalda.
-        </p>
-        <p>
-          Si el programa no trata una afirmación, el partido queda sin posición en ella: sus
-          instrucciones le prohíben deducir la posición de la ideología general del partido o de
-          que el programa no mencione el asunto. Sí cuenta como tratarla una propuesta concreta del
-          programa que va claramente en la dirección de la afirmación o en la contraria, y la cita
-          debe contener esa propuesta.
-        </p>
-        <p>
-          En los resultados puedes abrir la posición de cada partido en cada afirmación para
-          leer la cita y comprobarla. Las comprobaciones automáticas verifican que la cita está
-          en el programa, pero no pueden confirmar que respalde la posición asignada; por eso es
-          importante que puedas leerla.
-        </p>
-      </section>
+          <section aria-labelledby="methodology-selection-title">
+            <h2 id="methodology-selection-title">Cómo se eligen las afirmaciones del cuestionario</h2>
+            <p>
+              La inteligencia artificial propone más afirmaciones de las que tendrá el cuestionario,
+              entre 45 y 60, y sitúa a cada partido en todas ellas. Después, un procedimiento
+              automático, sin inteligencia artificial y sin azar, elige entre 25 y 35 para el
+              cuestionario.
+            </p>
+            <p>
+              Deja fuera las afirmaciones repetidas y las que no separan a los partidos, porque
+              todos los que tienen posición coinciden, y no deja que un tema supere el 30&nbsp;% del
+              cuestionario. Entre las demás, elige primero las que dan posición al partido que menos
+              tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas
+              y, después, las que se propusieron antes. Todos los partidos cuentan igual.
+            </p>
+            <p>
+              El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos
+              tienen posición en al menos el 50&nbsp;% de ellas. Si no es posible cumplir estas
+              condiciones, el procedimiento se acerca todo lo que puede y las comprobaciones
+              posteriores impiden publicar el resultado. Las afirmaciones conservan el texto y el
+              orden con que se propusieron.
+            </p>
+          </section>
 
-      <section aria-labelledby="methodology-selection-title">
-        <h2 id="methodology-selection-title">Cómo se eligen las afirmaciones del cuestionario</h2>
-        <p>
-          La inteligencia artificial propone más afirmaciones de las que tendrá el cuestionario,
-          entre 45 y 60, y sitúa a cada partido en todas ellas. Después, un procedimiento
-          automático, sin inteligencia artificial y sin azar, elige entre 25 y 35 para el
-          cuestionario.
-        </p>
-        <p>
-          Deja fuera las afirmaciones repetidas y las que no separan a los partidos, porque todos
-          los que tienen posición coinciden, y no deja que un tema supere el 30&nbsp;% del
-          cuestionario. Entre las demás, elige primero las que dan posición al partido que menos
-          tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas y,
-          después, las que se propusieron antes. Todos los partidos cuentan igual.
-        </p>
-        <p>
-          El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos
-          tienen posición en al menos el 50&nbsp;% de ellas. Si no es posible cumplir estas
-          condiciones, el procedimiento se acerca todo lo que puede y las comprobaciones
-          posteriores impiden publicar el resultado. Las afirmaciones conservan el texto y el orden
-          con que se propusieron.
-        </p>
-      </section>
+          <section aria-labelledby="methodology-validation-title">
+            <h2 id="methodology-validation-title">Comprobaciones antes de publicar</h2>
+            <p>Antes de publicar los datos de unas elecciones, se comprueba automáticamente que:</p>
+            <ul className="plain-list">
+              <li>
+                cada cita aparece literalmente en el programa del partido, empezando en la página
+                indicada, sin tener en cuenta mayúsculas, tildes, espacios ni signos de puntuación;
+              </li>
+              <li>cada partido tiene posición en al menos el 50&nbsp;% de las afirmaciones;</li>
+              <li>
+                en cada afirmación hay al menos dos posiciones distintas entre los partidos que
+                tienen posición;
+              </li>
+              <li>no hay dos afirmaciones con el mismo texto;</li>
+              <li>el cuestionario tiene entre 25 y 35 afirmaciones;</li>
+              <li>ningún tema reúne más del 30&nbsp;% de las afirmaciones.</li>
+            </ul>
+            <p>
+              Si falla cualquiera de estas comprobaciones, no se publica nada y siguen vigentes los
+              datos publicados anteriormente, si los hay. Una vez publicados, los datos no se
+              modifican nunca: si se generan datos nuevos, sustituyen a los anteriores.
+            </p>
+          </section>
 
-      <section aria-labelledby="methodology-validation-title">
-        <h2 id="methodology-validation-title">Comprobaciones antes de publicar</h2>
-        <p>Antes de publicar los datos de unas elecciones, se comprueba automáticamente que:</p>
-        <ul className="plain-list">
-          <li>
-            cada cita aparece literalmente en el programa del partido, empezando en la página
-            indicada, sin tener en cuenta mayúsculas, tildes, espacios ni signos de puntuación;
-          </li>
-          <li>cada partido tiene posición en al menos el 50&nbsp;% de las afirmaciones;</li>
-          <li>
-            en cada afirmación hay al menos dos posiciones distintas entre los partidos que tienen
-            posición;
-          </li>
-          <li>no hay dos afirmaciones con el mismo texto;</li>
-          <li>el cuestionario tiene entre 25 y 35 afirmaciones;</li>
-          <li>ningún tema reúne más del 30&nbsp;% de las afirmaciones.</li>
-        </ul>
-        <p>
-          Si falla cualquiera de estas comprobaciones, no se publica nada y siguen vigentes los
-          datos publicados anteriormente, si los hay. Una vez publicados, los datos no se modifican
-          nunca: si se generan datos nuevos, sustituyen a los anteriores.
-        </p>
-      </section>
+          <section aria-labelledby="methodology-matching-title">
+            <h2 id="methodology-matching-title">Cómo se calcula la afinidad</h2>
+            <p>
+              Tus respuestas y las posiciones de los partidos usan la misma escala de cinco puntos.
+              En cada afirmación, la coincidencia con un partido es del 100&nbsp;% si tu respuesta y
+              su posición son iguales, y baja 25 puntos por cada paso de diferencia en la escala: es
+              del 0&nbsp;% entre «totalmente de acuerdo» y «totalmente en desacuerdo».
+            </p>
+            <p>
+              La afinidad con cada partido es la media de esas coincidencias en las afirmaciones que
+              respondes y en las que el partido tiene posición. Las afirmaciones que te saltes y
+              aquellas en las que el partido no tiene posición no cuentan. Las que marques como
+              importantes cuentan el doble.
+            </p>
+            <p>
+              Si compartes menos de 5 afirmaciones con un partido, su afinidad se marca como de baja
+              cobertura, porque se basa en pocos datos. Los partidos se ordenan por afinidad y, en
+              caso de empate, alfabéticamente.
+            </p>
+          </section>
 
-      <section aria-labelledby="methodology-matching-title">
-        <h2 id="methodology-matching-title">Cómo se calcula la afinidad</h2>
-        <p>
-          Tus respuestas y las posiciones de los partidos usan la misma escala de cinco puntos. En
-          cada afirmación, la coincidencia con un partido es del 100&nbsp;% si tu respuesta y su
-          posición son iguales, y baja 25 puntos por cada paso de diferencia en la escala: es del
-          0&nbsp;% entre «totalmente de acuerdo» y «totalmente en desacuerdo».
-        </p>
-        <p>
-          La afinidad con cada partido es la media de esas coincidencias en las afirmaciones que
-          respondes y en las que el partido tiene posición. Las afirmaciones que te saltes y
-          aquellas en las que el partido no tiene posición no cuentan. Las que marques como
-          importantes cuentan el doble.
-        </p>
-        <p>
-          Si compartes menos de 5 afirmaciones con un partido, su afinidad se marca como de baja
-          cobertura, porque se basa en pocos datos. Los partidos se ordenan por afinidad y, en caso
-          de empate, alfabéticamente.
-        </p>
-      </section>
+          <section aria-labelledby="methodology-privacy-title">
+            <h2 id="methodology-privacy-title">Tus respuestas</h2>
+            <p>
+              Tus respuestas se quedan en tu navegador: no se envían ni se guardan en ningún
+              servidor, y la afinidad se calcula en tu propio dispositivo. No hay cuentas de usuario
+              ni estadísticas sobre las respuestas.
+            </p>
+            <p>
+              Puedes compartir tu resultado con un enlace que lleva tus respuestas al final de la
+              dirección, tras el símbolo «#». Los navegadores no envían esa parte de la dirección al
+              servidor y el enlace no se guarda en ningún sitio: quien lo tenga puede ver tus
+              respuestas. Al abrir el enlace se ve el mismo resultado, calculado de nuevo en el
+              navegador con la misma versión del cuestionario; si después se ha publicado una más
+              reciente, se avisa.
+            </p>
+            <p>
+              Si nos envías tu opinión sobre la herramienta, se guarda solo el texto que escribas,
+              desde dónde la envías (el menú general o la pantalla de resultados) y la fecha. No se
+              guardan tus respuestas, tu dirección IP ni ningún otro dato sobre ti. Para frenar los
+              envíos masivos, el servidor cuenta durante unos minutos, solo en memoria, los envíos
+              de cada conexión. No escribas datos personales en el mensaje.
+            </p>
+          </section>
 
-      <section aria-labelledby="methodology-privacy-title">
-        <h2 id="methodology-privacy-title">Tus respuestas</h2>
-        <p>
-          Tus respuestas se quedan en tu navegador: no se envían ni se guardan en ningún servidor,
-          y la afinidad se calcula en tu propio dispositivo. No hay cuentas de usuario ni
-          estadísticas sobre las respuestas.
-        </p>
-        <p>
-          Puedes compartir tu resultado con un enlace que lleva tus respuestas al final de la
-          dirección, tras el símbolo «#». Los navegadores no envían esa parte de la dirección al
-          servidor y el enlace no se guarda en ningún sitio: quien lo tenga puede ver tus
-          respuestas. Al abrir el enlace se ve el mismo resultado, calculado de nuevo en el
-          navegador con la misma versión del cuestionario; si después se ha publicado una más
-          reciente, se avisa.
-        </p>
-        <p>
-          Si nos envías tu opinión sobre la herramienta, se guarda solo el texto que escribas, la
-          pantalla desde la que la envías (la de inicio o la de resultados) y la fecha. No se
-          guardan tus respuestas, tu dirección IP ni ningún otro dato sobre ti. Para frenar los
-          envíos masivos, el servidor cuenta durante unos minutos, solo en memoria, los envíos de
-          cada conexión. No escribas datos personales en el mensaje.
-        </p>
-      </section>
+          <section className="card" aria-labelledby="methodology-disclaimer-title">
+            <h2 id="methodology-disclaimer-title">Aviso</h2>
+            <p>
+              Esta herramienta no es una recomendación de voto. Las afirmaciones y las posiciones
+              las genera automáticamente una inteligencia artificial, sin revisión humana, y pueden
+              contener errores. La afinidad solo refleja lo que dicen los programas electorales, no
+              lo que los partidos han hecho o votado. Contrasta las citas con los programas
+              originales antes de sacar conclusiones.
+            </p>
+          </section>
 
-      <section className="card" aria-labelledby="methodology-disclaimer-title">
-        <h2 id="methodology-disclaimer-title">Aviso</h2>
-        <p>
-          Esta herramienta no es una recomendación de voto. Las afirmaciones y las posiciones las
-          genera automáticamente una inteligencia artificial, sin revisión humana, y pueden
-          contener errores. La afinidad solo refleja lo que dicen los programas electorales, no lo
-          que los partidos han hecho o votado. Contrasta las citas con los programas originales
-          antes de sacar conclusiones.
-        </p>
-      </section>
-
-      <HomeButton />
+          <HomeButton />
+        </div>
+      </div>
     </main>
   );
 }

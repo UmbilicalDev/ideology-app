@@ -4,7 +4,7 @@ export type PartyLogoSize = "ranking" | "breakdown";
 
 // Placeholder geometry in SVG user units. The font size (10) and line height
 // (12) match `--party-logo-placeholder-font`; 0.72em is a generous advance for
-// upper-case Public Sans at weight 600.
+// upper-case Inter at weight 600.
 const FONT_SIZE = 10;
 const ADVANCE = 0.72 * FONT_SIZE;
 const LINE_HEIGHT = 12;

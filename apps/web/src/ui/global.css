@@ -12,51 +12,46 @@ html {
 
 body {
   margin: 0;
-  background: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface);
-  font: var(--md-sys-typescale-body-lg);
-  letter-spacing: var(--md-sys-typescale-body-lg-tracking);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: var(--type-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* The M3 responsive grid (DESIGN.md Layout). Window-class values come from
-   tokens.css; every direct child sits in the content columns. */
+::selection {
+  background: var(--color-accent-fill);
+  color: var(--color-on-accent);
+}
+
+/* Every page is one <main> column inside the shell (components.css
+   "App shell"); width comes from the shell, rhythm from here. */
 main {
-  box-sizing: border-box;
-  max-width: var(--layout-max-width);
-  margin: 0 auto;
-  padding: var(--space-lg) var(--layout-margin);
-  display: grid;
-  grid-template-columns: repeat(var(--layout-columns), minmax(0, 1fr));
-  column-gap: var(--layout-gutter);
-  align-content: start;
-}
-
-main > * {
-  grid-column: var(--layout-content-column);
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 
-/* Grid items do not collapse margins with their children, so a section's
-   last paragraph would add its margin to the section's own. */
-main > * > :last-child {
+main > :last-child {
   margin-bottom: 0;
 }
 
 h1 {
   font: var(--page-title-font);
-  letter-spacing: var(--page-title-tracking);
+  letter-spacing: -0.02em;
   margin: 0 0 var(--space-md);
 }
 
 h2 {
-  font: var(--md-sys-typescale-title-lg);
-  letter-spacing: var(--md-sys-typescale-title-lg-tracking);
+  font: var(--type-title-lg);
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-sm);
 }
 
 h3,
 h4 {
-  font: var(--md-sys-typescale-title-md);
-  letter-spacing: var(--md-sys-typescale-title-md-tracking);
+  font: var(--type-title);
+  margin: 0 0 var(--space-sm);
 }
 
 p {
@@ -67,5 +62,5 @@ p {
 main p,
 .plain-list,
 blockquote {
-  max-inline-size: 75ch;
+  max-inline-size: 72ch;
 }

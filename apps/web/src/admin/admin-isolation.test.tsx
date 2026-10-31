@@ -55,7 +55,7 @@ describe("admin/index.html head", () => {
 
   test("same icons as the Voter page, same-origin only", () => {
     expect(doc.head.querySelector('link[rel="icon"]')?.getAttribute("href")).toBe(
-      "/src/assets/ideologiapp-logo.svg",
+      "/src/assets/ideologiapp-favicon.svg",
     );
     expect(doc.head.querySelector('link[rel="apple-touch-icon"]')?.getAttribute("href")).toBe(
       "/src/assets/ideologiapp-touch-icon.png",

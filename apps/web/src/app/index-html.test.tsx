@@ -10,11 +10,11 @@ describe("index.html head", () => {
     expect(head.querySelector("title")?.textContent).toBe("IdeologiApp");
   });
 
-  test("the tab icon is the product logo as SVG", () => {
+  test("the tab icon is the product logo as an SVG that follows the theme", () => {
     const icons = head.querySelectorAll('link[rel="icon"]');
     expect(icons).toHaveLength(1);
     expect(icons[0]!.getAttribute("type")).toBe("image/svg+xml");
-    expect(icons[0]!.getAttribute("href")).toBe("/src/assets/ideologiapp-logo.svg");
+    expect(icons[0]!.getAttribute("href")).toBe("/src/assets/ideologiapp-favicon.svg");
   });
 
   test("the home-screen icon is the opaque PNG of the logo", () => {
