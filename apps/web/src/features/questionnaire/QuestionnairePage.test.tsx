@@ -234,6 +234,25 @@ describe("QuestionnairePage", () => {
     }
   });
 
+  test("the Statement slides in the way the Voter moved; the progress bar is kept", async () => {
+    await openQuestionnaire();
+    const step = () => document.querySelector(".statement-step")!;
+    const progress = document.querySelector("progress");
+    // No transition on the initial load.
+    expect(step().hasAttribute("data-enter")).toBe(false);
+    fireEvent.click(button("Saltar esta afirmación"));
+    expect(step().getAttribute("data-enter")).toBe("forward");
+    fireEvent.click(radio("De acuerdo"));
+    fireEvent.click(button("Siguiente"));
+    expect(step().getAttribute("data-enter")).toBe("forward");
+    const third = step();
+    fireEvent.click(button("Anterior"));
+    expect(step().getAttribute("data-enter")).toBe("back");
+    // A new block per Statement (so the animation replays), the same bar (so its width animates).
+    expect(step()).not.toBe(third);
+    expect(document.querySelector("progress")).toBe(progress);
+  });
+
   test("turning Importante para mí on glows once; turning it off does not", async () => {
     await openQuestionnaire();
     const star = button("Importante para mí");

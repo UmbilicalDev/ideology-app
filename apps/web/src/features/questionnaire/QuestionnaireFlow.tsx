@@ -84,6 +84,8 @@ export function QuestionnaireFlow({
   const headingRef = useRef<HTMLHeadingElement>(null);
   // Focus follows navigation, but not the initial load.
   const focusPending = useRef(false);
+  // Which way the last move went, for the step transition; none on load.
+  const [direction, setDirection] = useState<StepDirection | null>(null);
 
   useEffect(() => {
     if (focusPending.current) {
@@ -94,6 +96,7 @@ export function QuestionnaireFlow({
 
   function move(action: QuestionnaireAction) {
     focusPending.current = true;
+    setDirection(action.type === "back" || action.type === "first" ? "back" : "forward");
     dispatch(action);
   }
 
@@ -116,8 +119,8 @@ export function QuestionnaireFlow({
         />
       ) : (
         <StatementStep
-          key={statement.id}
           statement={statement}
+          direction={direction}
           index={state.currentIndex}
           total={state.statementIds.length}
           answer={state.answers.get(statement.id)}
@@ -132,8 +135,11 @@ export function QuestionnaireFlow({
   );
 }
 
+type StepDirection = "forward" | "back";
+
 function StatementStep({
   statement,
+  direction,
   index,
   total,
   answer,
@@ -144,6 +150,7 @@ function StatementStep({
   onMove,
 }: {
   readonly statement: Statement;
+  readonly direction: StepDirection | null;
   readonly index: number;
   readonly total: number;
   readonly answer: AnswerValue | undefined;
@@ -154,9 +161,6 @@ function StatementStep({
   readonly onMove: (action: QuestionnaireAction) => void;
 }) {
   const n = index + 1;
-  // A short glow when the Voter turns the flag on; not on mount, so going
-  // back to an Important Statement does not replay it.
-  const [flash, setFlash] = useState(false);
   return (
     <>
       <div className="statement-card">
@@ -169,46 +173,31 @@ function StatementStep({
           value={n}
           aria-labelledby="questionnaire-progress"
         />
-        <h2 id="statement-text" className="questionnaire__statement" tabIndex={-1} ref={headingRef}>
-          {statement.text}
-        </h2>
-        <div className="important-row">
-          <button
-            type="button"
-            className={flash ? "important-toggle important-toggle--flash" : "important-toggle"}
-            aria-pressed={important}
-            aria-describedby="important-hint"
-            onClick={() => {
-              setFlash(!important);
-              onToggleImportant();
-            }}
-            onAnimationEnd={() => setFlash(false)}
-          >
-            <StarIcon className="important-toggle__star" />
-            <span>Importante para mí</span>
-          </button>
-          {/* Shown as a tooltip on hover or keyboard focus; always the
-              toggle's description for screen readers. */}
-          <p id="important-hint" role="tooltip" className="questionnaire__hint important-hint">
-            {IMPORTANT_HINT}
-          </p>
+        {/* Remounted per Statement, so it slides in from the side the Voter
+            moved towards (DESIGN.md "Step transition"); the progress, the
+            card and the controls stay put. */}
+        <div key={statement.id} className="statement-step" data-enter={direction ?? undefined}>
+          <h2 id="statement-text" className="questionnaire__statement" tabIndex={-1} ref={headingRef}>
+            {statement.text}
+          </h2>
+          <ImportantToggle important={important} onToggle={onToggleImportant} />
+          <div role="radiogroup" aria-labelledby="statement-text" className="scale">
+            {SCALE_OPTIONS.map((option) => (
+              <label key={option.value} className="scale-option">
+                <input
+                  type="radio"
+                  name={`answer-${statement.id}`}
+                  value={option.value}
+                  checked={answer === option.value}
+                  onChange={() => onSelect(option.value)}
+                />{" "}
+                <ScaleIcon value={option.value} className="scale-option__icon" />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+          {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
         </div>
-        <div role="radiogroup" aria-labelledby="statement-text" className="scale">
-          {SCALE_OPTIONS.map((option) => (
-            <label key={option.value} className="scale-option">
-              <input
-                type="radio"
-                name={`answer-${statement.id}`}
-                value={option.value}
-                checked={answer === option.value}
-                onChange={() => onSelect(option.value)}
-              />{" "}
-              <ScaleIcon value={option.value} className="scale-option__icon" />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-        {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
         {/* One row of equal buttons in reading order: Anterior (from the
             second Statement), Saltar, Siguiente. */}
         <div className="questionnaire__controls step-controls">
@@ -245,6 +234,44 @@ function StatementStep({
         </div>
       </section>
     </>
+  );
+}
+
+function ImportantToggle({
+  important,
+  onToggle,
+}: {
+  readonly important: boolean;
+  readonly onToggle: () => void;
+}) {
+  // A short glow when the Voter turns the flag on; not on mount, so going
+  // back to an Important Statement does not replay it.
+  const [flash, setFlash] = useState(false);
+  return (
+    <div className="important-row">
+      <button
+        type="button"
+        className={flash ? "important-toggle important-toggle--flash" : "important-toggle"}
+        aria-pressed={important}
+        aria-describedby="important-hint"
+        onClick={() => {
+          setFlash(!important);
+          onToggle();
+        }}
+        onAnimationEnd={(event) => {
+          // The star's own animation bubbles up too; wait for the button's.
+          if (event.target === event.currentTarget) setFlash(false);
+        }}
+      >
+        <StarIcon className="important-toggle__star" />
+        <span>Importante para mí</span>
+      </button>
+      {/* Shown as a tooltip on hover or keyboard focus; always the
+          toggle's description for screen readers. */}
+      <p id="important-hint" role="tooltip" className="questionnaire__hint important-hint">
+        {IMPORTANT_HINT}
+      </p>
+    </div>
   );
 }
 

@@ -956,3 +956,13 @@
 - 2026-11-03 user request: 8px gap between an opened position summary and its quote on the mobile cards; checked at 375.
 - 2026-11-03 user request: position card hover fill corner now matches the card corner (inner radius = card radius - 1px border); checked magnified at 375.
 - Next best step: independent validation of `questionnaire-results-visual-tweaks`, then commit and PR.
+
+### Session 080 (questionnaire-step-transition)
+
+- Date: 2026-11-03
+- Goal: A subtle cue that the Statement changed after Siguiente, Saltar or Anterior (user request).
+- Completed: `main` updated after PR #89 and its branch deleted (local and remote). `QuestionnaireFlow.tsx`: move direction state, a `.statement-step` block keyed per Statement with `data-enter` (`forward`/`back`), `StatementStep` no longer remounted (so the progress bar keeps its node and animates), `ImportantToggle` split out to keep its glow state per Statement. CSS `step-enter` keyframes, reduced-motion overrides; `DESIGN.md` "Step transition"; test.
+- Verification run: `CI=true ./init.sh` (below); real-browser timing check in Google Chrome at 1200 and 375, reduced motion (details in `feature_list.json`).
+- Evidence captured: `feature_list.json` -> `questionnaire-step-transition.evidence` (status `passing`).
+- Known risk or unresolved issue: none new. No independent validation yet.
+- Next best step: user review of the feel, then commit and PR.
