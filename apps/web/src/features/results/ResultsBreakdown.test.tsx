@@ -7,9 +7,9 @@ import { textWithoutLogos } from "../../test/text";
 import { ResultsBreakdown } from "./ResultsBreakdown";
 
 const INTRO =
-  "Tu respuesta y la posición de cada partido en cada afirmación. Las posiciones y las citas las " +
-  "ha extraído una inteligencia artificial de los programas electorales: abre una posición para " +
-  "leer la cita en la que se basa y comprobarla.";
+  "Haz click en una afirmación o posición para ver las citas coincidentes extraídas de los " +
+  "programas electorales.";
+const LINK_TITLE = "Comprueba de dónde salen las coincidencias del enlace";
 const NO_STANCE_SENTENCE =
   "El programa de este partido no trata esta afirmación, así que no cuenta para su afinidad.";
 
@@ -69,8 +69,8 @@ function renderBreakdown(rows: readonly BreakdownRow[] = ROWS) {
   return render(<ResultsBreakdown rows={rows} />);
 }
 
-function rows() {
-  return Array.from(screen.getByRole("list", { name: "Detalle por afirmación" }).children) as HTMLElement[];
+function rows(name = "Comprueba de dónde salen tus coincidencias") {
+  return Array.from(screen.getByRole("list", { name }).children) as HTMLElement[];
 }
 
 function items(row: HTMLElement) {
@@ -81,7 +81,7 @@ describe("ResultsBreakdown", () => {
   test("heading, intro, numbered rows with h4 Statement text", () => {
     renderBreakdown();
     const h3 = screen.getByRole("heading", { level: 3 });
-    expect(h3.textContent).toBe("Detalle por afirmación");
+    expect(h3.textContent).toBe("Comprueba de dónde salen tus coincidencias");
     expect(h3.id).toBe("breakdown-title");
     expect(screen.getByText(INTRO)).toBeTruthy();
     expect(rows()).toHaveLength(3);
@@ -108,6 +108,16 @@ describe("ResultsBreakdown", () => {
     expect(answers[0]!.querySelector("strong")?.textContent).toBe("De acuerdo");
     expect(screen.getAllByText("Importante (cuenta el doble)")).toHaveLength(1);
     expect(screen.getByText("Importante (cuenta el doble)").className).toBe("important-mark");
+    // Leading icons: the scale icon, step-over when skipped, none when unanswered;
+    // the Important mark carries the star. All decorative.
+    expect(answers.map((a) => a.querySelector("strong svg")?.getAttribute("class") ?? null)).toEqual([
+      "icon icon--wide value-icon",
+      "icon value-icon",
+      null,
+    ]);
+    const star = screen.getByText("Importante (cuenta el doble)").querySelector("svg");
+    expect(star?.getAttribute("class")).toBe("icon important-mark__star");
+    expect(star?.getAttribute("aria-hidden")).toBe("true");
   });
 
   test("one closed details per row and Party, with scale labels and no stance in the summary", () => {
@@ -188,30 +198,28 @@ describe("ResultsBreakdown", () => {
         Array.from(d.querySelector(".position__label")!.children, (el) => el.className),
       ).toEqual(["position__name", "position__short", "position__value"]);
     }
+    // Besides the logos, only the Answer line (scale icon, Important star)
+    // and each stance's scale icon carry graphics, the same for every Party.
     expect(container.querySelectorAll("img, svg")).toHaveLength(
-      container.querySelectorAll(".party-logo img, .party-logo svg").length,
+      container.querySelectorAll(
+        ".party-logo img, .party-logo svg, .breakdown-row__answer svg, .position__value svg",
+      ).length,
     );
   });
 
   test("an empty list renders the section with no rows", () => {
     renderBreakdown([]);
-    expect(screen.getByRole("heading", { level: 3 }).textContent).toBe("Detalle por afirmación");
-    expect(screen.getByRole("list", { name: "Detalle por afirmación" }).children).toHaveLength(0);
+    expect(screen.getByRole("heading", { level: 3 }).textContent).toBe("Comprueba de dónde salen tus coincidencias");
+    expect(screen.getByRole("list", { name: "Comprueba de dónde salen tus coincidencias" }).children).toHaveLength(0);
   });
 
   test('answerOwner="link" names the link\'s Answer; markup otherwise identical', () => {
     const voter = renderBreakdown().container.innerHTML;
     cleanup();
     const { container } = render(<ResultsBreakdown rows={ROWS} answerOwner="link" />);
-    expect(
-      screen.getByText(
-        "La respuesta del enlace y la posición de cada partido en cada afirmación. Las posiciones " +
-          "y las citas las ha extraído una inteligencia artificial de los programas electorales: " +
-          "abre una posición para leer la cita en la que se basa y comprobarla.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByText(INTRO)).toBeNull();
-    expect(rows().map((r) => r.querySelector(".breakdown-row__answer")?.textContent)).toEqual([
+    expect(screen.getByRole("heading", { level: 3, name: LINK_TITLE })).toBeTruthy();
+    expect(screen.getByText(INTRO)).toBeTruthy();
+    expect(rows(LINK_TITLE).map((r) => r.querySelector(".breakdown-row__answer")?.textContent)).toEqual([
       "Respuesta del enlace: De acuerdo Importante (cuenta el doble)",
       "Respuesta del enlace: Saltada (no cuenta para la afinidad)",
       "Respuesta del enlace: Sin responder",
@@ -219,7 +227,7 @@ describe("ResultsBreakdown", () => {
     expect(container.textContent).not.toContain("Tu respuesta");
     const normalise = (html: string) =>
       html
-        .replace("La respuesta del enlace y", "Tu respuesta y")
+        .replaceAll(LINK_TITLE, "Comprueba de dónde salen tus coincidencias")
         .replaceAll("Respuesta del enlace:", "Tu respuesta:");
     expect(normalise(container.innerHTML)).toBe(voter);
   });

@@ -1,5 +1,7 @@
 import { NO_STANCE, SKIP, type BreakdownPosition, type BreakdownRow } from "@ideology-app/core";
 
+import { StarIcon, StepOverIcon } from "../../ui/icons";
+import { ScaleIcon } from "../scale-icons";
 import { SCALE_LABELS } from "../scale-labels";
 
 export const NO_STANCE_LABEL = "Sin posición en el programa";
@@ -16,6 +18,13 @@ export function answerLabel(answer: BreakdownRow["answer"]): string {
   return SCALE_LABELS[answer];
 }
 
+/** The decorative icon of an Answer or stance: its scale icon, step-over when skipped, none otherwise. */
+export function ValueIcon({ value }: { readonly value: BreakdownRow["answer"] | BreakdownPosition["value"] }) {
+  if (value === null || value === NO_STANCE) return null;
+  if (value === SKIP) return <StepOverIcon className="value-icon" />;
+  return <ScaleIcon value={value} className="value-icon" />;
+}
+
 /** `Tu respuesta: <label>` plus the Important mark, as on every breakdown view. */
 export function AnswerLine({
   row,
@@ -28,11 +37,18 @@ export function AnswerLine({
 }) {
   return (
     <p className={className}>
-      {prefix} <strong>{answerLabel(row.answer)}</strong>
+      {prefix}{" "}
+      <strong className="value-label">
+        <ValueIcon value={row.answer} />
+        {answerLabel(row.answer)}
+      </strong>
       {row.important ? (
         <>
           {" "}
-          <span className="important-mark">{IMPORTANT_MARK}</span>
+          <span className="important-mark">
+            <StarIcon className="important-mark__star" />
+            {IMPORTANT_MARK}
+          </span>
         </>
       ) : null}
     </p>

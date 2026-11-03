@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, test, vi } from "vitest";
 
@@ -34,9 +34,8 @@ describe("App routes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Saltar esta afirmación" }));
     expect(screen.getByText("Muestra evaluada: 0/1 afirmaciones contestadas")).toBeTruthy();
-    const homeLinks = screen.getAllByRole("link", { name: "Volver al inicio" });
-    expect(homeLinks).toHaveLength(2);
-    fireEvent.click(homeLinks[1]!);
+    expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: "IdeologiApp, ir al inicio" }));
     expect(
       await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }),
     ).toBeTruthy();
@@ -109,7 +108,11 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { level: 2, name: "Afinidad con cada partido" }),
     ).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+    expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();
+    expect(screen.getByRole("link", { name: "IdeologiApp, ir al inicio" }).getAttribute("href")).toBe("/");
+    // The shared result is the only shell page whose sidebar has Ir al inicio.
+    const nav = screen.getByRole("navigation", { name: "Secciones" });
+    expect(within(nav).getByRole("link", { name: "Ir al inicio" }).getAttribute("href")).toBe("/");
     expect(fetch.mock.calls.map((call) => call[0])).toEqual([
       "/api/v1/dataset-versions/1",
       "/api/v1/elections/1",

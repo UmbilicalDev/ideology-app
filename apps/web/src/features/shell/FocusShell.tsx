@@ -8,17 +8,17 @@ import { HOME_PATH } from "../paths";
 
 /**
  * The Questionnaire's layout (DESIGN.md "Focus shell"): no sidebar, only a
- * slim bar with the brand and `Salir`, and one centred column. Answers live
- * in page state, so there is no navigation to lose them by a stray click.
+ * slim bar with the brand (a link home) and `Salir`, and one centred column.
+ * Answers live in page state, so leaving by either link discards them.
  */
 export function FocusShell({ children }: { readonly children: ReactNode }) {
   return (
     <div className="focus-shell">
       <header className="focus-bar">
-        <span className="focus-bar__brand">
+        <Link className="focus-bar__brand" to={HOME_PATH} aria-label={`${APP_NAME}, ir al inicio`}>
           <ProductLogo className="focus-bar__logo" size={28} />
           <span>{APP_NAME}</span>
-        </span>
+        </Link>
         <Link className="focus-bar__exit" to={HOME_PATH}>
           <CloseIcon />
           <span>Salir</span>

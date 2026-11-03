@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, type RefObject } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router";
 
 import {
@@ -18,8 +18,14 @@ import {
   type Statement,
 } from "@ideology-app/core";
 
-import { ExternalLinkIcon, ShieldIcon, StarIcon } from "../../ui/icons";
-import { HomeButton } from "../common/HomeButton";
+import {
+  ArrowBackIcon,
+  ArrowForwardIcon,
+  ExternalLinkIcon,
+  ShieldIcon,
+  StarIcon,
+  StepOverIcon,
+} from "../../ui/icons";
 import { FeedbackButton } from "../feedback/FeedbackButton";
 import { NoticeCard } from "../common/NoticeCard";
 import { METHODOLOGY_PATH } from "../paths";
@@ -27,6 +33,7 @@ import { useMediaQuery } from "../common/useMediaQuery";
 import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
+import { ScaleIcon } from "../scale-icons";
 import { SCALE_LABELS } from "../scale-labels";
 import { ShareApp } from "../share/ShareApp";
 import { ShareResults } from "../share/ShareResults";
@@ -57,14 +64,6 @@ const NO_RESULTS_PROMPT =
 const DISCLAIMER =
   "Esto no es una recomendación de voto: solo compara tus respuestas con lo que dicen los " +
   "programas, según una inteligencia artificial que puede equivocarse.";
-
-const RESULTS_NOTE =
-  "Tus respuestas siguen solo en este navegador: si recargas la página, vuelves atrás con el " +
-  "navegador o sales de aquí, se pierden.";
-
-// Only when there is a share section to point at.
-const RESULTS_NOTE_SHARE =
-  "Para volver a verlo más tarde, copia antes el enlace de «Comparte tu resultado».";
 
 const IMPORTANT_HINT = "Las afirmaciones importantes cuentan el doble al calcular la afinidad.";
 
@@ -113,7 +112,6 @@ export function QuestionnaireFlow({
           results={results}
           headingRef={headingRef}
           feedbackApi={feedbackApi}
-          onBack={() => move({ type: "back" })}
           onFirst={() => move({ type: "first" })}
         />
       ) : (
@@ -156,6 +154,9 @@ function StatementStep({
   readonly onMove: (action: QuestionnaireAction) => void;
 }) {
   const n = index + 1;
+  // A short glow when the Voter turns the flag on; not on mount, so going
+  // back to an Important Statement does not replay it.
+  const [flash, setFlash] = useState(false);
   return (
     <>
       <div className="statement-card">
@@ -174,15 +175,21 @@ function StatementStep({
         <div className="important-row">
           <button
             type="button"
-            className="important-toggle"
+            className={flash ? "important-toggle important-toggle--flash" : "important-toggle"}
             aria-pressed={important}
             aria-describedby="important-hint"
-            onClick={onToggleImportant}
+            onClick={() => {
+              setFlash(!important);
+              onToggleImportant();
+            }}
+            onAnimationEnd={() => setFlash(false)}
           >
             <StarIcon className="important-toggle__star" />
             <span>Importante para mí</span>
           </button>
-          <p id="important-hint" className="questionnaire__hint">
+          {/* Shown as a tooltip on hover or keyboard focus; always the
+              toggle's description for screen readers. */}
+          <p id="important-hint" role="tooltip" className="questionnaire__hint important-hint">
             {IMPORTANT_HINT}
           </p>
         </div>
@@ -196,28 +203,34 @@ function StatementStep({
                 checked={answer === option.value}
                 onChange={() => onSelect(option.value)}
               />{" "}
+              <ScaleIcon value={option.value} className="scale-option__icon" />
               <span>{option.label}</span>
             </label>
           ))}
         </div>
         {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
-        <div className="questionnaire__controls">
+        {/* One row of equal buttons in reading order: Anterior (from the
+            second Statement), Saltar, Siguiente. */}
+        <div className="questionnaire__controls step-controls">
+          {index > 0 ? (
+            <button type="button" className="button-secondary" onClick={() => onMove({ type: "back" })}>
+              <ArrowBackIcon />
+              <span>Anterior</span>
+            </button>
+          ) : null}
+          <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
+            <StepOverIcon />
+            <span>Saltar esta afirmación</span>
+          </button>
           <button
             type="button"
             className="button-primary"
             disabled={answer === undefined}
             onClick={() => onMove({ type: "next" })}
           >
-            Siguiente
+            <span>Siguiente</span>
+            <ArrowForwardIcon />
           </button>
-          <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
-            Saltar esta afirmación
-          </button>
-          {index > 0 ? (
-            <button type="button" className="button-secondary" onClick={() => onMove({ type: "back" })}>
-              Anterior
-            </button>
-          ) : null}
         </div>
       </div>
       <section className="disclosure-card" aria-labelledby="ai-privacy-title">
@@ -241,7 +254,6 @@ function EndScreen({
   results,
   headingRef,
   feedbackApi,
-  onBack,
   onFirst,
 }: {
   readonly datasetVersionId: number;
@@ -249,7 +261,6 @@ function EndScreen({
   readonly results: Results;
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly feedbackApi: FeedbackApi;
-  readonly onBack: () => void;
   readonly onFirst: () => void;
 }) {
   const { answered, skipped, important, total } = summarize(state);
@@ -272,6 +283,11 @@ function EndScreen({
           total={total}
           voice="voter"
         />
+        <div className="questionnaire__controls">
+          <button type="button" className="button-primary" onClick={onFirst}>
+            Revisar mis respuestas
+          </button>
+        </div>
         <div
           className="results-dashboard__ranking"
           role="region"
@@ -292,13 +308,8 @@ function EndScreen({
           {hasScores ? <ShareResults datasetVersionId={datasetVersionId} state={state} /> : null}
           <ShareApp />
         </div>
-        <div className="questionnaire__controls">
-          <button type="button" className="button-primary" onClick={onFirst}>
-            Revisar mis respuestas
-          </button>
-          <button type="button" className="button-secondary" onClick={onBack}>
-            Volver a la última afirmación
-          </button>
+        <div className="feedback-entry">
+          <FeedbackButton api={feedbackApi} origin="results" />
         </div>
         <NoticeCard text={DISCLAIMER} />
         <p>
@@ -308,16 +319,8 @@ function EndScreen({
             <ExternalLinkIcon />
           </Link>
         </p>
-        <div className="feedback-entry">
-          <FeedbackButton api={feedbackApi} origin="results" />
-        </div>
-        <HomeButton />
       </div>
       <ResultsBreakdown rows={breakdown} />
-      <p className="questionnaire__note">
-        {hasScores ? `${RESULTS_NOTE} ${RESULTS_NOTE_SHARE}` : RESULTS_NOTE}
-      </p>
-      <HomeButton />
     </>
   );
 }

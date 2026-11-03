@@ -152,7 +152,7 @@ describe("SharedResultsPage", () => {
     expect(cta.className).toBe("button-primary");
     expect(screen.getAllByText(/^Respuesta del enlace:/)).toHaveLength(6);
     expect(screen.getByText(NOTE).className).toBe("questionnaire__note");
-    expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+    expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();
   });
 
   test("logos are preloaded in Party order whatever the ranking, then shown in ranking order", async () => {

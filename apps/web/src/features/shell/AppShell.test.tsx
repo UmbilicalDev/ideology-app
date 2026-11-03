@@ -30,6 +30,7 @@ describe("AppShell", () => {
     renderAt(path);
     const nav = within(sidebar()).getByRole("navigation", { name: "Secciones" });
     const links = within(nav).getAllByRole("link");
+    // Ir al inicio shows only on the shared result.
     expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["Elecciones", "/"],
       ["Cómo funciona", "/metodologia"],
@@ -46,6 +47,7 @@ describe("AppShell", () => {
     expect(sidebar()).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1, name: "Página no encontrada" })).toBeTruthy();
     expect(screen.getByRole("banner").textContent).toBe("IdeologiApp");
+    expect(screen.getByRole("link", { name: "IdeologiApp, ir al inicio" }).getAttribute("href")).toBe("/");
   });
 
   test("the menu button opens the drawer, Escape closes it and focus returns", async () => {

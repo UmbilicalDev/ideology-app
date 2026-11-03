@@ -4,17 +4,16 @@ import type { BreakdownPosition, BreakdownRow } from "@ideology-app/core";
 
 import { useMediaQuery } from "../common/useMediaQuery";
 import { BREAKDOWN_FILTERS, matchesFilter, stanceLabel, type BreakdownFilter } from "./breakdown-view";
-import { AnswerLine, EvidenceBody, NO_STANCE_LABEL } from "./Evidence";
+import { AnswerLine, EvidenceBody, NO_STANCE_LABEL, ValueIcon } from "./Evidence";
 import { EvidenceInspector, type InspectorTarget } from "./EvidenceInspector";
 import { PartyLogo } from "./PartyLogo";
 import { ResultsMatrix } from "./ResultsMatrix";
 
 export { IMPORTANT_MARK, NO_STANCE_LABEL, SKIPPED_LABEL, UNANSWERED_LABEL } from "./Evidence";
 
-const INTRO_REST =
-  "y la posición de cada partido en cada afirmación. Las posiciones y las citas " +
-  "las ha extraído una inteligencia artificial de los programas electorales: abre una posición " +
-  "para leer la cita en la que se basa y comprobarla.";
+const INTRO =
+  "Haz click en una afirmación o posición para ver las citas coincidentes extraídas de los " +
+  "programas electorales.";
 
 /** From this width the breakdown is the Statement matrix (DESIGN.md "Statement matrix"). */
 export const MATRIX_QUERY = "(min-width: 1024px)";
@@ -29,7 +28,7 @@ const OWNER_COPY: Readonly<
   Record<
     AnswerOwner,
     {
-      readonly intro: string;
+      readonly title: string;
       readonly answer: string;
       readonly answerHeading: string;
       readonly coincidence: string;
@@ -37,13 +36,13 @@ const OWNER_COPY: Readonly<
   >
 > = {
   voter: {
-    intro: `Tu respuesta ${INTRO_REST}`,
+    title: "Comprueba de dónde salen tus coincidencias",
     answer: "Tu respuesta:",
     answerHeading: "Tú",
     coincidence: "coincidencia contigo",
   },
   link: {
-    intro: `La respuesta del enlace ${INTRO_REST}`,
+    title: "Comprueba de dónde salen las coincidencias del enlace",
     answer: "Respuesta del enlace:",
     answerHeading: "Enlace",
     coincidence: "coincidencia con el enlace",
@@ -81,9 +80,9 @@ export function ResultsBreakdown({
   return (
     <section className="breakdown-section" aria-labelledby="breakdown-title">
       <h3 id="breakdown-title" className="breakdown-section__title" tabIndex={-1} ref={headingRef}>
-        Detalle por afirmación
+        {copy.title}
       </h3>
-      <p>{copy.intro}</p>
+      <p>{INTRO}</p>
       <div className="breakdown-filters" role="group" aria-label="Filtrar afirmaciones">
         {BREAKDOWN_FILTERS.map((option) => (
           <button
@@ -165,7 +164,10 @@ function Position({ position }: { readonly position: BreakdownPosition }) {
         <span className="position__label">
           <span className="position__name">{position.name}</span>{" "}
           <span className="position__short">{position.shortName}</span>{" "}
-          <span className="position__value">{stanceLabel(position, NO_STANCE_LABEL)}</span>
+          <span className="position__value">
+            <ValueIcon value={position.value} />
+            {stanceLabel(position, NO_STANCE_LABEL)}
+          </span>
         </span>
       </summary>
       <div className="position__body">

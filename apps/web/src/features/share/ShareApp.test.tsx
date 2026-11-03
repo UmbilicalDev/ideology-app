@@ -8,8 +8,7 @@ import { App } from "../../app/App";
 import { datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
 import { appShareLinks, SHARE_TEXT } from "./app-share-links";
 
-const INTRO =
-  "Recomienda esta web a otras personas. Solo se comparte su dirección, sin ninguna respuesta.";
+const INTRO = "¿Te ha gustado IdeologiApp? Recomienda esta web a otras personas.";
 const COPIED = "Enlace de IdeologiApp copiado.";
 const COPIED_INSTAGRAM = "Enlace de IdeologiApp copiado. Ya puedes pegarlo en Instagram.";
 const FALLBACK = "No se ha podido copiar el enlace automáticamente. Cópialo desde este campo:";

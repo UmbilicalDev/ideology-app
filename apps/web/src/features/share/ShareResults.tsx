@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { encodeShareLink, type QuestionnaireState } from "@ideology-app/core";
 
-import { LinkIcon, ShareIcon } from "../../ui/icons";
+import { InfoIcon, LinkIcon, ShareIcon } from "../../ui/icons";
 import { sharedResultsUrl } from "../paths";
 
 const COPIED = "Enlace copiado.";
@@ -34,6 +34,7 @@ export function ShareResults({
   readonly state: QuestionnaireState;
 }) {
   const [copy, setCopy] = useState<CopyState>({ kind: "idle" });
+  const [noteOpen, setNoteOpen] = useState(false);
   const fieldRef = useRef<HTMLInputElement>(null);
   const fallbackAttempt = copy.kind === "fallback" ? copy.attempt : 0;
 
@@ -65,10 +66,25 @@ export function ShareResults({
 
   return (
     <section className="share" aria-labelledby="share-title">
-      <h3 id="share-title" className="share__title">
-        <ShareIcon />
-        <span>Comparte tu resultado</span>
-      </h3>
+      <div className="share__header">
+        <h3 id="share-title" className="share__title">
+          <ShareIcon />
+          <span>Comparte tu resultado</span>
+        </h3>
+        <button
+          type="button"
+          className="icon-button share__info"
+          aria-label="Privacidad del enlace"
+          aria-expanded={noteOpen}
+          aria-controls="share-note"
+          onClick={() => setNoteOpen((open) => !open)}
+        >
+          <InfoIcon />
+        </button>
+      </div>
+      <p id="share-note" className="questionnaire__note share__note" hidden={!noteOpen}>
+        {NOTE}
+      </p>
       <p>Copia un enlace que lleva tus respuestas para compartir este resultado.</p>
       <button type="button" className="button-tonal" onClick={() => void handleCopy()}>
         <LinkIcon />
@@ -91,7 +107,6 @@ export function ShareResults({
           />
         </>
       ) : null}
-      <p className="questionnaire__note">{NOTE}</p>
     </section>
   );
 }

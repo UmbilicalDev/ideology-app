@@ -4,7 +4,7 @@ import type { BreakdownRow } from "@ideology-app/core";
 
 import { CloseIcon } from "../../ui/icons";
 import { coincidence, stanceLabel } from "./breakdown-view";
-import { AnswerLine, EvidenceBody, NO_STANCE_LABEL } from "./Evidence";
+import { AnswerLine, EvidenceBody, NO_STANCE_LABEL, ValueIcon } from "./Evidence";
 import { PartyLogo } from "./PartyLogo";
 
 /** What the inspector shows: one Party's Position on a Statement, or every Party's. */
@@ -121,7 +121,10 @@ export function EvidenceInspector({
                   </span>
                 </div>
                 <p className="inspector-position__stance">
-                  <strong>{stanceLabel(position, NO_STANCE_LABEL)}</strong>
+                  <strong className="value-label">
+                    <ValueIcon value={position.value} />
+                    {stanceLabel(position, NO_STANCE_LABEL)}
+                  </strong>
                   {match === null ? null : (
                     <span className="inspector-position__match">{` · ${coincidencePrefix} ${match} %`}</span>
                   )}

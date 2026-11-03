@@ -106,7 +106,7 @@ const AGREE = { label: "De acuerdo" } as const;
 const SCENARIO_1: readonly Step[] = [AGREE, { label: "De acuerdo", important: true }, AGREE, AGREE, "skip", "flag-skip"];
 
 function breakdownRows(): HTMLElement[] {
-  return Array.from(screen.getByRole("list", { name: "Detalle por afirmación" }).children) as HTMLElement[];
+  return Array.from(screen.getByRole("list", { name: "Comprueba de dónde salen tus coincidencias" }).children) as HTMLElement[];
 }
 
 function partyNames(row: HTMLElement): string[] {
@@ -142,7 +142,7 @@ describe("results breakdown", () => {
     walk(SCENARIO_1);
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
     expect(
-      screen.getByRole("heading", { level: 3, name: "Detalle por afirmación" }),
+      screen.getByRole("heading", { level: 3, name: "Comprueba de dónde salen tus coincidencias" }),
     ).toBeTruthy();
     const rows = breakdownRows();
     expect(rows).toHaveLength(6);
@@ -156,14 +156,13 @@ describe("results breakdown", () => {
     expect(answer(4)).toBe("Tu respuesta: Saltada (no cuenta para la afinidad)");
     expect(answer(5)).toBe("Tu respuesta: Saltada (no cuenta para la afinidad)");
     expect(screen.getAllByText("Importante (cuenta el doble)")).toHaveLength(1);
-    // The section sits after the methodology link and before the privacy note.
-    const section = screen.getByRole("region", { name: "Detalle por afirmación" });
+    // The section sits after the methodology link; the old privacy note is gone.
+    const section = screen.getByRole("region", { name: "Comprueba de dónde salen tus coincidencias" });
     const methodology = screen.getByRole("link", {
       name: "Cómo se calcula la afinidad (se abre en una pestaña nueva)",
     });
-    const note = screen.getByText(/Tus respuestas siguen solo en este navegador/);
+    expect(screen.queryByText(/Tus respuestas siguen solo en este navegador/)).toBeNull();
     expect(methodology.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(section.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   test("Scenario 2: Parties follow the ranking order in every row, and follow it when it changes", async () => {
