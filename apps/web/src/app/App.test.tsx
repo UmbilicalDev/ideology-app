@@ -70,13 +70,15 @@ describe("App routes", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  test("the Landing links to the methodology page, and Volver al inicio restores the title", async () => {
+  test("the sidebar's Cómo funciona opens the methodology, and Volver al inicio restores the title", async () => {
     document.title = "IdeologiApp";
     const fetch = vi.fn<FetchLike>(async () => jsonResponse({ elections: [electionJson()] }));
     renderAt("/", fetch);
     await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" });
 
-    fireEvent.click(screen.getByRole("link", { name: "Lee la metodología completa" }));
+    // The Landing no longer links to it (landing-how-it-works-carousel).
+    expect(screen.queryByRole("link", { name: "Lee la metodología completa" })).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: "Cómo funciona" }));
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toBe("Metodología");
     expect(document.activeElement).toBe(h1);

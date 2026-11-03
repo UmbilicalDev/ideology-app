@@ -95,6 +95,14 @@
   --hero-title-font: var(--type-headline);
   --election-columns: 1;
   --steps-columns: 1;
+  /* Election card names: larger than title-lg, one line where cards are wide. */
+  --election-title-font: 700 1.25rem/1.75rem var(--font-sans);
+  /* How-it-works carousel: compact stacks text over the recording and puts
+     the arrows at the ends of the dots row. */
+  --how-areas: "slides slides slides" "prev dots next";
+  --how-slide-columns: minmax(0, 1fr);
+  --how-text-offset: 0;
+  --how-media-max-height: 100vh;
   --card-padding: 1.25rem;
   /* The main actions (Questionnaire steps, election CTA): taller targets. */
   --button-height-tall: 52px;
@@ -153,6 +161,17 @@
     --page-padding-block: 2rem;
     --page-title-font: var(--type-display);
     --hero-title-font: 700 2rem/2.5rem var(--font-sans);
+    --how-areas: "prev slides next" ". dots .";
+    /* Text a third, recording two thirds, unless the recording is capped
+       (--how-media-max-height): then the text takes the width it leaves. */
+    --how-slide-columns: minmax(0, 1fr)
+      min(calc((100% - var(--space-xl)) * 2 / 3), calc(var(--how-media-max-height) * 1.5));
+    --how-text-offset: var(--space-xl);
+    /* 38rem: the hero, the Elections and the carousel's own padding and
+       controls above and below the recording on a desktop screen. Never
+       below 18rem, so a short window scrolls instead of shrinking it. */
+    --how-media-max-height: max(18rem, calc(100svh - 38rem));
+    --election-title-font: var(--type-headline);
   }
 }
 
