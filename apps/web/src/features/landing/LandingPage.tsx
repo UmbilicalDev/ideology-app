@@ -5,9 +5,10 @@ import type { Election, PublicApi } from "@ideology-app/core";
 
 import { ArrowForwardIcon, CalendarIcon } from "../../ui/icons";
 import { BrandTitle } from "../common/BrandTitle";
-import { METHODOLOGY_PATH, questionnairePath } from "../paths";
+import { questionnairePath } from "../paths";
 import { APP_TAGLINE } from "../shell/AppShell";
 import { formatElectionDate } from "./format-date";
+import { HowItWorksCarousel } from "./HowItWorksCarousel";
 import { useElections, type ElectionsState } from "./useElections";
 
 const UPCOMING_TEXT =
@@ -15,31 +16,12 @@ const UPCOMING_TEXT =
   "generales de 2023. Próximamente añadiremos las de 2026, cuando los partidos actualicen sus " +
   "programas electorales.";
 
-const STEPS: readonly { readonly title: string; readonly text: string }[] = [
-  {
-    title: "Responde a las afirmaciones",
-    text:
-      "Indica tu grado de acuerdo con cada afirmación. Puedes saltarte las que quieras y " +
-      "marcar como importantes las que más te importan.",
-  },
-  {
-    title: "Comparamos con los programas",
-    text:
-      "En cada afirmación que trata su programa, cada partido tiene una posición respaldada " +
-      "por una cita literal del programa.",
-  },
-  {
-    title: "Consulta tu afinidad",
-    text:
-      "Ves qué partidos se acercan más a tus respuestas y puedes leer la cita que respalda " +
-      "cada posición.",
-  },
-];
-
 // Landing screen (DESIGN.md Core Screens 1): a compact hero, the Elections
 // grid (exactly what the API returns, in API order, plus a fixed upcoming
-// card) and the three steps. The AI disclosure lives in the shell footer and
-// on /transparencia. No party names or colours.
+// card) and the full-width `Cómo funciona` carousel (no section title; the
+// methodology is in the sidebar). The AI
+// disclosure lives in the shell footer and on /transparencia. No party names
+// or colours in the page's own markup.
 export function LandingPage({ api }: { readonly api: PublicApi }) {
   const { state, retry } = useElections(api);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -66,32 +48,7 @@ export function LandingPage({ api }: { readonly api: PublicApi }) {
         <ElectionsList state={state} retry={retry} />
       </section>
 
-      <section aria-labelledby="methodology-title">
-        <div className="section-head">
-          <h2 id="methodology-title">Cómo funciona</h2>
-          <Link className="text-link" to={METHODOLOGY_PATH}>
-            Lee la metodología completa
-          </Link>
-        </div>
-        <ol className="steps">
-          {STEPS.map((step, index) => (
-            <li key={step.title} className="step">
-              <span className="step__number" aria-hidden="true">
-                {index + 1}
-              </span>
-              <div>
-                <h3 className="step__title">{step.title}</h3>
-                <p className="step__text">{step.text}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-        <p className="landing__privacy">
-          Antes de publicar los datos, unas comprobaciones automáticas verifican, entre otras
-          cosas, que cada cita aparece en el programa. Tus respuestas se quedan en tu navegador: no
-          se envían ni se guardan en ningún servidor.
-        </p>
-      </section>
+      <HowItWorksCarousel />
     </main>
   );
 }
@@ -132,15 +89,14 @@ function ElectionsList({
   }
 }
 
-// The whole card is one link (stretched over the card); the status badge
-// sits outside it so the link's name stays name, date and action.
+// The whole card is one link (stretched over the card). No status chip
+// (user decision 2026-11-03), except the rare `En preparación`, which sits
+// outside the link so the link's name stays name, date and action.
 function ElectionItem({ election }: { readonly election: Election }) {
   const published = election.publishedDatasetVersionId !== null;
   return (
     <li className="election-card">
-      <span className={published ? "status-badge" : "status-badge status-badge--muted"}>
-        {published ? "Disponible" : "En preparación"}
-      </span>
+      {published ? null : <span className="status-badge status-badge--muted">En preparación</span>}
       <Link className="election-link" to={questionnairePath(election.id)}>
         <span className="election-link__name">{election.name}</span>{" "}
         <span className="election-link__date">
@@ -159,12 +115,11 @@ function ElectionItem({ election }: { readonly election: Election }) {
 function UpcomingItem() {
   return (
     <li className="election-card election-card--upcoming">
-      <span className="status-badge status-badge--upcoming">Próximamente</span>
       <h3 className="election-card__name">Elecciones generales 2026</h3>
       <p className="election-card__text">{UPCOMING_TEXT}</p>
-      <span className="election-card__soon" aria-hidden="true">
-        Próximamente
-      </span>
+      {/* Looks like a disabled button in the amber "not yet" colour; plain
+          text, so the state is still read out without the old chip. */}
+      <span className="election-card__soon">Próximamente</span>
     </li>
   );
 }

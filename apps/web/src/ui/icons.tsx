@@ -271,6 +271,38 @@ export function BallotIcon() {
   );
 }
 
+export function ChevronLeftIcon() {
+  return (
+    <Icon>
+      <path d="M14.5 6l-6 6 6 6" />
+    </Icon>
+  );
+}
+
+export function ChevronRightIcon() {
+  return (
+    <Icon>
+      <path d="M9.5 6l6 6-6 6" />
+    </Icon>
+  );
+}
+
+export function PauseIcon() {
+  return (
+    <Icon>
+      <path d="M9 6.5v11M15 6.5v11" />
+    </Icon>
+  );
+}
+
+export function PlayIcon() {
+  return (
+    <Icon>
+      <path d="M8.5 6.2v11.6L18 12z" />
+    </Icon>
+  );
+}
+
 export function BookIcon() {
   return (
     <Icon>

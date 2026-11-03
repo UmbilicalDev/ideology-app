@@ -533,12 +533,6 @@ a.button-secondary {
   color: var(--color-text-muted);
 }
 
-.status-badge--upcoming {
-  border-color: var(--color-highlight-border);
-  background: var(--color-highlight-soft);
-  color: var(--color-on-highlight-soft);
-}
-
 /* Section heading row: title left, an optional link right. */
 .section-head {
   display: flex;
@@ -613,12 +607,16 @@ a.button-secondary {
   order: 3;
 }
 
+/* Kept short so the Elections and the carousel fit one desktop screen. */
 .landing__lead {
-  margin-bottom: var(--space-xl);
+  margin-bottom: var(--space-md);
   color: var(--color-text-muted);
-  font: var(--type-title-lg);
-  font-weight: 400;
+  font: var(--type-body);
   max-inline-size: 40rem;
+}
+
+.landing > section:has(.election-list) {
+  margin-bottom: var(--space-lg);
 }
 
 /* Elections grid: 1 column at compact, 2 from 640px (tokens.css). */
@@ -636,7 +634,7 @@ a.button-secondary {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  padding: var(--card-padding);
+  padding: var(--space-md) var(--card-padding) var(--card-padding);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -681,7 +679,7 @@ a.button-secondary {
 .election-card__name {
   display: block;
   margin: 0;
-  font: var(--type-title-lg);
+  font: var(--election-title-font);
   letter-spacing: -0.01em;
   transition: color 0.15s ease;
 }
@@ -694,7 +692,7 @@ a.button-secondary {
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
-  padding-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text-muted);
   font: var(--type-body-sm);
@@ -712,7 +710,7 @@ a.button-secondary {
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
-  min-height: var(--button-height-tall);
+  min-height: 44px;
   margin-top: auto;
   padding: 0 var(--space-md);
   border-radius: var(--radius-md);
@@ -747,66 +745,260 @@ a.button-secondary {
 }
 
 .election-card__text {
-  margin: 0 0 var(--space-sm);
+  margin: 0 0 var(--space-xs);
   color: var(--color-text-muted);
   font: var(--type-body-sm);
 }
 
+/* Disabled look, in the amber "not yet" colour the old chip had. */
 .election-card__soon {
-  background: var(--color-surface-raised);
-  border: 1px solid var(--color-border-strong);
-  color: var(--color-text-muted);
+  background: var(--color-highlight-soft);
+  border: 1px solid var(--color-highlight-border);
+  color: var(--color-on-highlight-soft);
+  cursor: not-allowed;
+  opacity: 0.85;
 }
 
-/* Steps (Cómo funciona): numbered tiles in a row from 640px. */
-.steps {
-  list-style: none;
-  margin: var(--space-sm) 0 var(--space-md);
-  padding: 0;
+/* How-it-works carousel (Landing, DESIGN.md "How-it-works carousel"): one
+   card the width of the content column. All pages share one grid cell, so
+   the card keeps the height of the tallest page; only the current one shows.
+   Compact: text over the recording, arrows at the ends of the dots row.
+   Expanded (--how-areas): arrows at the card's left and right edges. */
+.how-it-works {
   display: grid;
-  grid-template-columns: repeat(var(--steps-columns), minmax(0, 1fr));
-  gap: var(--space-md);
-}
-
-.step {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: var(--how-areas);
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0 0 var(--space-md);
+  padding: var(--space-md) var(--card-padding);
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
 }
 
-.step__number {
+.how-it-works__slides {
+  grid-area: slides;
+  display: grid;
+  min-width: 0;
+  touch-action: pan-y;
+}
+
+.how-slide {
+  grid-area: 1 / 1;
+  display: grid;
+  grid-template-columns: var(--how-slide-columns);
+  align-items: center;
+  gap: var(--space-lg) var(--space-xl);
+  min-width: 0;
+}
+
+.how-slide[data-active="false"] {
+  visibility: hidden;
+}
+
+.how-slide[data-direction="forward"] {
+  animation: how-slide-in-forward 0.35s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.how-slide[data-direction="back"] {
+  animation: how-slide-in-back 0.35s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+@keyframes how-slide-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes how-slide-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+/* Beside the recording the text sits near its top, not centred on it. */
+.how-slide__text {
+  align-self: start;
+  padding-top: var(--how-text-offset);
+}
+
+.how-slide__step {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-accent);
+  font: var(--type-overline);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.how-slide__title {
+  margin: 0 0 var(--space-md);
+  font: var(--page-title-font);
+  letter-spacing: -0.02em;
+}
+
+.how-slide__points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-sm);
+  color: var(--color-text-muted);
+  font: var(--type-body);
+}
+
+.how-slide__points li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+
+.how-slide__points .icon {
+  width: 20px;
+  height: 20px;
+  margin-top: 3px;
+  color: var(--color-accent);
+}
+
+/* The recording is 3:2; its width is capped so its height fits what is
+   left of a desktop screen below the hero and the Elections
+   (--how-media-max-height), centred in its column when capped. */
+.how-slide__media {
+  justify-self: center;
+  width: 100%;
+  max-inline-size: calc(var(--how-media-max-height) * 1.5);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  box-shadow: var(--shadow-lg);
+}
+
+.how-slide__video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+}
+
+.how-it-works__arrow,
+.how-it-works__pause {
+  display: inline-flex;
   flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.how-it-works__arrow:hover,
+.how-it-works__pause:hover {
+  border-color: var(--color-accent-border);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.how-it-works__arrow--prev {
+  grid-area: prev;
+}
+
+.how-it-works__arrow--next {
+  grid-area: next;
+}
+
+.how-it-works__pause {
+  width: 36px;
+  height: 36px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.how-it-works__pause .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.how-it-works__controls {
+  grid-area: dots;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-raised);
-  color: var(--color-accent);
-  font: var(--type-caption);
-  font-weight: 700;
+  gap: var(--space-sm);
 }
 
-.step__title {
-  margin: 0 0 var(--space-xs);
-  font: var(--type-label);
+.how-it-works__dots {
+  display: flex;
+  align-items: center;
 }
 
-.step__text {
-  margin: 0;
-  color: var(--color-text-muted);
-  font: var(--type-body-sm);
+/* 24px targets around small dots; the current one is a pill whose fill
+   follows the recording. */
+.how-it-works__dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 36px;
+  padding: 0 var(--space-xs);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
-.landing__privacy {
-  color: var(--color-text-muted);
-  font: var(--type-body-sm);
+.how-it-works__dot-fill {
+  position: relative;
+  display: block;
+  width: 8px;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--color-border-control);
+  transition:
+    width 0.25s ease,
+    background-color 0.15s ease;
+}
+
+.how-it-works__dot:hover .how-it-works__dot-fill {
+  background: var(--color-text-muted);
+}
+
+.how-it-works__dot[aria-current="true"] .how-it-works__dot-fill {
+  width: 32px;
+  background: var(--color-accent-border);
+}
+
+.how-it-works__dot[aria-current="true"] .how-it-works__dot-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--color-accent-fill);
+  transform: scaleX(var(--how-progress, 0));
+  transform-origin: left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .how-slide[data-direction] {
+    animation: none;
+  }
+
+  .how-it-works__dot-fill {
+    transition: none;
+  }
 }
 
 /* ------------------------------------------------------------------ */

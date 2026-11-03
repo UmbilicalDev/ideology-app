@@ -32,10 +32,13 @@ function fetchResolving(...responses: HttpResponseLike[]) {
 function expectDisclosureAndMethodology() {
   expect(screen.queryByRole("region", { name: "Contenido generado con IA" })).toBeNull();
   expect(screen.getByRole("contentinfo").textContent).toBe(FOOTER_TEXT);
-  expect(screen.getByRole("heading", { level: 2, name: "Cómo funciona" })).toBeTruthy();
-  expect(
-    screen.getByRole("link", { name: "Lee la metodología completa" }).getAttribute("href"),
-  ).toBe("/metodologia");
+  // No section title and no methodology link (it is in the sidebar): the
+  // carousel region carries the name.
+  expect(screen.queryByRole("heading", { name: "Cómo funciona" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Lee la metodología completa" })).toBeNull();
+  expect(screen.getByRole("region", { name: "Cómo funciona" }).getAttribute("aria-roledescription")).toBe(
+    "carrusel",
+  );
 }
 
 function electionLinks() {
@@ -85,33 +88,36 @@ describe("LandingPage", () => {
     });
   });
 
-  test("keeps the main content order: h1, intro, Elections, methodology", async () => {
+  test("keeps the main content order: h1, intro, Elections, carousel", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
     await screen.findByRole("link", { name: /Generales 2023/ });
     const main = screen.getByRole("main");
     const order = Array.from(main.querySelectorAll("h1, h2")).map((h) => h.textContent);
+    // The carousel has no section title: its pages carry the h2s (the
+    // hidden ones are aria-hidden, see HowItWorksCarousel.test.tsx).
     expect(order).toEqual([
       "IdeologiApp",
       "Elecciones disponibles",
-      "Cómo funciona",
+      "Responde a las afirmaciones",
+      "Revisa tus resultados",
+      "Comprueba de dónde vienen los resultados",
     ]);
     expect(main.firstElementChild?.tagName).toBe("H1");
     expect(main.children[1]?.tagName).toBe("P");
+    // The carousel ends the page: no checks/privacy sentence after it.
+    expect(main.lastElementChild).toBe(screen.getByRole("region", { name: "Cómo funciona" }));
+    expect(within(main).queryByText(/Tus respuestas se quedan en tu navegador/)).toBeNull();
   });
 
-  test("links to the methodology page", async () => {
+  test("the only links in main are the Elections (methodology is in the sidebar)", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
     await screen.findByRole("link", { name: /Generales 2023/ });
-    const methodology = screen.getByRole("region", { name: "Cómo funciona" });
-    const link = within(methodology).getByRole("link", { name: "Lee la metodología completa" });
-    expect(link.getAttribute("href")).toBe("/metodologia");
-    expect(link.className).toBe("text-link");
     const main = screen.getByRole("main");
     expect(
       within(main)
         .getAllByRole("link")
         .map((l) => l.getAttribute("href")),
-    ).toEqual(["/elecciones/1/cuestionario", "/metodologia"]);
+    ).toEqual(["/elecciones/1/cuestionario"]);
   });
 
   test("the upcoming card follows the Elections and is not a link", async () => {
@@ -121,11 +127,18 @@ describe("LandingPage", () => {
       "listitem",
     );
     expect(items).toHaveLength(2);
-    expect(within(items[0]!).getByText("Disponible").className).toBe("status-badge");
+    // No Disponible / Próximamente chips (user decision 2026-11-03).
+    expect(document.querySelector(".status-badge")).toBeNull();
+    expect(within(items[0]!).queryByText("Disponible")).toBeNull();
     expect(within(items[1]!).getByRole("heading", { level: 3 }).textContent).toBe(
       "Elecciones generales 2026",
     );
     expect(within(items[1]!).queryByRole("link")).toBeNull();
+    expect(within(items[1]!).queryByRole("button")).toBeNull();
+    // The amber disabled-looking bar is the only Próximamente, and it is read.
+    const soon = within(items[1]!).getByText("Próximamente");
+    expect(soon.className).toBe("election-card__soon");
+    expect(soon.getAttribute("aria-hidden")).toBeNull();
   });
 
   test("an Election without a published Dataset Version is marked En preparación", async () => {
