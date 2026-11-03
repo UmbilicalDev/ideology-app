@@ -964,6 +964,39 @@ a.button-secondary {
   margin-bottom: 0;
 }
 
+/* Step transition (DESIGN.md): after a move, the Statement, Important row
+   and scale fade in from 16px towards the way the Voter went (from the
+   right for Siguiente/Saltar, from the left for Anterior). Short and small,
+   since it repeats on every Statement; the controls never move. */
+.statement-step[data-enter] {
+  animation: step-enter 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.statement-step[data-enter="forward"] {
+  --step-from: 16px;
+}
+
+.statement-step[data-enter="back"] {
+  --step-from: -16px;
+}
+
+@keyframes step-enter {
+  from {
+    opacity: 0;
+    transform: translateX(var(--step-from));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statement-step[data-enter] {
+    animation: none;
+  }
+
+  .questionnaire__progress::-webkit-progress-value {
+    transition: none;
+  }
+}
+
 .questionnaire__progress {
   display: block;
   width: 100%;
