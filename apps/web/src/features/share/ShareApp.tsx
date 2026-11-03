@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
+  CheckIcon,
   FacebookIcon,
   InstagramIcon,
   LinkIcon,
@@ -9,6 +10,8 @@ import {
   XIcon,
 } from "../../ui/icons";
 import { appShareLinks, SHARE_TEXT } from "./app-share-links";
+import { CopySwap } from "./CopySwap";
+import { useCopiedFlash } from "./useCopiedFlash";
 
 const INTRO = "¿Te ha gustado IdeologiApp? Recomienda esta web a otras personas.";
 const COPIED = "Enlace de IdeologiApp copiado.";
@@ -60,6 +63,7 @@ function isAbort(error: unknown): boolean {
 export function ShareApp() {
   const [copy, setCopy] = useState<CopyState>({ kind: "idle" });
   const fieldRef = useRef<HTMLInputElement>(null);
+  const [copied, flash] = useCopiedFlash();
   const fallbackAttempt = copy.kind === "fallback" ? copy.attempt : 0;
   const links = appShareLinks(window.location.origin);
 
@@ -77,6 +81,7 @@ export function ShareApp() {
       try {
         await clipboard.writeText(url);
         setCopy({ kind: "copied", via });
+        if (via === "copy") flash();
         return;
       } catch {
         // Denied or failed: fall through to the field.
@@ -117,9 +122,13 @@ export function ShareApp() {
             type="button"
             className="share-target"
             aria-label="Copiar enlace de IdeologiApp"
+            data-copied={copied}
             onClick={() => void copyHome("copy")}
           >
-            <TargetContent icon={<LinkIcon />} caption="Copiar enlace" />
+            <TargetContent
+              icon={<CopySwap copied={copied} idle={<LinkIcon />} done={<CheckIcon />} />}
+              caption={<CopySwap copied={copied} idle="Copiar enlace" done="¡Copiado!" />}
+            />
           </button>
         </li>
         <li>
@@ -157,7 +166,12 @@ export function ShareApp() {
           </a>
         </li>
       </ul>
-      <p role="status" className="share__status">
+      {/* After a plain copy the tile itself says `¡Copiado!`, so the status
+          is only announced; the Instagram hint and the fallback stay visible. */}
+      <p
+        role="status"
+        className={copy.kind === "copied" && copy.via === "copy" ? "visually-hidden" : "share__status"}
+      >
         {statusText(copy)}
       </p>
       {copy.kind === "fallback" ? (
@@ -204,7 +218,7 @@ function NewTabLink({
   );
 }
 
-function TargetContent({ icon, caption }: { readonly icon: ReactNode; readonly caption: string }) {
+function TargetContent({ icon, caption }: { readonly icon: ReactNode; readonly caption: ReactNode }) {
   return (
     <>
       <span className="share-target__icon">{icon}</span>

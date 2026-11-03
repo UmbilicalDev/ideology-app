@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -11,6 +11,7 @@ import {
 
 import { App } from "../../app/App";
 import { datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
+import { COPIED_FLASH_MS } from "./useCopiedFlash";
 
 const FALLBACK = "No se ha podido copiar el enlace automáticamente. Cópialo desde este campo:";
 const NOTE =
@@ -111,6 +112,10 @@ describe("ShareResults", () => {
     copyButton.focus(); // fireEvent.click does not move focus as a real click does
     fireEvent.click(copyButton);
     expect(await within(section).findByText("Enlace copiado.")).toBe(status);
+    // The button itself says ¡Copiado!; the status is only announced.
+    expect(status.className).toBe("visually-hidden");
+    expect(copyButton.getAttribute("data-copied")).toBe("true");
+    expect(within(section).getByRole("button", { name: "¡Copiado!" })).toBe(copyButton);
 
     const url = `${window.location.origin}/resultados#v1-1-dddddA`;
     expect(writeText).toHaveBeenCalledTimes(1);
@@ -122,13 +127,28 @@ describe("ShareResults", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  test("¡Copiado! goes back to Copiar enlace after a moment", async () => {
+    defineClipboard({ writeText: async () => undefined });
+    await finish(SCENARIO_1);
+    const copyButton = within(shareSection()).getByRole("button", { name: "Copiar enlace" });
+    fireEvent.click(copyButton);
+    await within(shareSection()).findByRole("button", { name: "¡Copiado!" });
+    await waitFor(() => expect(copyButton.getAttribute("data-copied")).toBe("false"), {
+      timeout: COPIED_FLASH_MS + 1000,
+    });
+    expect(within(shareSection()).getByRole("button", { name: "Copiar enlace" })).toBe(copyButton);
+  }, COPIED_FLASH_MS + 5000);
+
   test("the share title and Copiar enlace carry decorative icons; the names are unchanged", async () => {
     await finish(SCENARIO_1);
     const section = shareSection();
     const title = within(section).getByRole("heading", { level: 3, name: "Comparte tu resultado" });
     const copyButton = within(section).getByRole("button", { name: "Copiar enlace" });
     for (const element of [title, copyButton]) {
-      const icons = element.querySelectorAll("svg");
+      // Only the shown face of the copy button counts (the ¡Copiado! face is hidden).
+      const icons = Array.from(element.querySelectorAll("svg")).filter(
+        (svg) => svg.closest('[aria-hidden="true"]:not(svg)') === null,
+      );
       expect(icons).toHaveLength(1);
       expect(icons[0]!.getAttribute("aria-hidden")).toBe("true");
     }

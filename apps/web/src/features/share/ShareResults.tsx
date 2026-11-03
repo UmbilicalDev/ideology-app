@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { encodeShareLink, type QuestionnaireState } from "@ideology-app/core";
 
-import { InfoIcon, LinkIcon, ShareIcon } from "../../ui/icons";
+import { CheckIcon, InfoIcon, LinkIcon, ShareIcon } from "../../ui/icons";
 import { sharedResultsUrl } from "../paths";
+import { CopySwap } from "./CopySwap";
+import { useCopiedFlash } from "./useCopiedFlash";
 
 const COPIED = "Enlace copiado.";
 const FALLBACK = "No se ha podido copiar el enlace automáticamente. Cópialo desde este campo:";
@@ -35,6 +37,7 @@ export function ShareResults({
 }) {
   const [copy, setCopy] = useState<CopyState>({ kind: "idle" });
   const [noteOpen, setNoteOpen] = useState(false);
+  const [copied, flash] = useCopiedFlash();
   const fieldRef = useRef<HTMLInputElement>(null);
   const fallbackAttempt = copy.kind === "fallback" ? copy.attempt : 0;
 
@@ -52,6 +55,7 @@ export function ShareResults({
       try {
         await clipboard.writeText(url);
         setCopy({ kind: "copied" });
+        flash();
         return;
       } catch {
         // Denied or failed: fall through to the field.
@@ -86,11 +90,31 @@ export function ShareResults({
         {NOTE}
       </p>
       <p>Copia un enlace que lleva tus respuestas para compartir este resultado.</p>
-      <button type="button" className="button-tonal" onClick={() => void handleCopy()}>
-        <LinkIcon />
-        <span>Copiar enlace</span>
+      <button
+        type="button"
+        className="button-tonal copy-button"
+        data-copied={copied}
+        onClick={() => void handleCopy()}
+      >
+        <CopySwap
+          copied={copied}
+          idle={
+            <>
+              <LinkIcon />
+              <span>Copiar enlace</span>
+            </>
+          }
+          done={
+            <>
+              <CheckIcon />
+              <span>¡Copiado!</span>
+            </>
+          }
+        />
       </button>
-      <p role="status" className="share__status">
+      {/* The button itself shows `¡Copiado!`; the status still tells screen
+          readers, and shows the fallback when the copy fails. */}
+      <p role="status" className={copy.kind === "fallback" ? "share__status" : "visually-hidden"}>
         {copy.kind === "copied" ? COPIED : copy.kind === "fallback" ? FALLBACK : ""}
       </p>
       {copy.kind === "fallback" ? (
