@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import type { BreakdownPosition, BreakdownRow } from "@ideology-app/core";
 
@@ -12,8 +12,44 @@ import { ResultsMatrix } from "./ResultsMatrix";
 export { IMPORTANT_MARK, NO_STANCE_LABEL, SKIPPED_LABEL, UNANSWERED_LABEL } from "./Evidence";
 
 const INTRO =
-  "Haz click en una afirmación o posición para ver las citas coincidentes extraídas de los " +
+  "Pulsa sobre una afirmación o posición para ver las citas coincidentes extraídas de los " +
   "programas electorales.";
+
+/** How long the first-sight cue plays (DESIGN.md "Breakdown first-sight cue"). */
+export const ATTENTION_MS = 2000;
+
+/**
+ * Whether the first-sight cue is playing: it starts the first time the
+ * section's top comes well into view and stops after `ATTENTION_MS`, so a
+ * later filter (a new first row) never replays it. Without
+ * IntersectionObserver it never plays.
+ */
+function useFirstSightCue(ref: RefObject<HTMLElement | null>): boolean {
+  const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (element === null || typeof IntersectionObserver === "undefined") return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setPlaying(true);
+        timer = setTimeout(() => setPlaying(false), ATTENTION_MS);
+      },
+      // The top must reach the upper 70 % of the viewport, however tall the section.
+      { rootMargin: "0px 0px -30% 0px" },
+    );
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      clearTimeout(timer);
+    };
+  }, [ref]);
+
+  return playing;
+}
 
 /** From this width the breakdown is the Statement matrix (DESIGN.md "Statement matrix"). */
 export const MATRIX_QUERY = "(min-width: 1024px)";
@@ -70,6 +106,8 @@ export function ResultsBreakdown({
   const [inspector, setInspector] = useState<InspectorTarget | null>(null);
   const trigger = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const cue = useFirstSightCue(sectionRef);
   const shown = rows.filter((row) => matchesFilter(row, filter));
 
   function open(target: InspectorTarget, from: HTMLElement) {
@@ -78,11 +116,16 @@ export function ResultsBreakdown({
   }
 
   return (
-    <section className="breakdown-section" aria-labelledby="breakdown-title">
+    <section
+      className="breakdown-section"
+      aria-labelledby="breakdown-title"
+      ref={sectionRef}
+      data-cue={cue ? "playing" : undefined}
+    >
       <h3 id="breakdown-title" className="breakdown-section__title" tabIndex={-1} ref={headingRef}>
         {copy.title}
       </h3>
-      <p>{INTRO}</p>
+      <p className="breakdown-section__intro">{INTRO}</p>
       <div className="breakdown-filters" role="group" aria-label="Filtrar afirmaciones">
         {BREAKDOWN_FILTERS.map((option) => (
           <button

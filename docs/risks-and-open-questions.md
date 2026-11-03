@@ -138,6 +138,7 @@ None.
 ### Accepted Low findings
 
 Not worth fixing now. Fix one when you touch that code anyway.
+- (ranking-disclaimer-toggle) At the user's request the "Esto no es una recomendación de voto…" warning on the results is hidden behind an alert icon in the ranking card instead of always shown. On the end screen (focus shell, no footer) nothing else states it until the Voter opens it. Revisit if testers read the ranking as a recommendation.
 - (questionnaire-results-visual-tweaks) At the user's request the breakdown intro no longer says the positions and quotes were extracted by an AI, and `Comparte IdeologiApp` no longer says only the address is shared (no answers). The AI disclosure stays in the shell footer, the results disclaimer and `/transparencia`; the Share Link privacy note now sits behind an info toggle. Revisit if testers misread where the quotes come from or what a recommendation link contains.
 - Duplicate-party errors don't say whether the name or the short name clashed.
 - A `DuplicateError` rolls back the whole session, so batched writes lose earlier rows too.

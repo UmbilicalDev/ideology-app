@@ -27,10 +27,10 @@ import {
   StepOverIcon,
 } from "../../ui/icons";
 import { FeedbackButton } from "../feedback/FeedbackButton";
-import { NoticeCard } from "../common/NoticeCard";
 import { METHODOLOGY_PATH } from "../paths";
 import { useMediaQuery } from "../common/useMediaQuery";
 import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
+import { RankingHeader } from "../results/RankingHeader";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
 import { ScaleIcon } from "../scale-icons";
@@ -322,14 +322,8 @@ function EndScreen({
           // Scrollable (and so a tab stop) only in the wide layout.
           tabIndex={wide ? 0 : undefined}
         >
-          {hasScores ? (
-            <>
-              <p>{RESULTS_INTRO}</p>
-              <ResultsRanking ranking={ranking} />
-            </>
-          ) : (
-            <p>{NO_RESULTS_PROMPT}</p>
-          )}
+          <RankingHeader text={hasScores ? RESULTS_INTRO : NO_RESULTS_PROMPT} warning={DISCLAIMER} />
+          {hasScores ? <ResultsRanking ranking={ranking} /> : null}
         </div>
         <div className="share-card">
           {hasScores ? <ShareResults datasetVersionId={datasetVersionId} state={state} /> : null}
@@ -338,7 +332,6 @@ function EndScreen({
         <div className="feedback-entry">
           <FeedbackButton api={feedbackApi} origin="results" />
         </div>
-        <NoticeCard text={DISCLAIMER} />
         <p>
           <Link className="text-link" to={METHODOLOGY_PATH} target="_blank" rel="noopener">
             Cómo se calcula la afinidad{" "}
