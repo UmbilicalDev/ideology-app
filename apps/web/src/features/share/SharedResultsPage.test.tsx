@@ -137,12 +137,15 @@ describe("SharedResultsPage", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByRole("list", { name: "Afinidad con cada partido" })).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Esto no es una recomendación de voto: solo compara estas respuestas con lo que dicen los " +
-          "programas, según una inteligencia artificial que puede equivocarse.",
-      ),
-    ).toBeTruthy();
+    // The warning sits in the ranking card behind the alert button.
+    const warning = screen.getByText(
+      "Esto no es una recomendación de voto: solo compara estas respuestas con lo que dicen los " +
+        "programas, según una inteligencia artificial que puede equivocarse.",
+    );
+    expect(warning.hidden).toBe(true);
+    expect(warning.closest('[role="region"]')?.getAttribute("aria-label")).toBe("Afinidad por partido");
+    fireEvent.click(screen.getByRole("button", { name: "Aviso sobre estos resultados" }));
+    expect(warning.hidden).toBe(false);
     const methodology = screen.getByRole("link", { name: "Cómo se calcula la afinidad" });
     expect(methodology.getAttribute("href")).toBe("/metodologia");
     expect(methodology.getAttribute("target")).toBeNull();

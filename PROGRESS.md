@@ -976,3 +976,23 @@
 - Evidence captured: `feature_list.json` -> `copy-link-feedback.evidence` (status `passing`).
 - Known risk or unresolved issue: none new. No independent validation yet.
 - Next best step: user review, then commit and PR.
+
+### Session 082 (ranking-disclaimer-toggle)
+
+- Date: 2026-11-03
+- Goal: Move the "not a voting recommendation" card behind an alert icon in the ranking card, and give the Share Link note room below its info icon (user request).
+- Completed: `main` updated after PR #91 and its branch deleted (plus the stale local `feature/web-redesign`). `ui/icons.tsx` `AlertIcon`; `features/results/RankingHeader.tsx` (intro + alert toggle + warning) used by the end screen and the shared result instead of `NoticeCard`; CSS for the ranking header/warning; share note margins (removed the stale `.share .questionnaire__note` rule); `DESIGN.md`; tests.
+- Verification run: `CI=true ./init.sh` (below); Google Chrome at 1280 dark and 375 light on both results pages (details in `feature_list.json`).
+- Evidence captured: `feature_list.json` -> `ranking-disclaimer-toggle.evidence` (status `passing`).
+- Known risk or unresolved issue: the warning is now hidden until the Voter opens it; the shell footer still says the tool is not a voting recommendation on shell pages, but the end screen (focus shell) has no footer. Recorded in `docs/risks-and-open-questions.md`. No independent validation yet.
+- Next best step: user review, then commit and PR.
+
+### Session 083 (breakdown-first-sight-cue)
+
+- Date: 2026-11-03
+- Goal: New breakdown intro copy and a one-time attention cue on the breakdown (user request), on the same branch as `ranking-disclaimer-toggle`.
+- Completed: `ResultsBreakdown.tsx` (intro copy, `useFirstSightCue` with IntersectionObserver, `data-cue` for 2s; durations lengthened on request: bounce 0.9s, glows 0.8s), CSS keyframes `cue-bounce`, `cue-glow`, `cue-frame`, `cue-ring` with reduced-motion overrides, `DESIGN.md` "Breakdown first-sight cue", tests.
+- Verification run: `CI=true ./init.sh` (below); Google Chrome at 1280 dark and 375 light, reduced motion (details in `feature_list.json`).
+- Evidence captured: `feature_list.json` -> `breakdown-first-sight-cue.evidence` (status `passing`).
+- Known risk or unresolved issue: none new. No independent validation yet.
+- Next best step: user review, then commit and PR (with `ranking-disclaimer-toggle`).

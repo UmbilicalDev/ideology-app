@@ -1247,5 +1247,44 @@
       "2026-11-03 Google Chrome (chrome-devtools) against uvicorn with the shared DB, clipboard stubbed: 1200 dark, result button width 153.3px before and during ¡Copiado! (copied-pop running, opacity 0.74 at 80ms), status visually-hidden, back to Copiar enlace after 2s; tile height 92px before and after, caption ¡Copiado!, check icon popped. 375 light mobile: ¡Copiado! caption top 374 = Facebook caption top, scrollWidth 375. Reduced motion: animation none. Rejecting clipboard: fallback text visible and field shown, button not in copied state. Console: no errors or warnings."
     ],
     "notes": "User request 2026-11-03. The Instagram copy keeps its visible hint because it tells the Voter to paste in Instagram."
+  },
+  {
+    "id": "ranking-disclaimer-toggle",
+    "area": "web",
+    "title": "Results: voting-recommendation warning behind an alert icon in the ranking card; share info spacing fix",
+    "user_visible_behavior": "On the end screen and the shared result the 'Esto no es una recomendación de voto…' card is gone; an alert icon (circle with an exclamation) at the top right of the ranking card shows or hides that warning inside the card, like the Share Link info icon. The Share Link note now has a small gap below the info icon's hover area and before the text under it.",
+    "depends_on": [
+      "copy-link-feedback"
+    ],
+    "status": "passing",
+    "verification": [
+      "CI=true ./init.sh passes; tests for the alert toggle on both results pages and the removed notice card",
+      "Real browser at 1280 dark and 375 light: toggle on end screen and shared result, gaps around the share note, no horizontal scroll, console clean"
+    ],
+    "evidence": [
+      "2026-11-03 CI=true ./init.sh exit 0 (Session 082): pytest 1789 passed, Vitest 642 passed (QuestionnairePage, SharedResultsPage and ShareResults tests updated: warning hidden until the alert button, aria-controls/aria-expanded, no .notice-card on the results).",
+      "2026-11-03 Google Chrome (chrome-devtools) against uvicorn with the shared DB: 1280 dark end screen, warning opens inside the ranking card under the alert icon; share info button bottom to note top 8px. 375 light mobile: share note 8px below the info button and 16px above 'Copia un enlace…' (an old `.share .questionnaire__note { margin-bottom: 0 }` rule had zeroed it and was removed); shared result /resultados#v1-3-… shows the same alert button, warning toggles, no notice card, scrollWidth 375. Console: no errors or warnings."
+    ],
+    "notes": "User request 2026-11-03. NoticeCard stays for the admin 'not configured' notice."
+  },
+  {
+    "id": "breakdown-first-sight-cue",
+    "area": "web",
+    "title": "Breakdown: new intro copy and a one-time attention cue when the section first comes into view",
+    "user_visible_behavior": "The breakdown intro now reads 'Pulsa sobre una afirmación o posición para ver las citas coincidentes extraídas de los programas electorales.'. The first time the 'Comprueba de dónde salen tus coincidencias' section scrolls into view, its title and intro make one small bounce and the first matrix row (desktop) or first card (mobile) lights up twice, hinting that it can be opened. It does not replay on filters and is off under reduced motion.",
+    "depends_on": [
+      "ranking-disclaimer-toggle"
+    ],
+    "status": "passing",
+    "verification": [
+      "CI=true ./init.sh passes; tests for the cue starting on first intersection, stopping after 2s and staying off without IntersectionObserver",
+      "Real browser at 1280 dark and 375 light: not on load, plays on scroll, peak frame inspected, no replay after a filter, no horizontal scroll, reduced motion, console clean"
+    ],
+    "evidence": [
+      "2026-11-03 CI=true ./init.sh exit 0 (Session 083): pytest 1789 passed, Vitest 644 passed (+2 ResultsBreakdown tests with a stubbed IntersectionObserver).",
+      "2026-11-03 Google Chrome (chrome-devtools) against uvicorn with the shared DB: 1280 dark, data-cue absent on reaching the end screen (section below the fold), 'playing' once scrolled in (title transform scale 1.039 mid-bounce, first-row cells cue-glow), removed after 1.6s; a filter afterwards does not replay (animation none). Peak frame paused via the Web Animations API: first row tinted and every Party cell framed in accent. 375 light mobile: first card lit (cue-bounce + cue-ring), intro right edge 359px, scrollWidth 375. Reduced motion: data-cue set but no animations. Console: no errors or warnings.",
+      "2026-11-03 user request: cue made a little longer (bounce 0.9s, each glow 0.8s, data-cue kept 2s instead of 1.6s)."
+    ],
+    "notes": "User request 2026-11-03; the requested copy had two typos ('afirmación  posición', 'extridas'), shipped corrected."
   }
 ]

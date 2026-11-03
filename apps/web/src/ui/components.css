@@ -1286,7 +1286,7 @@ a.button-secondary {
 }
 
 /* AI and privacy disclosure below the Statement card, and the notice card
-   ("not a voting recommendation") on the results: an icon tile and text. */
+   (the admin "not configured" notice): an icon tile and text. */
 .disclosure-card,
 .notice-card {
   display: flex;
@@ -1603,6 +1603,67 @@ a.button-secondary {
   font: var(--type-headline);
 }
 
+/* Breakdown first-sight cue (DESIGN.md): the first time the section comes
+   into view, the title and intro make one small bounce and the first row
+   (matrix) or card lights up twice, to show that it can be opened. Plays
+   once (the data-cue attribute is removed after 2s); none under reduced
+   motion. */
+.breakdown-section[data-cue] :is(.breakdown-section__title, .breakdown-section__intro) {
+  transform-origin: left center;
+  animation: cue-bounce 0.9s cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+
+.breakdown-section[data-cue] .matrix tbody tr:first-child > * {
+  animation: cue-glow 0.8s ease-in-out 0.15s 2;
+}
+
+/* The Party cells are covered by their buttons: light their frames too. */
+.breakdown-section[data-cue] .matrix tbody tr:first-child .match-cell {
+  animation: cue-frame 0.8s ease-in-out 0.15s 2;
+}
+
+.breakdown-section[data-cue] .breakdown > li:first-child {
+  animation: cue-ring 0.8s ease-in-out 0.15s 2;
+}
+
+@keyframes cue-bounce {
+  35% {
+    transform: scale(1.04);
+  }
+  65% {
+    transform: scale(0.99);
+  }
+}
+
+@keyframes cue-glow {
+  50% {
+    background-color: color-mix(in srgb, var(--color-accent-fill) 22%, var(--color-surface));
+  }
+}
+
+@keyframes cue-frame {
+  50% {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 1px var(--color-accent);
+  }
+}
+
+@keyframes cue-ring {
+  50% {
+    background-color: var(--color-accent-soft);
+    box-shadow: 0 0 0 2px var(--color-accent-border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .breakdown-section[data-cue] :is(.breakdown-section__title, .breakdown-section__intro),
+  .breakdown-section[data-cue] .matrix tbody tr:first-child > *,
+  .breakdown-section[data-cue] .matrix tbody tr:first-child .match-cell,
+  .breakdown-section[data-cue] .breakdown > li:first-child {
+    animation: none;
+  }
+}
+
 .breakdown {
   list-style: none;
   margin: 0 0 var(--space-md);
@@ -1754,6 +1815,33 @@ a.button-secondary {
 /* Results dashboard (DESIGN.md "Results dashboard"): one column below
    1024px; from 1024px the summary and actions on the left and the ranking as
    a sticky, height-capped right column. DOM order stays the reading order. */
+/* Ranking warning (DESIGN.md): the intro with an alert toggle at the top
+   right, and the "not a voting recommendation" warning it shows. */
+.ranking-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.ranking-header__text {
+  margin: 0 0 var(--space-md);
+}
+
+.ranking-header__toggle {
+  margin: calc(-1 * var(--space-sm)) calc(-1 * var(--space-sm)) 0 0;
+}
+
+.ranking-warning {
+  margin: var(--space-xs) 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-highlight-soft);
+  border: 1px solid var(--color-highlight-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-on-highlight-soft);
+  font: var(--type-body-sm);
+}
+
 .results-dashboard__ranking:focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
@@ -2301,8 +2389,10 @@ dialog.inspector {
   margin: calc(-1 * var(--space-sm)) calc(-1 * var(--space-sm)) 0 0;
 }
 
+/* A gap below the info button's hover area, so its fill never touches the
+   note, and one before the text under it. */
 .share__note {
-  margin: 0 0 var(--space-md);
+  margin: var(--space-sm) 0 var(--space-md);
   padding: var(--space-sm) var(--space-md);
   background: var(--color-surface-sunken);
   border-radius: var(--radius-sm);
@@ -2418,10 +2508,6 @@ dialog.inspector {
   color: var(--color-text);
   font: inherit;
   font-size: 16px; /* 16px or more: no zoom on focus in iOS Safari */
-}
-
-.share .questionnaire__note {
-  margin-bottom: 0;
 }
 
 /* Comparte IdeologiApp targets (DESIGN.md "share-target"): a wrapping row of

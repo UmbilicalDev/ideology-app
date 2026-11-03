@@ -666,12 +666,22 @@ describe("QuestionnairePage", () => {
       const summary = screen.getByText(/^Muestra evaluada:/).closest(".results-dashboard > *");
       expect(summary?.nextElementSibling).toBe(button("Revisar mis respuestas").parentElement);
       expect(screen.queryByRole("button", { name: "Volver a la última afirmación" })).toBeNull();
-      expect(
-        screen.getByText(
-          "Esto no es una recomendación de voto: solo compara tus respuestas con lo que dicen los " +
-            "programas, según una inteligencia artificial que puede equivocarse.",
-        ),
-      ).toBeTruthy();
+      // The warning is no longer a card: an alert button at the top right of
+      // the ranking shows it inside the ranking card.
+      const ranking = screen.getByRole("region", { name: "Afinidad por partido" });
+      const warning = within(ranking).getByText(
+        "Esto no es una recomendación de voto: solo compara tus respuestas con lo que dicen los " +
+          "programas, según una inteligencia artificial que puede equivocarse.",
+      );
+      expect(warning.hidden).toBe(true);
+      expect(document.querySelector(".notice-card")).toBeNull();
+      const alert = within(ranking).getByRole("button", { name: "Aviso sobre estos resultados" });
+      expect(alert.getAttribute("aria-controls")).toBe(warning.id);
+      expect(alert.getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(alert);
+      expect([alert.getAttribute("aria-expanded"), warning.hidden]).toEqual(["true", false]);
+      fireEvent.click(alert);
+      expect(warning.hidden).toBe(true);
       // No loss note and no home button: `Salir` and the brand in the top bar go home.
       expect(screen.queryByText(LOSS_NOTE)).toBeNull();
       expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();

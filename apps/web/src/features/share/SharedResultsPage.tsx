@@ -4,10 +4,10 @@ import { Link, useLocation } from "react-router";
 import { summarize, type OpenShareLinkResult, type PublicApi } from "@ideology-app/core";
 
 import { HomeButton } from "../common/HomeButton";
-import { NoticeCard } from "../common/NoticeCard";
 import { METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { useMediaQuery } from "../common/useMediaQuery";
 import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
+import { RankingHeader } from "../results/RankingHeader";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
 import { ShareApp } from "./ShareApp";
@@ -145,16 +145,9 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
           // Scrollable (and so a tab stop) only in the wide layout.
           tabIndex={wide ? 0 : undefined}
         >
-          {results.hasScores ? (
-            <>
-              <p>{RESULTS_INTRO}</p>
-              <ResultsRanking ranking={results.ranking} />
-            </>
-          ) : (
-            <p>{NO_SCORES}</p>
-          )}
+          <RankingHeader text={results.hasScores ? RESULTS_INTRO : NO_SCORES} warning={DISCLAIMER} />
+          {results.hasScores ? <ResultsRanking ranking={results.ranking} /> : null}
         </div>
-        <NoticeCard text={DISCLAIMER} />
         <p>
           <Link className="text-link" to={METHODOLOGY_PATH}>
             Cómo se calcula la afinidad

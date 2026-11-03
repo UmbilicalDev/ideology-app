@@ -51,6 +51,16 @@ export function InfoIcon() {
   );
 }
 
+// "Aviso": a circle with an exclamation mark (the info icon turned over).
+export function AlertIcon() {
+  return (
+    <Icon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5V13M12 16.5v.01" />
+    </Icon>
+  );
+}
+
 export function ExternalLinkIcon() {
   return (
     <Icon>

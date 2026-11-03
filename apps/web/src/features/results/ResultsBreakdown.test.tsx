@@ -1,13 +1,13 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { BreakdownPosition, BreakdownRow } from "@ideology-app/core";
 
 import { textWithoutLogos } from "../../test/text";
-import { ResultsBreakdown } from "./ResultsBreakdown";
+import { ATTENTION_MS, ResultsBreakdown } from "./ResultsBreakdown";
 
 const INTRO =
-  "Haz click en una afirmación o posición para ver las citas coincidentes extraídas de los " +
+  "Pulsa sobre una afirmación o posición para ver las citas coincidentes extraídas de los " +
   "programas electorales.";
 const LINK_TITLE = "Comprueba de dónde salen las coincidencias del enlace";
 const NO_STANCE_SENTENCE =
@@ -235,5 +235,52 @@ describe("ResultsBreakdown", () => {
   test('answerOwner="voter" is the default copy', () => {
     render(<ResultsBreakdown rows={ROWS} answerOwner="voter" />);
     expect(screen.getByText(INTRO)).toBeTruthy();
+  });
+});
+
+describe("ResultsBreakdown first-sight cue", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // A stand-in IntersectionObserver whose callback the test fires by hand.
+  function stubObserver() {
+    const seen: { callback?: IntersectionObserverCallback; disconnected: boolean } = { disconnected: false };
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          seen.callback = callback;
+        }
+        observe() {}
+        disconnect() {
+          seen.disconnected = true;
+        }
+      },
+    );
+    return (isIntersecting: boolean) =>
+      act(() => {
+        seen.callback?.([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
+      });
+  }
+
+  test("plays once when the section first comes into view, then stops", async () => {
+    const fire = stubObserver();
+    const { container } = render(<ResultsBreakdown rows={ROWS} />);
+    const section = container.querySelector("section")!;
+    expect(section.hasAttribute("data-cue")).toBe(false);
+    fire(false);
+    expect(section.hasAttribute("data-cue")).toBe(false);
+    fire(true);
+    expect(section.getAttribute("data-cue")).toBe("playing");
+    await waitFor(() => expect(section.hasAttribute("data-cue")).toBe(false), {
+      timeout: ATTENTION_MS + 1000,
+    });
+  }, ATTENTION_MS + 5000);
+
+  test("never plays without IntersectionObserver", () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const { container } = render(<ResultsBreakdown rows={ROWS} />);
+    expect(container.querySelector("section")!.hasAttribute("data-cue")).toBe(false);
   });
 });

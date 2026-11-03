@@ -152,10 +152,8 @@ describe("ShareResults", () => {
       expect(icons).toHaveLength(1);
       expect(icons[0]!.getAttribute("aria-hidden")).toBe("true");
     }
-    const notice = screen
-      .getByText(/^Esto no es una recomendación de voto/)
-      .closest(".notice-card");
-    expect(notice?.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    const warning = screen.getByRole("button", { name: "Aviso sobre estos resultados" });
+    expect(warning.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   test("Scenario 2: a skip and a flagged skip are encoded with their flags", async () => {
