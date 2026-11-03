@@ -164,7 +164,13 @@ describe("ShareApp on the end screen", () => {
     const controls = items.map((li) => li.firstElementChild as HTMLElement);
     expect(controls.map((el) => el.getAttribute("aria-label"))).toEqual(TARGETS.map((t) => t.name));
     expect(controls.map((el) => el.tagName)).toEqual(TARGETS.map((t) => t.tag));
-    expect(controls.map((el) => el.querySelector(".share-target__label")?.textContent)).toEqual(
+    // The shown caption: the copy tile's hidden ¡Copiado! face does not count.
+    const caption = (el: HTMLElement) => {
+      const label = el.querySelector(".share-target__label")!.cloneNode(true) as HTMLElement;
+      label.querySelectorAll('.copy-swap__face[aria-hidden="true"]').forEach((face) => face.remove());
+      return label.textContent;
+    };
+    expect(controls.map(caption)).toEqual(
       TARGETS.map((t) => t.caption),
     );
     for (const [i, el] of controls.entries()) {
@@ -183,7 +189,14 @@ describe("ShareApp on the end screen", () => {
     const fetch = await finish();
     const calls = fetch.mock.calls.length;
     fireEvent.click(target("Copiar enlace de IdeologiApp"));
-    expect(await within(appSection()).findByText(COPIED)).toBe(within(appSection()).getByRole("status"));
+    const status = within(appSection()).getByRole("status");
+    expect(await within(appSection()).findByText(COPIED)).toBe(status);
+    // The tile itself shows ¡Copiado!; the status is only announced.
+    expect(status.className).toBe("visually-hidden");
+    const tile = target("Copiar enlace de IdeologiApp");
+    expect(tile.getAttribute("data-copied")).toBe("true");
+    expect(tile.querySelector('.share-target__label .copy-swap__done')?.getAttribute("aria-hidden")).toBe("false");
+    expect(tile.querySelector(".share-target__label .copy-swap__done")?.textContent).toBe("¡Copiado!");
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith(home());
     const result = screen.getByRole("region", { name: "Comparte tu resultado" });
@@ -326,7 +339,8 @@ describe("ShareApp on the end screen", () => {
     await finish();
     const app = appSection();
     const icons = app.querySelectorAll("svg");
-    expect(icons).toHaveLength(6);
+    // Six targets plus the copy tile's hidden check (its ¡Copiado! face).
+    expect(icons).toHaveLength(7);
     for (const svg of icons) {
       expect(svg.getAttribute("aria-hidden")).toBe("true");
       expect(svg.getAttribute("focusable")).toBe("false");

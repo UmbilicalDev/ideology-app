@@ -1228,5 +1228,24 @@
       "2026-11-03 Google Chrome (chrome-devtools) against uvicorn with the shared DB: 1200 wide, after Siguiente opacity/translateX sampled 0/16px, 0.64/5.8px at 60ms, 0.92/1.2px at 120ms, settled by 250ms; Anterior starts at -16px; the progress element is the same node. 375x812 mobile touch: step-enter runs, page scrollWidth 375 throughout, the three controls keep top 692 during the animation; with prefers-reduced-motion: reduce the animation is none and opacity 1. Console: no errors or warnings. (The built-in browser pane was hidden, which freezes animation frames, so the timing check used Chrome.)"
     ],
     "notes": "User request 2026-11-03 asking for a subtle cue that the Statement changed; chosen over a full-card pagination because it repeats on every Statement and keeps the buttons in place."
+  },
+  {
+    "id": "copy-link-feedback",
+    "area": "web",
+    "title": "Copy feedback on the copy buttons: ¡Copiado! in the button instead of a status line",
+    "user_visible_behavior": "Clicking Copiar enlace in Comparte tu resultado turns the button into a check and ¡Copiado! with a short pop, and it goes back after about 2s; the Copiar enlace tile of Comparte IdeologiApp does the same with its icon and caption. The old 'Enlace copiado.' line no longer shows (screen readers still hear it). If the clipboard fails, the fallback text and field show as before.",
+    "depends_on": [
+      "questionnaire-step-transition"
+    ],
+    "status": "passing",
+    "verification": [
+      "CI=true ./init.sh passes; tests for the copied state, its return after the delay, the hidden status and the unchanged names",
+      "Real browser at 1200 and 375, dark and light: pop runs, sizes unchanged, captions aligned, revert after 2s, fallback unchanged, reduced motion, console clean"
+    ],
+    "evidence": [
+      "2026-11-03 CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 641 passed (+1 ShareResults test that waits for the 2s revert; ShareResults/ShareApp assertions for data-copied, ¡Copiado! name, visually hidden status; caption and icon checks count only the shown face).",
+      "2026-11-03 Google Chrome (chrome-devtools) against uvicorn with the shared DB, clipboard stubbed: 1200 dark, result button width 153.3px before and during ¡Copiado! (copied-pop running, opacity 0.74 at 80ms), status visually-hidden, back to Copiar enlace after 2s; tile height 92px before and after, caption ¡Copiado!, check icon popped. 375 light mobile: ¡Copiado! caption top 374 = Facebook caption top, scrollWidth 375. Reduced motion: animation none. Rejecting clipboard: fallback text visible and field shown, button not in copied state. Console: no errors or warnings."
+    ],
+    "notes": "User request 2026-11-03. The Instagram copy keeps its visible hint because it tells the Voter to paste in Instagram."
   }
 ]

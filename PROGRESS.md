@@ -966,3 +966,13 @@
 - Evidence captured: `feature_list.json` -> `questionnaire-step-transition.evidence` (status `passing`).
 - Known risk or unresolved issue: none new. No independent validation yet.
 - Next best step: user review of the feel, then commit and PR.
+
+### Session 081 (copy-link-feedback)
+
+- Date: 2026-11-03
+- Goal: Show the copy confirmation in the copy buttons themselves (user request).
+- Completed: `main` updated after PR #90 and its branch deleted (local and remote). `ui/icons.tsx` `CheckIcon`; `features/share/useCopiedFlash.ts` (2s copied state, restarts on a new copy) and `CopySwap.tsx` (two faces in one grid cell, only the shown one exposed); `ShareResults.tsx` and `ShareApp.tsx` use them and hide the status visually after a plain copy; CSS (pop, accent frame, caption alignment, reduced motion); `DESIGN.md` "Copy feedback"; tests.
+- Verification run: `CI=true ./init.sh` (below); Google Chrome at 1200 dark and 375 light, reduced motion, failing clipboard (details in `feature_list.json`).
+- Evidence captured: `feature_list.json` -> `copy-link-feedback.evidence` (status `passing`).
+- Known risk or unresolved issue: none new. No independent validation yet.
+- Next best step: user review, then commit and PR.

@@ -2328,6 +2328,76 @@ dialog.inspector {
   color: var(--color-text);
 }
 
+/* Copy feedback (DESIGN.md): the copy control turns into `¡Copiado!` with a
+   check for a moment, then goes back. Both faces share one grid cell, so the
+   control keeps its size; the new face pops in. */
+.copy-swap {
+  display: inline-grid;
+}
+
+.copy-swap__face {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.button-tonal .copy-swap,
+.button-tonal .copy-swap__face {
+  gap: var(--space-sm);
+}
+
+.copy-swap[data-copied="false"] .copy-swap__done,
+.copy-swap[data-copied="true"] .copy-swap__idle {
+  opacity: 0;
+  transform: scale(0.85);
+  visibility: hidden;
+}
+
+.copy-swap[data-copied="true"] .copy-swap__done {
+  animation: copied-pop 0.3s cubic-bezier(0.2, 0.7, 0.3, 1.4);
+}
+
+@keyframes copied-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
+.copy-button[data-copied="true"] {
+  border-color: var(--color-accent);
+}
+
+.share-target[data-copied="true"] .share-target__icon {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* The caption keeps the two-line height of `Copiar enlace`; the shorter
+   `¡Copiado!` sits on the first line, level with the other captions. */
+.share-target__label .copy-swap {
+  align-items: start;
+}
+
+.share-target[data-copied="true"] .share-target__label {
+  color: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copy-swap__face {
+    transition: none;
+  }
+
+  .copy-swap[data-copied="true"] .copy-swap__done {
+    animation: none;
+  }
+}
+
 .share label,
 .share-app label {
   display: block;
