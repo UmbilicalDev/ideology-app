@@ -209,6 +209,15 @@ h2[tabindex="-1"]:focus {
   text-overflow: ellipsis;
 }
 
+a.topbar__crumb-root {
+  color: inherit;
+  text-decoration: none;
+}
+
+a.topbar__crumb-root:hover {
+  color: var(--color-accent);
+}
+
 .topbar__crumb-sep {
   color: var(--color-text-subtle);
 }
@@ -315,7 +324,13 @@ h2[tabindex="-1"]:focus {
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
+  color: var(--color-text);
   font: var(--type-title);
+  text-decoration: none;
+}
+
+.focus-bar__brand:hover {
+  color: var(--color-accent);
 }
 
 .focus-bar__logo {
@@ -697,7 +712,7 @@ a.button-secondary {
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
-  min-height: 44px;
+  min-height: var(--button-height-tall);
   margin-top: auto;
   padding: 0 var(--space-md);
   border-radius: var(--radius-md);
@@ -1060,8 +1075,19 @@ a.button-secondary {
   outline: none;
 }
 
+.scale-option__icon {
+  width: 32px;
+  height: 24px;
+  color: var(--color-text-muted);
+}
+
+.scale-option:has(input:checked) .scale-option__icon {
+  color: var(--color-accent);
+}
+
 /* Important toggle and its hint, side by side when they fit. */
 .important-row {
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1115,6 +1141,67 @@ a.button-secondary {
   fill: var(--color-highlight);
 }
 
+/* Turning the flag on: one subtle amber glow. */
+.important-toggle--flash {
+  animation: important-flash 0.6s ease-out;
+}
+
+.important-toggle--flash .important-toggle__star {
+  animation: important-star 0.6s ease-out;
+}
+
+@keyframes important-flash {
+  0% {
+    box-shadow: 0 0 0 0 var(--color-highlight-border);
+  }
+  40% {
+    box-shadow: 0 0 0 6px var(--color-highlight-border);
+  }
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-highlight-border) 0%, transparent);
+  }
+}
+
+@keyframes important-star {
+  40% {
+    transform: scale(1.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .important-toggle--flash,
+  .important-toggle--flash .important-toggle__star {
+    animation: none;
+  }
+}
+
+/* The hint is a tooltip under the toggle, on hover or keyboard focus. */
+.questionnaire__hint.important-hint {
+  position: absolute;
+  top: calc(100% + var(--space-xs));
+  left: 0;
+  z-index: 5;
+  max-inline-size: min(22rem, 100%);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    visibility 0.15s;
+}
+
+.important-toggle:hover + .important-hint,
+.important-toggle:focus-visible + .important-hint {
+  opacity: 1;
+  visibility: visible;
+}
+
 .questionnaire__hint {
   margin: 0;
 }
@@ -1141,6 +1228,28 @@ a.button-secondary {
 .statement-card .questionnaire__controls {
   padding-top: var(--space-md);
   border-top: 1px solid var(--color-border);
+}
+
+/* Anterior, Saltar, Siguiente: equal columns across the card (two halves on
+   the first Statement); a long label wraps inside its button. */
+.step-controls {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.step-controls .button-primary,
+.step-controls .button-secondary {
+  gap: var(--space-xs);
+  min-height: var(--button-height-tall);
+  padding: var(--space-xs);
+  text-align: center;
+}
+
+.step-controls .icon {
+  width: 20px;
+  height: 20px;
 }
 
 /* AI and privacy disclosure below the Statement card, and the notice card
@@ -1431,7 +1540,24 @@ a.button-secondary {
   font: var(--type-body-sm);
 }
 
+/* An Answer or stance with its leading scale icon (breakdown and inspector). */
+.value-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  vertical-align: middle;
+}
+
+.value-icon {
+  width: 24px;
+  height: 18px;
+}
+
 .important-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  vertical-align: middle;
   border-color: var(--color-highlight-border);
   background: var(--color-highlight-soft);
   color: var(--color-on-highlight-soft);
@@ -1441,7 +1567,7 @@ a.button-secondary {
    Every Party item is identical in every state: no party colour or
    highlight, and every Party gets the same 32px party-logo tile. */
 .breakdown-section__title {
-  font: var(--type-title-lg);
+  font: var(--type-headline);
 }
 
 .breakdown {
@@ -1503,8 +1629,16 @@ a.button-secondary {
   padding: var(--space-xs) var(--space-md);
   list-style: none;
   cursor: pointer;
-  border-radius: var(--radius-md);
+  /* Inside the card's 1px border: the inner radius is one pixel smaller so
+     the hover fill follows the card's corner exactly. */
+  border-radius: calc(var(--radius-md) - 1px);
   font: var(--type-body-sm);
+}
+
+/* Open, the summary is the top of the card: square bottom corners. */
+.position[open] > .position__summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
 .position__summary:hover {
@@ -1552,12 +1686,16 @@ a.button-secondary {
 }
 
 .position__value {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   margin-left: auto;
   font-weight: 600;
 }
 
+/* A gap between the opened summary and the quote. */
 .position__body {
-  padding: 0 var(--space-md) var(--space-md);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
   font: var(--type-body-sm);
 }
 
@@ -1810,6 +1948,13 @@ h3[tabindex="-1"]:focus {
   cursor: pointer;
 }
 
+/* The answer cell opens the Statement too (pointer only); hovering either
+   highlights the Statement text. */
+.matrix tbody .matrix__answer {
+  cursor: pointer;
+}
+
+.matrix tr:has(.matrix__answer:hover) .matrix__text,
 .matrix__statement-button:hover .matrix__text {
   color: var(--color-accent);
   text-decoration: underline;
@@ -1846,6 +1991,25 @@ h3[tabindex="-1"]:focus {
   color: var(--color-text);
   font: var(--type-caption);
   font-weight: 700;
+}
+
+.answer-chip__icon,
+.match-cell__icon {
+  width: 20px;
+  height: 20px;
+}
+
+/* The scale icons are 4:3 (ui/icons.tsx); keep the ratio at every size. */
+.answer-chip__icon.icon--wide,
+.match-cell__icon.icon--wide {
+  width: 27px;
+}
+
+.important-mark__star {
+  width: 14px;
+  height: 14px;
+  fill: var(--color-highlight);
+  stroke: var(--color-highlight);
 }
 
 .answer-chip__star {
@@ -1907,7 +2071,7 @@ h3[tabindex="-1"]:focus {
 }
 
 .matrix-legend {
-  margin: var(--space-sm) 0 var(--space-lg);
+  margin: 0 0 var(--space-md);
   color: var(--color-text-muted);
   font: var(--type-caption);
 }
@@ -1918,6 +2082,29 @@ h3[tabindex="-1"]:focus {
 }
 
 .matrix-legend strong {
+  color: var(--color-text);
+}
+
+.matrix-legend__icons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+}
+
+.matrix-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.matrix-legend__icon {
+  width: 18px;
+  height: 18px;
+}
+
+.matrix-legend__icon.icon--wide {
+  width: 24px;
   color: var(--color-text);
 }
 
@@ -2067,6 +2254,25 @@ dialog.inspector {
 .share h3,
 .share-app h3 {
   margin: 0 0 var(--space-sm);
+}
+
+/* The title with the privacy info toggle on its right edge. */
+.share__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.share__info {
+  margin: calc(-1 * var(--space-sm)) calc(-1 * var(--space-sm)) 0 0;
+}
+
+.share__note {
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface-sunken);
+  border-radius: var(--radius-sm);
 }
 
 .share__title {

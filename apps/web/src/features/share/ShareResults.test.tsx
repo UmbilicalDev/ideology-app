@@ -221,12 +221,21 @@ describe("ShareResults", () => {
     expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
   });
 
-  test("Scenario 5: the note shows, and the URL, history, storage and cookies are unchanged", async () => {
+  test("Scenario 5: the info button shows the note, and the URL, history, storage and cookies are unchanged", async () => {
     defineClipboard({ writeText: async () => undefined });
     await finish(SCENARIO_1);
     const section = shareSection();
     expect(section.className).toBe("share");
-    expect(within(section).getByText(NOTE).className).toBe("questionnaire__note");
+    const note = within(section).getByText(NOTE);
+    expect(note.hidden).toBe(true);
+    const info = within(section).getByRole("button", { name: "Privacidad del enlace" });
+    expect(info.getAttribute("aria-expanded")).toBe("false");
+    expect(info.getAttribute("aria-controls")).toBe(note.id);
+    fireEvent.click(info);
+    expect(info.getAttribute("aria-expanded")).toBe("true");
+    expect(note.hidden).toBe(false);
+    fireEvent.click(info);
+    expect(note.hidden).toBe(true);
     expect(within(section).getByText("Copia un enlace que lleva tus respuestas para compartir este resultado.")).toBeTruthy();
 
     const before = {

@@ -1,6 +1,6 @@
 // View helpers for the results breakdown (DESIGN.md "Statement matrix" and
-// "Breakdown filters"): the answer filters, the short stance labels of the
-// matrix cells and the per-cell coincidence. Pure: no React, DOM or request.
+// "Breakdown filters"): the answer filters, the stance labels and the
+// per-cell coincidence. Pure: no React, DOM or request.
 import {
   NO_STANCE,
   SKIP,
@@ -40,16 +40,6 @@ export function matchesFilter(row: BreakdownRow, filter: BreakdownFilter): boole
       return row.important;
   }
 }
-
-/** Short stance label for a matrix cell; the cell's accessible name has the full label. */
-export const SHORT_LABELS = {
-  [-2]: "MD",
-  [-1]: "D",
-  0: "N",
-  1: "A",
-  2: "MA",
-  [NO_STANCE]: "—",
-} as const;
 
 export function stanceLabel(position: BreakdownPosition, noStanceLabel: string): string {
   return position.value === NO_STANCE ? noStanceLabel : SCALE_LABELS[position.value];

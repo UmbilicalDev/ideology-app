@@ -173,7 +173,6 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
       </div>
       <ResultsBreakdown rows={results.breakdown} answerOwner="link" />
       <p className="questionnaire__note">{NOTE}</p>
-      <HomeButton />
     </>
   );
 }

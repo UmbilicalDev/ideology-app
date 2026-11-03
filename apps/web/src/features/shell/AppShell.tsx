@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router";
 
 import type { FeedbackApi } from "@ideology-app/core";
 
-import { BallotIcon, BookIcon, ChipIcon, CloseIcon, MenuIcon } from "../../ui/icons";
+import { BallotIcon, BookIcon, ChipIcon, CloseIcon, HomeIcon, MenuIcon } from "../../ui/icons";
 import { APP_NAME } from "../common/BrandTitle";
 import { ProductLogo } from "../common/ProductLogo";
 import { FeedbackButton } from "../feedback/FeedbackButton";
@@ -130,6 +130,17 @@ export function AppShell({ api }: { readonly api: FeedbackApi }) {
           <p className="sidebar__tagline">{APP_TAGLINE}</p>
           <nav aria-label="Secciones">
             <ul className="sidebar-nav">
+              {/* Only on the shared result (the end screen's focus bar has
+                  `Salir`); a plain link, so it is never shown as the current
+                  section next to `Elecciones`. */}
+              {pathname !== SHARED_RESULTS_PATH ? null : (
+                <li>
+                  <Link className="sidebar-nav__link" to={HOME_PATH} onClick={() => setOpen(false)}>
+                    <HomeIcon />
+                    <span>Ir al inicio</span>
+                  </Link>
+                </li>
+              )}
               {NAV_ITEMS.map((item) => (
                 <li key={item.to}>
                   <NavLink
@@ -164,7 +175,9 @@ export function AppShell({ api }: { readonly api: FeedbackApi }) {
             <MenuIcon />
           </button>
           <p className="topbar__crumb">
-            <span className="topbar__crumb-root">{APP_NAME}</span>
+            <Link className="topbar__crumb-root" to={HOME_PATH} aria-label={`${APP_NAME}, ir al inicio`}>
+              {APP_NAME}
+            </Link>
             {section === undefined ? null : (
               <>
                 <span className="topbar__crumb-sep" aria-hidden="true">

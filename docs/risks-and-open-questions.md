@@ -138,6 +138,7 @@ None.
 ### Accepted Low findings
 
 Not worth fixing now. Fix one when you touch that code anyway.
+- (questionnaire-results-visual-tweaks) At the user's request the breakdown intro no longer says the positions and quotes were extracted by an AI, and `Comparte IdeologiApp` no longer says only the address is shared (no answers). The AI disclosure stays in the shell footer, the results disclaimer and `/transparencia`; the Share Link privacy note now sits behind an info toggle. Revisit if testers misread where the quotes come from or what a recommendation link contains.
 - Duplicate-party errors don't say whether the name or the short name clashed.
 - A `DuplicateError` rolls back the whole session, so batched writes lose earlier rows too.
 - The first command on a missing SQLite file creates an empty file, then reports "not initialised". (`shared-database` guards the committed `data/ideology.db` path against this.)

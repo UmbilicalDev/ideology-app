@@ -101,7 +101,7 @@ describe("ResultsBreakdown filters (cards, below 1024px)", () => {
     fireEvent.click(chip(/^En desacuerdo/));
     expect(chip(/^En desacuerdo/).getAttribute("aria-pressed")).toBe("true");
     expect(chip(/^Todas/).getAttribute("aria-pressed")).toBe("false");
-    const cards = within(screen.getByRole("list", { name: "Detalle por afirmación" })).getAllByRole("heading", {
+    const cards = within(screen.getByRole("list", { name: "Comprueba de dónde salen tus coincidencias" })).getAllByRole("heading", {
       level: 4,
     });
     expect(cards.map((h) => h.textContent)).toEqual(["Afirmación de prueba 2."]);
@@ -125,9 +125,11 @@ describe("ResultsMatrix (1024px and up)", () => {
     expect(heads).toEqual(["Afirmación", "Tú", "P1Partido Uno", "P2Partido Dos", "P3Partido Tres"]);
     const first = within(table).getAllByRole("row")[1]!;
     const cells = within(first).getAllByRole("button").slice(1);
-    expect(cells.map((c) => [c.textContent, c.getAttribute("data-match"), c.getAttribute("aria-label")])).toEqual([
-      ["MA", "75", "Partido Uno: Muy de acuerdo, coincidencia 75 %. Ver la cita"],
-      ["D", "50", "Partido Dos: En desacuerdo, coincidencia 50 %. Ver la cita"],
+    // A stance is drawn as its scale icon (decorative); no stance is a dash.
+    const shown = (c: HTMLElement) => (c.querySelector("svg[aria-hidden='true']") === null ? c.textContent : "icon");
+    expect(cells.map((c) => [shown(c), c.getAttribute("data-match"), c.getAttribute("aria-label")])).toEqual([
+      ["icon", "75", "Partido Uno: Muy de acuerdo, coincidencia 75 %. Ver la cita"],
+      ["icon", "50", "Partido Dos: En desacuerdo, coincidencia 50 %. Ver la cita"],
       ["—", "none", "Partido Tres: Sin posición en el programa"],
     ]);
     // Same markup and classes for every Party: no per-Party styling.
@@ -173,5 +175,20 @@ describe("ResultsMatrix (1024px and up)", () => {
     expect(within(dialog).getAllByRole("listitem")).toHaveLength(3);
     expect(within(dialog).getByText("Respuesta del enlace:", { exact: false })).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: /Ver todos/ })).toBeNull();
+  });
+
+  test("the answer cell opens the Statement too, and focus returns to the Statement button", () => {
+    render(<ResultsBreakdown rows={ROWS} />);
+    const tableRow = screen.getAllByRole("row")[1]!;
+    const answerCell = tableRow.querySelector<HTMLElement>(".matrix__answer")!;
+    // Not a second tab stop: the Statement button stays the keyboard way in.
+    expect(answerCell.querySelector("button, [tabindex]")).toBeNull();
+    fireEvent.click(answerCell.querySelector(".answer-chip")!);
+    const dialog = screen.getByRole("dialog", { name: "Afirmación de prueba 1." });
+    expect(within(dialog).getAllByRole("listitem")).toHaveLength(3);
+    act(() => {
+      fireEvent(dialog, new Event("cancel", { cancelable: true }));
+    });
+    expect(document.activeElement).toBe(tableRow.querySelector(".matrix__statement-button"));
   });
 });

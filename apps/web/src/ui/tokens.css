@@ -96,6 +96,8 @@
   --election-columns: 1;
   --steps-columns: 1;
   --card-padding: 1.25rem;
+  /* The main actions (Questionnaire steps, election CTA): taller targets. */
+  --button-height-tall: 52px;
   --brand-logo-size: 36px;
   --party-logo-size-ranking: 40px;
   --party-logo-size-breakdown: 32px;
@@ -158,5 +160,11 @@
 @media (min-width: 1280px) {
   :root {
     --matrix-statement-width: 24rem;
+  }
+}
+
+@media (pointer: coarse) {
+  :root {
+    --button-height-tall: 56px;
   }
 }
