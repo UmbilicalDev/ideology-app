@@ -609,7 +609,10 @@ a.button-secondary {
 
 /* Kept short so the Elections and the carousel fit one desktop screen. */
 .landing__lead {
-  margin-bottom: var(--space-md);
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-md);
+  padding-left: var(--space-lg);
   color: var(--color-text-muted);
   font: var(--type-body);
   max-inline-size: 40rem;

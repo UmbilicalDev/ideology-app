@@ -1373,5 +1373,25 @@
       "2026-11-06 (Session 087, main session on feature/page-toc-scrollspy, issue #99): PageToc.tsx gains currentEntryId (ACTIVE_LINE 0.3, end-of-page rule) and a scroll/resize listener throttled with requestAnimationFrame; a clicked entry is held while its heading is in the viewport and released on wheel, touchstart or keydown; .page-toc__link[aria-current=location] gets the accent rule and text at weight 600; DESIGN.md Page index updated; new PageToc.test.tsx (5 tests). CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 661 passed, vite build ok. Google Chrome (chrome-devtools) on the worktree build: 1280x800 dark, scrolling each heading to 25 % of the viewport marks Programas electorales, Las afirmaciones, La posición de cada partido, El cuestionario, Comprobaciones, La afinidad, Tus respuestas and Aviso in turn and back to Programas electorales at the top; clicking Tus respuestas, Comprobaciones, Aviso and Programas electorales marks each; after a wheel event, scrolling to y=1250 marks El cuestionario; the index stays sticky (top 80px); current link rgb(34,211,238), weight 600. 375x812 light (mobile, touch): first entry marked at the top, La afinidad when scrolled there, current link rgb(14,116,144), scrollWidth 375; console empty. The Claude desktop built-in browser could not be used for the scroll check: its hidden pane never runs requestAnimationFrame. Small user-requested change checked by the main session (no separate validator subagent)."
     ],
     "notes": "User request 2026-11-06. PageToc is only used by the methodology page today; any later page that uses it gets the same behaviour."
+  },
+  {
+    "id": "landing-upcoming-copy",
+    "area": "web",
+    "title": "Landing copy: three-point lead and new upcoming-Election text",
+    "user_visible_behavior": "The Landing lead under the IdeologiApp title becomes a bulleted list: 'Responde al cuestionario.', 'Descubre con quién concuerdan tus respuestas.', 'Comprueba las citas sobre las afirmaciones en los programas.'. The upcoming 2026 card reads 'Pronto añadiremos el cuestionario para el 29N en cuanto los partidos publiquen sus programas.'",
+    "depends_on": [
+      "landing-how-it-works-carousel"
+    ],
+    "status": "accepted",
+    "verification": [
+      "LandingPage tests assert the three lead points and the upcoming text",
+      "DESIGN.md Hero mentions the bulleted lead",
+      "./init.sh passes",
+      "Real browser at 1280 dark and 375 light: copy shown, no horizontal scroll, console clean"
+    ],
+    "evidence": [
+      "2026-11-06 (Session 088, main session on feature/landing-upcoming-copy, issue #101): LandingPage.tsx LEAD_POINTS rendered as ul.landing__lead (disc bullets, xs gap, lg indent, muted body) and the new UPCOMING_TEXT; LandingPage tests updated; DESIGN.md Hero note. CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 661 passed, vite build ok. Google Chrome (chrome-devtools) on the worktree build: 1280x800 dark and 375x812 light show the three points and the new 2026 text, scrollWidth equals the viewport, console empty. Copy from the user, kept verbatim with a closing full stop on the upcoming text like the other card copy. Small user-requested change checked by the main session (no separate validator subagent)."
+    ],
+    "notes": "User request 2026-11-06 (two copy changes in one feature at the user's request)."
   }
 ]
