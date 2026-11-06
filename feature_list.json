@@ -1352,5 +1352,26 @@
       "2026-11-06 (Session 086, main session on feature/landing-carousel-scale-order, issue #97): recorded with Playwright driving the installed Google Chrome (1080x720, color_scheme dark and light, scripted on-page cursor) against uvicorn on main with the shared DB; same script as the original: choose De acuerdo, mark Importante para mí, Siguiente to Afirmación 2. Encoded with the imageio-ffmpeg build to 960x640 H.264 (libx264 CRF 26, yuv420p, faststart, no audio): answer-dark.mp4 7.76 s 99.7 kB, answer-light.mp4 7.48 s 95.3 kB; posters = first frame as WebP q80 (17 kB each). Tools ran in a throwaway venv in the session scratchpad; no repo dependency added. CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 656 passed, vite build ok. Claude desktop built-in browser on the worktree build: 1280x800 dark loads answer-dark mp4 (7.76 s, 960 wide) and poster, frame shows Muy de acuerdo first, carousel advanced to page 3 on its own; 375x812 light loads answer-light mp4 (7.48 s) and poster, new order visible, scrollWidth 375; console empty. Small user-requested change checked by the main session (no separate validator subagent)."
     ],
     "notes": "User request 2026-11-06, follow-up of questionnaire-scale-order. The new recording also shows the 'Importante para mí' hover tooltip, which postdates the original recording. The recording script is not committed (as before); recipe in the evidence."
+  },
+  {
+    "id": "page-toc-scrollspy",
+    "area": "web",
+    "title": "Methodology page index marks the section being read",
+    "user_visible_behavior": "On /metodologia the 'En esta página' index marks the section being read as the Voter scrolls (accent left rule, accent text, weight 600, aria-current=\"location\"): a section is current once its heading reaches 30 % of the viewport height, the first entry before that, and the last entry at the end of the page. A clicked entry is marked at once and stays marked while the jump scrolls, until the Voter scrolls by hand.",
+    "depends_on": [
+      "methodology-page",
+      "web-redesign"
+    ],
+    "status": "accepted",
+    "verification": [
+      "DESIGN.md Page index states the rule",
+      "PageToc unit tests: first entry at the top, follows scroll both ways, last entry at the end, clicked entry kept until a manual scroll, hrefs unchanged",
+      "./init.sh passes",
+      "Real browser at 1280 dark and 375 light: the mark follows the scroll through every section and back, clicks mark their entry (also near the end), no horizontal scroll, console clean"
+    ],
+    "evidence": [
+      "2026-11-06 (Session 087, main session on feature/page-toc-scrollspy, issue #99): PageToc.tsx gains currentEntryId (ACTIVE_LINE 0.3, end-of-page rule) and a scroll/resize listener throttled with requestAnimationFrame; a clicked entry is held while its heading is in the viewport and released on wheel, touchstart or keydown; .page-toc__link[aria-current=location] gets the accent rule and text at weight 600; DESIGN.md Page index updated; new PageToc.test.tsx (5 tests). CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 661 passed, vite build ok. Google Chrome (chrome-devtools) on the worktree build: 1280x800 dark, scrolling each heading to 25 % of the viewport marks Programas electorales, Las afirmaciones, La posición de cada partido, El cuestionario, Comprobaciones, La afinidad, Tus respuestas and Aviso in turn and back to Programas electorales at the top; clicking Tus respuestas, Comprobaciones, Aviso and Programas electorales marks each; after a wheel event, scrolling to y=1250 marks El cuestionario; the index stays sticky (top 80px); current link rgb(34,211,238), weight 600. 375x812 light (mobile, touch): first entry marked at the top, La afinidad when scrolled there, current link rgb(14,116,144), scrollWidth 375; console empty. The Claude desktop built-in browser could not be used for the scroll check: its hidden pane never runs requestAnimationFrame. Small user-requested change checked by the main session (no separate validator subagent)."
+    ],
+    "notes": "User request 2026-11-06. PageToc is only used by the methodology page today; any later page that uses it gets the same behaviour."
   }
 ]
