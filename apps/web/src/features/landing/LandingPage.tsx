@@ -11,10 +11,16 @@ import { formatElectionDate } from "./format-date";
 import { HowItWorksCarousel } from "./HowItWorksCarousel";
 import { useElections, type ElectionsState } from "./useElections";
 
+// Copy from the user (2026-11-06, landing-upcoming-copy).
+// Hero lead as three points (copy from the user, 2026-11-06, landing-upcoming-copy).
+const LEAD_POINTS = [
+  "Responde al cuestionario.",
+  "Descubre con quién concuerdan tus respuestas.",
+  "Comprueba las citas sobre las afirmaciones en los programas.",
+] as const;
+
 const UPCOMING_TEXT =
-  "Por ahora el cuestionario solo está disponible, a modo de prueba, para las elecciones " +
-  "generales de 2023. Próximamente añadiremos las de 2026, cuando los partidos actualicen sus " +
-  "programas electorales.";
+  "Pronto añadiremos el cuestionario para el 29N en cuanto los partidos publiquen sus programas.";
 
 // Landing screen (DESIGN.md Core Screens 1): a compact hero, the Elections
 // grid (exactly what the API returns, in API order, plus a fixed upcoming
@@ -36,10 +42,11 @@ export function LandingPage({ api }: { readonly api: PublicApi }) {
     <main className="landing">
       <BrandTitle headingRef={headingRef} />
       <p className="brand-subtitle">{APP_TAGLINE}</p>
-      <p className="landing__lead">
-        Responde a una serie de afirmaciones y descubre qué partidos se acercan más a tus
-        respuestas, según sus programas electorales.
-      </p>
+      <ul className="landing__lead">
+        {LEAD_POINTS.map((point) => (
+          <li key={point}>{point}</li>
+        ))}
+      </ul>
 
       <section aria-labelledby="elections-title">
         <div className="section-head">

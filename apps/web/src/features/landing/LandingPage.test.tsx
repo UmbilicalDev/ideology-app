@@ -74,12 +74,13 @@ describe("LandingPage", () => {
     );
     expect(screen.queryByRole("status")).toBeNull();
     expectDisclosureAndMethodology();
-    expect(
-      screen.getByText(
-        "Responde a una serie de afirmaciones y descubre qué partidos se acercan más a tus " +
-          "respuestas, según sus programas electorales.",
-      ),
-    ).toBeTruthy();
+    const lead = document.querySelector("ul.landing__lead");
+    expect(lead).not.toBeNull();
+    expect(within(lead as HTMLElement).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Responde al cuestionario.",
+      "Descubre con quién concuerdan tus respuestas.",
+      "Comprueba las citas sobre las afirmaciones en los programas.",
+    ]);
 
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith("/api/v1/elections", {
@@ -132,6 +133,9 @@ describe("LandingPage", () => {
     expect(within(items[0]!).queryByText("Disponible")).toBeNull();
     expect(within(items[1]!).getByRole("heading", { level: 3 }).textContent).toBe(
       "Elecciones generales 2026",
+    );
+    expect(within(items[1]!).getByText(/^Pronto añadiremos/).textContent).toBe(
+      "Pronto añadiremos el cuestionario para el 29N en cuanto los partidos publiquen sus programas.",
     );
     expect(within(items[1]!).queryByRole("link")).toBeNull();
     expect(within(items[1]!).queryByRole("button")).toBeNull();
