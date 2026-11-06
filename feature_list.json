@@ -1331,6 +1331,26 @@
     "evidence": [
       "2026-11-06 (Session 085, main session on feature/questionnaire-scale-order, issue #95): SCALE_OPTIONS in QuestionnaireFlow.tsx is now [2, 1, 0, -1, -2]; QuestionnairePage test LABELS and values reversed; DESIGN.md Scale option gains the Order rule. CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 656 passed, vite build ok. Claude desktop built-in browser against uvicorn on the worktree build with the shared DB: at 375x812 (dark) the options read top to bottom Muy de acuerdo (2), De acuerdo (1), Ni de acuerdo ni en desacuerdo (0), En desacuerdo (-1), Muy en desacuerdo (-2); clicking Muy de acuerdo then ArrowDown checks De acuerdo; Siguiente, skipping the rest and the end screen show De acuerdo 1 / Saltadas 25; Revisar mis respuestas shows De acuerdo still checked at 1280x800 (dark) and 375 (light); no horizontal scroll; console empty; only GET requests to /api/v1, none carrying answers. Small user-requested change done and checked by the main session with the user's go-ahead (github-flow, no separate validator subagent)."
     ],
-    "notes": "User request 2026-11-06: only the Questionnaire changes (results legend keeps its order, user decision). The Landing carousel recording still shows the old order (docs/risks-and-open-questions.md)."
+    "notes": "User request 2026-11-06: only the Questionnaire changes (results legend keeps its order, user decision). The Landing carousel recording was re-recorded with the new order by landing-carousel-scale-order."
+  },
+  {
+    "id": "landing-carousel-scale-order",
+    "area": "web",
+    "title": "Landing carousel: re-record the answer recording with the new option order",
+    "user_visible_behavior": "The first page of the Landing's Cómo funciona carousel (Responde a las afirmaciones) plays a new recording, in dark and light, that shows the Questionnaire options from Muy de acuerdo to Muy en desacuerdo. The other two recordings and the carousel behaviour are unchanged.",
+    "depends_on": [
+      "landing-how-it-works-carousel",
+      "questionnaire-scale-order"
+    ],
+    "status": "accepted",
+    "verification": [
+      "answer-dark/light .mp4 (960x640 H.264, 25 fps, about 8 s, no audio) and .webp posters replaced; no code change",
+      "./init.sh passes",
+      "Browser check of the Landing at 1280 dark and 375 light: the carousel loads the new recording and poster for the theme, shows the new order, advances, no horizontal scroll, console clean"
+    ],
+    "evidence": [
+      "2026-11-06 (Session 086, main session on feature/landing-carousel-scale-order, issue #97): recorded with Playwright driving the installed Google Chrome (1080x720, color_scheme dark and light, scripted on-page cursor) against uvicorn on main with the shared DB; same script as the original: choose De acuerdo, mark Importante para mí, Siguiente to Afirmación 2. Encoded with the imageio-ffmpeg build to 960x640 H.264 (libx264 CRF 26, yuv420p, faststart, no audio): answer-dark.mp4 7.76 s 99.7 kB, answer-light.mp4 7.48 s 95.3 kB; posters = first frame as WebP q80 (17 kB each). Tools ran in a throwaway venv in the session scratchpad; no repo dependency added. CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 656 passed, vite build ok. Claude desktop built-in browser on the worktree build: 1280x800 dark loads answer-dark mp4 (7.76 s, 960 wide) and poster, frame shows Muy de acuerdo first, carousel advanced to page 3 on its own; 375x812 light loads answer-light mp4 (7.48 s) and poster, new order visible, scrollWidth 375; console empty. Small user-requested change checked by the main session (no separate validator subagent)."
+    ],
+    "notes": "User request 2026-11-06, follow-up of questionnaire-scale-order. The new recording also shows the 'Importante para mí' hover tooltip, which postdates the original recording. The recording script is not committed (as before); recipe in the evidence."
   }
 ]
