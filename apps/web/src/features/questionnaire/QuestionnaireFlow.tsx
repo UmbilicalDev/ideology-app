@@ -38,10 +38,10 @@ import { SCALE_LABELS } from "../scale-labels";
 import { ShareApp } from "../share/ShareApp";
 import { ShareResults } from "../share/ShareResults";
 
-// The five options in scale order. Meaning is carried by the text, never by
-// colour alone (DESIGN.md).
+// The five options from most to least favourable (Muy de acuerdo first).
+// Meaning is carried by the text, never by colour alone (DESIGN.md).
 const SCALE_OPTIONS: readonly { readonly value: ScaleValue; readonly label: string }[] = (
-  [-2, -1, 0, 1, 2] as const
+  [2, 1, 0, -1, -2] as const
 ).map((value) => ({ value, label: SCALE_LABELS[value] }));
 
 const NOTE =

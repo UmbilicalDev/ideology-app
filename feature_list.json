@@ -1311,5 +1311,26 @@
       "2026-11-03 follow-up 3 (user request, cap the recording): from 1024px the recording height is capped at max(18rem, 100svh - 38rem), centred, and the text column takes the freed width. CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 656 passed, vite build ok. Google Chrome: carousel bottom 885 at 1280x900 (recording 438x293, text 336px), 863 at 1440x900 (text 464, recording 438), 972 at 1920x1080 (uncapped, 601px); 1024x700 recording 345px (2/3, floor 18rem), page scrolls; 375 mobile unchanged (301x201); scrollWidth equals the viewport everywhere; console empty."
     ],
     "notes": "User request 2026-11-03. Recordings made in Google Chrome (chrome-devtools screencast) against uvicorn with the shared DB at a 1080x720 viewport with a scripted on-page cursor, encoded to 960x640 H.264 (CRF 26) plus a WebP poster per theme; 2.8 MB in total. The bullet copy fixes the request's typos ('Responde a as', 'Marca como importante las') and says 'citas' for 'citaciones'. Party exposure on the Landing recorded in docs/risks-and-open-questions.md."
+  },
+  {
+    "id": "questionnaire-scale-order",
+    "area": "web",
+    "title": "Questionnaire answer options listed from most to least favourable",
+    "user_visible_behavior": "In the Questionnaire the five answer options are stacked from most to least favourable: Muy de acuerdo, De acuerdo, Ni de acuerdo ni en desacuerdo, En desacuerdo, Muy en desacuerdo. Arrow keys follow that order. Values, labels, icons, the results legend and the filters are unchanged.",
+    "depends_on": [
+      "questionnaire-answer-flow",
+      "web-redesign"
+    ],
+    "status": "accepted",
+    "verification": [
+      "DESIGN.md Scale option states the order",
+      "QuestionnairePage test asserts the labels and values in the new order",
+      "./init.sh passes",
+      "Browser check at 375px and 1280px, dark and light: order, keyboard arrows, the chosen value reaches the results, no console errors, no request carries answers"
+    ],
+    "evidence": [
+      "2026-11-06 (Session 085, main session on feature/questionnaire-scale-order, issue #95): SCALE_OPTIONS in QuestionnaireFlow.tsx is now [2, 1, 0, -1, -2]; QuestionnairePage test LABELS and values reversed; DESIGN.md Scale option gains the Order rule. CI=true ./init.sh exit 0: pytest 1789 passed, Vitest 656 passed, vite build ok. Claude desktop built-in browser against uvicorn on the worktree build with the shared DB: at 375x812 (dark) the options read top to bottom Muy de acuerdo (2), De acuerdo (1), Ni de acuerdo ni en desacuerdo (0), En desacuerdo (-1), Muy en desacuerdo (-2); clicking Muy de acuerdo then ArrowDown checks De acuerdo; Siguiente, skipping the rest and the end screen show De acuerdo 1 / Saltadas 25; Revisar mis respuestas shows De acuerdo still checked at 1280x800 (dark) and 375 (light); no horizontal scroll; console empty; only GET requests to /api/v1, none carrying answers. Small user-requested change done and checked by the main session with the user's go-ahead (github-flow, no separate validator subagent)."
+    ],
+    "notes": "User request 2026-11-06: only the Questionnaire changes (results legend keeps its order, user decision). The Landing carousel recording still shows the old order (docs/risks-and-open-questions.md)."
   }
 ]

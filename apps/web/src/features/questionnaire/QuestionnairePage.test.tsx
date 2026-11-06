@@ -81,12 +81,13 @@ function checkedRadios() {
   return screen.getAllByRole("radio").filter((r) => (r as HTMLInputElement).checked);
 }
 
+// From most to least favourable (questionnaire-scale-order).
 const LABELS = [
-  "Muy en desacuerdo",
-  "En desacuerdo",
-  "Ni de acuerdo ni en desacuerdo",
-  "De acuerdo",
   "Muy de acuerdo",
+  "De acuerdo",
+  "Ni de acuerdo ni en desacuerdo",
+  "En desacuerdo",
+  "Muy en desacuerdo",
 ];
 
 const LOSS_NOTE = /Tus respuestas siguen solo en este navegador/;
@@ -111,7 +112,7 @@ describe("QuestionnairePage", () => {
     expect(progress.getAttribute("max")).toBe("3");
     const radios = within(group).getAllByRole("radio");
     expect(radios.map((r) => r.closest("label")?.textContent?.trim())).toEqual(LABELS);
-    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["-2", "-1", "0", "1", "2"]);
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["2", "1", "0", "-1", "-2"]);
     expect(checkedRadios()).toHaveLength(0);
     expect(button("Siguiente").disabled).toBe(true);
     expect(button("Saltar esta afirmación").disabled).toBe(false);
