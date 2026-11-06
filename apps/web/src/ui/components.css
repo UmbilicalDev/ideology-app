@@ -1093,6 +1093,13 @@ a.button-secondary {
   color: var(--color-text);
 }
 
+/* The section being read (scroll-spy, page-toc-scrollspy). */
+.page-toc__link[aria-current="location"] {
+  border-left-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
 .feature-grid {
   display: grid;
   grid-template-columns: repeat(var(--steps-columns), minmax(0, 1fr));
