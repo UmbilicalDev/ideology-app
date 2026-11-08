@@ -275,6 +275,29 @@ Todos son de solo lectura; usa el mismo prefijo `DATABASE_URL=sqlite:///data/ide
 - `LLM_PROVIDER=fake` desde la CLI falla en el acto con `Error: pipeline run N failed: FakeProvider has no response for task 'statement_candidates'` y deja una ejecución `failed` con 0 llamadas. El proveedor falso es solo para los tests. Nunca lo apuntes a `data/ideology.db`.
 - No hay forma de ensayar sin gastar. Lo más parecido es la comprobación previa: el comando sin `--yes`, contestando `N`.
 
+## Despliegue
+
+La imagen de producción (`Dockerfile`) sirve la web, la API pública, las opiniones y `/admin` en un solo proceso. Los datos publicados (`data/ideology.db`) van dentro de la imagen y son de solo lectura: para publicar datos nuevos, despliega una imagen nueva desde el commit que los tiene. El servidor nunca ejecuta el pipeline.
+
+Probarla en local:
+
+```bash
+docker build -t ideology-app .
+docker run --rm -p 127.0.0.1:8000:8000 -v ideology-data:/data ideology-app
+```
+
+y abre <http://127.0.0.1:8000/>. Las opiniones se guardan en el volumen `/data` (`/data/feedback.db`).
+
+En el servidor (Coolify), configura:
+
+- **Volumen persistente en `/data`.** Sin él, cada despliegue borra las opiniones.
+- **`ADMIN_USERS`** como secreto (ver "Cuentas de Operador"). Sin él, `/admin` no deja entrar a nadie.
+- **`FORWARDED_ALLOW_IPS=*`**, solo si el puerto 8000 no está publicado y únicamente el proxy de Coolify llega al contenedor. Así el límite de envíos ve la IP real de cada usuario. Sin esta variable, todos los usuarios comparten el límite del proxy. Es seguro mientras el proxy sustituya la cabecera `X-Forwarded-For` que mande el cliente, como hace Traefik por defecto en Coolify; si pones una CDN como Cloudflare delante, revísalo antes.
+- **HTTPS** en el dominio, que Coolify gestiona con Let's Encrypt. Es obligatorio para `/admin`.
+- **Sin registro de accesos** en el proxy. La app ya no guarda ninguno (`--no-access-log`).
+
+El runbook completo, con las copias de seguridad de las opiniones y la vuelta atrás, está en [`docs/technical-discovery.md`](docs/technical-discovery.md) ("Deployment and Operations").
+
 ## Problemas frecuentes
 
 - **401 o `` Claude Code is not logged in or its login expired; run `claude auth login` ``**: repite `claude auth login` y la prueba con `claude -p`.

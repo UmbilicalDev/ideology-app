@@ -46,7 +46,7 @@ Rules:
 | --- | --- | --- |
 | `LLM_PROVIDER` / model | `anthropic` (default), `claude_code` (local Operator only), `fake` | Provider abstraction with structured-output support; the provider and model are recorded per Pipeline Run. `claude_code` also reads `LLM_CLAUDE_CODE_BIN` (default `claude`), `LLM_CLAUDE_CODE_TIMEOUT_SECONDS` (default 900) and `LLM_CLAUDE_CODE_MAX_WAIT_HOURS` (default 48). |
 | `GENERATION_MODE` | `precomputed`, `live` | `precomputed` is the default (the Operator triggers runs). `live` regenerates automatically when a Source Document is added or changes. |
-| URL re-fetch interval | `SOURCE_REFETCH_INTERVAL_HOURS`, default 6 | Whole hours. Applied by `ideology source refetch` in both modes (a due URL source is downloaded and hashed; changed bytes register a replacement document); only `live` queues a Pipeline Run. Scheduling the command belongs to the first deployment feature. |
+| URL re-fetch interval | `SOURCE_REFETCH_INTERVAL_HOURS`, default 6 | Whole hours. Applied by `ideology source refetch` in both modes (a due URL source is downloaded and hashed; changed bytes register a replacement document); only `live` queues a Pipeline Run. Scheduling the command belongs to a future feature that runs the pipeline on a server (`deploy-container` runs none). |
 | `SOURCE_INGESTION` | `upload`, `url` (both allowed) | Per Source Document: chosen by the CLI flag `ideology source add --file` or `--url`, not an environment variable. |
 | Validation thresholds | coverage %, statement range, topic share | Per Election overrides allowed. |
 | `DATABASE_URL` / `--database-url` | SQLAlchemy URL, default `sqlite:///ideology.db` | `sqlite:///data/ideology.db` (from the repo root) selects the shared database committed to git (`shared-database`); there is no other selector. On it, `pipeline run` / `run-queued` ask for confirmation (`--yes` skips it) and a missing file is refused instead of created. The default stays a local file so a stray command never writes the shared one. |
@@ -95,9 +95,34 @@ Rules:
 
 ## Deployment and Operations
 
-- A single container (web + pipeline worker) plus a database. Pipeline Runs are a background task or a CLI command.
-- The FastAPI app serves the built web client (`apps/web/dist`) and the public API. In local development the Vite dev server proxies API calls to uvicorn.
+- One container (`deploy-container`, `Dockerfile` at the repo root): the FastAPI app serves the built web client, the public API, the feedback POST and the admin page. It runs no pipeline: generation stays on Operator machines (`precomputed`), and the server only reads published data. In local development the Vite dev server proxies API calls to uvicorn.
 - In `precomputed` mode the public site could be served from a cache or CDN.
+
+Image (`deploy-container`):
+
+- Two stages: Node (`npm ci`, `npm run build`) and Python (`pip install .`). Base images are exact versions.
+- Published data is baked in: `data/ideology.db` → `/app/data/ideology.db`, owned by root and read-only for the server user (`app`, uid 10001). Publishing new data = build and deploy a new image from the commit that has it.
+- Feedback: `FEEDBACK_DATABASE_URL=sqlite:////data/feedback.db` on the `/data` volume. Without a persistent volume every redeploy loses the messages.
+- Command: `uvicorn ideology_app.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers --no-access-log`. One worker (admin sessions and both rate limiters are per process); no access log.
+- `HEALTHCHECK` on `GET /health`.
+
+Run-time settings (never in the image or git):
+
+| Variable | Value | Why |
+| --- | --- | --- |
+| `ADMIN_USERS` | `miguel:scrypt…,enrique:scrypt…` from `ideology admin hash-password` | Operator accounts for `/admin`; unset = admin disabled |
+| `FORWARDED_ALLOW_IPS` | `*`, only behind a proxy that is the sole way to reach the container | uvicorn then trusts `X-Forwarded-For`/`-Proto`, so the rate limiters key the real client. Unset, it trusts only loopback and every client shares the proxy's key (fail closed). uvicorn keys on the leftmost `X-Forwarded-For` entry, so `*` is safe only while the proxy replaces a client-sent `X-Forwarded-For` instead of appending to it: keep Traefik's entrypoint `forwardedHeaders` untrusted (Coolify's default, no `insecure`, no `trustedIPs`), and revisit before putting a CDN such as Cloudflare in front |
+
+Runbook (VPS with Coolify, user decision 2026-11-08):
+
+1. Build and check locally: `docker build -t ideology-app .`, then `docker run --rm -p 127.0.0.1:8000:8000 -v ideology-data:/data ideology-app` and open `http://127.0.0.1:8000/`.
+2. In Coolify: a new resource from the GitHub repository, build pack Dockerfile, branch `main`, port `8000`. Do not publish the port on the host: only Coolify's proxy may reach it (that is what makes `FORWARDED_ALLOW_IPS=*` safe).
+3. Add a persistent volume mounted at `/data`, and the two variables above (`ADMIN_USERS` as a secret).
+4. Domains: `https://ideologiapp.es`, with `www` and `ideologiapp.com` redirecting to it. Coolify's proxy gets the Let's Encrypt certificates once DNS `A` records point at the VPS. TLS is required: the admin cookie is `Secure` off localhost.
+5. Leave the proxy's own access log off, so no request line or client IP is recorded anywhere.
+6. Check after each deploy: `/health` answers 200; the Landing, a Questionnaire, results, a Share Link and `/metodologia` work; no request carries Answers; a feedback message survives a redeploy; `/admin` signs in.
+7. Backups: copy the feedback store off the server regularly (a consistent copy, not the raw file while it is open): `docker exec <container> python -c "import sqlite3; sqlite3.connect('/data/feedback.db').backup(sqlite3.connect('/data/feedback-backup.db'))"`, then copy `/data/feedback-backup.db` out (`docker cp <container>:/data/feedback-backup.db .`) and delete it from the volume (`docker exec <container> rm /data/feedback-backup.db`), so messages that Operators delete later do not stay on the server in an old copy. Restore by stopping the container and putting the copy back as `/data/feedback.db`.
+8. Roll back by redeploying the previous commit; the feedback volume is untouched.
 
 ## Testing and Verification
 
