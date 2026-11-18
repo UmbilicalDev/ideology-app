@@ -1,6 +1,7 @@
 """Runtime configuration read from the environment."""
 
 import datetime as dt
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -412,3 +413,42 @@ def legal_notice_settings() -> LegalNoticeSettings:
         os.environ.get("LEGAL_NIF"),
         os.environ.get("LEGAL_ADDRESS"),
     )
+
+
+# --- Donation link (donate-buymeacoffee) --------------------------------------
+# The project's Buy Me a Coffee profile, shown as a plain external link. Optional:
+# unset, blank or invalid hides the link, and an invalid value never stops
+# startup (it is not legal information). The same rule lives in
+# packages/core/src/domain/donation.ts; the shared vectors keep them equal.
+
+DONATION_URL_RE = re.compile(r"https://(www\.)?buymeacoffee\.com/[A-Za-z0-9_-]{1,64}")
+DONATION_URL_WARNING = (
+    "Ignoring DONATION_URL: expected https://www.buymeacoffee.com/<perfil> or "
+    "https://buymeacoffee.com/<perfil>; the donation link stays hidden."
+)
+
+_config_logger = logging.getLogger("ideology_app.config")
+
+
+def parse_donation_url(raw: str | None) -> str | None:
+    """The trimmed ``DONATION_URL``, or ``None`` when unset, blank or invalid.
+
+    Valid means a full match of ``DONATION_URL_RE``: lower-case ``https``
+    scheme and host (with or without ``www.``), one path segment of 1..64
+    ``A-Za-z0-9_-`` and nothing else. An invalid value logs one warning that
+    never echoes the value.
+    """
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    if DONATION_URL_RE.fullmatch(value) is None:
+        _config_logger.warning(DONATION_URL_WARNING)
+        return None
+    return value
+
+
+def donation_url() -> str | None:
+    """The donation link from ``DONATION_URL`` (see ``parse_donation_url``)."""
+    return parse_donation_url(os.environ.get("DONATION_URL"))

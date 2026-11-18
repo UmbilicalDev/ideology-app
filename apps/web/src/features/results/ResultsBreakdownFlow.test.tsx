@@ -5,7 +5,7 @@ import { describe, expect, test, vi } from "vitest";
 import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@ideology-app/core";
 
 import { App } from "../../app/App";
-import { datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
+import { apiPaths, datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
 import { textWithoutLogos } from "../../test/text";
 
 // The results breakdown through the whole App, with the 6-Statement fixture
@@ -242,7 +242,7 @@ describe("results breakdown", () => {
     walk(SCENARIO_1);
     open(item(breakdownRows()[0]!, "Partido Uno"));
     open(item(breakdownRows()[1]!, "Partido Dos"));
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
+    expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
     expect(currentUrl).toBe("/elecciones/1/cuestionario");
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);

@@ -6,6 +6,7 @@ import { createPublicApiClient, type FetchLike } from "@ideology-app/core";
 
 import { App } from "../../app/App";
 import { TRANSPARENCY_PATH } from "../paths";
+import { apiPaths } from "../../test/fetch-mocks";
 
 function renderTransparency() {
   const fetch = vi.fn<FetchLike>();
@@ -24,7 +25,7 @@ describe("TransparencyPage", () => {
     expect(h1.textContent).toBe("Transparencia IA");
     expect(document.activeElement).toBe(h1);
     expect(document.title).toBe("Transparencia IA · IdeologiApp");
-    expect(fetch).not.toHaveBeenCalled();
+    expect(apiPaths(fetch)).toEqual([]);
   });
 
   test("has the four sections in order and states the limits", () => {

@@ -247,6 +247,7 @@ def test_public_routes_set_no_cookie(migrated_engine: Engine, make_client: MakeC
         "/metodologia",
         "/api/v1/elections",
         "/api/v1/legal-notice",
+        "/api/v1/donation",
         "/health",
     ):
         response = client.get(path)

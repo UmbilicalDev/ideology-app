@@ -677,6 +677,7 @@ def test_api_routes_are_get_only_without_query_or_body() -> None:
         "/api/v1/dataset-versions/{dataset_version_id}",
         "/api/v1/parties/{party_id}/logo",
         "/api/v1/legal-notice",
+        "/api/v1/donation",
     }
     for route in api_routes:
         assert route.methods == {"GET"}, route.path
@@ -770,6 +771,16 @@ def test_openapi_is_exposed_under_api(client_for: Callable[[], TestClient]) -> N
         "contact_email",
         "address",
     ]
+    # donate-buymeacoffee: no parameter and no 404 (the link is null when unset).
+    donation = schema["paths"]["/api/v1/donation"]
+    assert set(donation) == {"get"}
+    assert donation["get"]["operationId"] == "getDonation"
+    assert "parameters" not in donation["get"]
+    assert donation["get"]["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/DonationOut"
+    }
+    assert set(donation["get"]["responses"]) == {"200", "304"}
+    assert list(schema["components"]["schemas"]["DonationOut"]["properties"]) == ["url"]
     value = schema["components"]["schemas"]["PositionOut"]["properties"]["value"]
     assert value["anyOf"] == [
         {"type": "integer", "minimum": -2, "maximum": 2},

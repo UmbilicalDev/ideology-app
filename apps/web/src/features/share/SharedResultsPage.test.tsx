@@ -6,6 +6,7 @@ import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@i
 
 import { App } from "../../app/App";
 import {
+  apiPaths,
   datasetVersionJson,
   electionJson,
   jsonResponse,
@@ -71,7 +72,7 @@ function renderAt(path: string, fetch: FetchLike) {
 }
 
 function urls(fetch: ReturnType<typeof vi.fn<FetchLike>>): string[] {
-  return fetch.mock.calls.map((call) => call[0]);
+  return apiPaths(fetch);
 }
 
 function rankingTexts(): string[] {
@@ -276,7 +277,7 @@ describe("SharedResultsPage", () => {
     renderAt(path, fetch);
     expect(await screen.findByText(MISSING)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Volver al inicio" })).toBeTruthy();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(apiPaths(fetch)).toEqual([]);
   });
 
   test.each(["#v1-1-dddddf", "#garbage", "#V1-1-a", `#v1-1-${"d".repeat(501)}`])(
@@ -286,7 +287,7 @@ describe("SharedResultsPage", () => {
       renderAt(`/resultados${hash}`, fetch);
       expect(await screen.findByText(INVALID)).toBeTruthy();
       expect(document.querySelector(".ranking, .breakdown")).toBeNull();
-      expect(fetch).not.toHaveBeenCalled();
+      expect(apiPaths(fetch)).toEqual([]);
     },
   );
 
@@ -296,14 +297,14 @@ describe("SharedResultsPage", () => {
     expect(fragment).toHaveLength(1025);
     renderAt(`/resultados#${fragment}`, fetch);
     expect(await screen.findByText(INVALID)).toBeTruthy();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(apiPaths(fetch)).toEqual([]);
   });
 
   test("Scenario 4: #v2-1-a is unsupported, with no request", async () => {
     const fetch = sixStatements();
     renderAt("/resultados#v2-1-a", fetch);
     expect(await screen.findByText(UNSUPPORTED)).toBeTruthy();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(apiPaths(fetch)).toEqual([]);
   });
 
   test.each(["#v1-1-ddddd", "#v1-1-ddddddd"])(
@@ -360,7 +361,7 @@ describe("SharedResultsPage", () => {
     const alert = await screen.findByRole("alert");
     expect(within(alert).getByText(ERROR)).toBeTruthy();
     expect(document.querySelector(".ranking, .breakdown")).toBeNull();
-    const before = fetch.mock.calls.length;
+    const before = urls(fetch).length;
 
     failing = false;
     fireEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
@@ -434,6 +435,31 @@ describe("SharedResultsPage", () => {
     act(() => navigate!("/resultados#garbage"));
     expect(await screen.findByText(INVALID)).toBeTruthy();
     expect(document.querySelector(".ranking")).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(apiPaths(fetch)).toHaveLength(2);
+  });
+});
+
+// donate-buymeacoffee Scenario 3: the shared result has the sidebar link but
+// no end block. Fictitious profile only.
+describe("SharedResultsPage donation", () => {
+  test("Scenario 3: the sidebar shows the link; the body has no donation block", async () => {
+    const profile = "https://www.buymeacoffee.com/perfil_de_prueba";
+    const fetch = routes({
+      [ELECTION_URL]: () => jsonResponse(electionJson()),
+      [VERSION_URL]: () => jsonResponse(datasetVersionJson({ statements: 6 })),
+      "/api/v1/donation": () => jsonResponse({ url: profile }),
+    });
+    renderAt(LINK, fetch);
+    await ready();
+    const sidebar = screen.getByRole("complementary", { name: "Menú principal" });
+    const link = await within(sidebar).findByRole("link", {
+      name: "Invítanos a un café (se abre en una pestaña nueva)",
+    });
+    expect(link.getAttribute("href")).toBe(profile);
+    const main = screen.getByRole("main");
+    expect(main.querySelector(".donate-block")).toBeNull();
+    expect(within(main).queryByText("¿Quieres apoyar el proyecto?")).toBeNull();
+    expect(within(main).queryByText("¿Para qué se usan las donaciones?")).toBeNull();
+    expect(document.querySelectorAll(`a[href="${profile}"]`)).toHaveLength(1);
   });
 });

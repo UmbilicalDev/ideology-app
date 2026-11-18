@@ -5,16 +5,20 @@ import { describe, expect, test, vi } from "vitest";
 import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@ideology-app/core";
 
 import { App } from "../../app/App";
-import { electionJson, jsonResponse, textResponse } from "../../test/fetch-mocks";
+import { DONATION_PATH, apiPaths, electionJson, jsonResponse, textResponse } from "../../test/fetch-mocks";
 
 const FOOTER_TEXT =
   "IdeologiApp no es una recomendación de voto. Las afirmaciones y las posiciones las genera " +
   "una inteligencia artificial y pueden contener errores.";
 
+// The App-level donation request (donate-buymeacoffee) is answered here by
+// URL, so the queued `mock*Once` responses all go to the Landing's requests.
 function renderLanding(fetch: FetchLike) {
+  const routed: FetchLike = (url, init) =>
+    url === DONATION_PATH ? Promise.resolve(jsonResponse({ url: null })) : fetch(url, init);
   return render(
     <MemoryRouter initialEntries={["/"]}>
-      <App api={createPublicApiClient({ fetch })} />
+      <App api={createPublicApiClient({ fetch: routed })} />
     </MemoryRouter>,
   );
 }
@@ -85,7 +89,7 @@ describe("LandingPage", () => {
       "Comprueba las citas sobre las afirmaciones en los programas.",
     ]);
 
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(apiPaths(fetch)).toHaveLength(1);
     expect(fetch).toHaveBeenCalledWith("/api/v1/elections", {
       method: "GET",
       headers: { Accept: "application/json" },
@@ -239,7 +243,7 @@ describe("LandingPage", () => {
     expect(
       await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }),
     ).toBeTruthy();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(apiPaths(fetch)).toHaveLength(2);
   });
 
   test("Scenario 6: several Elections keep the API order and identical styling", async () => {

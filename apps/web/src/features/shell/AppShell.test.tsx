@@ -170,3 +170,78 @@ describe("AppShell", () => {
     expect(screen.queryByRole("button", { name: "Abrir menú" })).toBeNull();
   });
 });
+
+// donate-buymeacoffee Scenario 1: `Invítanos a un café` under `Danos tu
+// opinión` on every shell page, only when configured. Fictitious profile only.
+describe("AppShell donation link", () => {
+  const PROFILE = "https://www.buymeacoffee.com/perfil_de_prueba";
+  const LINK_NAME = "Invítanos a un café (se abre en una pestaña nueva)";
+
+  function renderWithDonation(path: string, donation: unknown) {
+    const fetch = vi.fn<FetchLike>(async (url) => {
+      if (url === "/api/v1/donation") return jsonResponse(donation);
+      if (url === "/api/v1/legal-notice") return jsonResponse({ holders: [], contact_email: null, address: null });
+      if (url === "/api/v1/elections") return jsonResponse({ elections: [electionJson()] });
+      return jsonResponse({ error: {} }, 404);
+    });
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <App api={createPublicApiClient({ fetch })} />
+      </MemoryRouter>,
+    );
+    return fetch;
+  }
+
+  function footerItems(): string[] {
+    const footer = sidebar().querySelector(".sidebar__footer") as HTMLElement;
+    return Array.from(footer.children).map((el) => el.textContent ?? "");
+  }
+
+  test.each(["/", "/metodologia", "/transparencia", "/legal", "/no-existe", "/resultados#v1-1-dddddA"])(
+    "at %s the sidebar footer is Danos tu opinión, the donation link, then the legal link",
+    async (path) => {
+      renderWithDonation(path, { url: PROFILE });
+      const link = await within(sidebar()).findByRole("link", { name: LINK_NAME });
+      expect(footerItems()).toEqual([
+        "Danos tu opinión",
+        "Invítanos a un café (se abre en una pestaña nueva)",
+        "Aviso legal y privacidad",
+      ]);
+      expect(link.className).toBe("sidebar__donate-link");
+      expect(link.getAttribute("href")).toBe(PROFILE);
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+      // No disclosure in the sidebar, and no link in the canvas footer.
+      expect(sidebar().querySelector("details")).toBeNull();
+      expect(within(screen.getByRole("contentinfo")).queryByRole("link", { name: LINK_NAME })).toBeNull();
+      await screen.findAllByRole("heading", { level: 1 });
+    },
+  );
+
+  test("the other host form is used exactly as configured", async () => {
+    renderWithDonation("/", { url: "https://buymeacoffee.com/perfil_de_prueba" });
+    const link = await within(sidebar()).findByRole("link", { name: LINK_NAME });
+    expect(link.getAttribute("href")).toBe("https://buymeacoffee.com/perfil_de_prueba");
+  });
+
+  test.each([
+    ["null", { url: null }],
+    ["a contract break", { url: "javascript:alert(1)" }],
+  ])("%s: no donation link and no empty slot", async (_name, donation) => {
+    const fetch = renderWithDonation("/metodologia", donation);
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => u === "/api/v1/donation")).toBe(true));
+    await Promise.resolve();
+    expect(footerItems()).toEqual(["Danos tu opinión", "Aviso legal y privacidad"]);
+    expect(screen.queryByRole("link", { name: LINK_NAME })).toBeNull();
+  });
+
+  test("activating the drawer's link keeps the drawer open and the page unchanged", async () => {
+    renderWithDonation("/metodologia", { url: PROFILE });
+    const menu = screen.getByRole("button", { name: "Abrir menú" });
+    fireEvent.click(menu);
+    const link = await within(sidebar()).findByRole("link", { name: LINK_NAME });
+    fireEvent.click(link);
+    expect(menu.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("banner").textContent).toBe("IdeologiApp/Cómo funciona");
+  });
+});

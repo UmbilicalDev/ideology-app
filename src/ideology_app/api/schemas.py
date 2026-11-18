@@ -92,6 +92,18 @@ class LegalNoticeOut(_Out):
     address: str | None
 
 
+class DonationOut(_Out):
+    """The project's donation link (donate-buymeacoffee), from ``DONATION_URL``.
+
+    ``url`` is null when the setting is unset, blank or invalid.
+    """
+
+    url: str | None = Field(
+        description="https://www.buymeacoffee.com/<perfil> or https://buymeacoffee.com/<perfil>, "
+        "or null when no valid profile is configured."
+    )
+
+
 class ErrorBody(_Out):
     code: str
     message: str

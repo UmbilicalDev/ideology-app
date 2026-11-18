@@ -1,7 +1,7 @@
 """The ``GET /api/v1`` routes. Path parameters only; no declared query or body.
 
-Five JSON routes (``getLegalNotice`` reads only the app's settings, no
-database), plus ``getPartyLogo``, which serves a Party's logo bytes and
+Six JSON routes (``getLegalNotice`` and ``getDonation`` read only the app's
+settings, no database), plus ``getPartyLogo``, which serves a Party's logo bytes and
 reads only the cache-busting ``v`` from the raw query string to choose its
 Cache-Control (the body never depends on it).
 """
@@ -22,6 +22,7 @@ from ideology_app.api.http_cache import (
 from ideology_app.party_logos import MEDIA_TYPES, logo_version
 from ideology_app.api.schemas import (
     DatasetVersionOut,
+    DonationOut,
     ElectionListOut,
     ElectionOut,
     ErrorOut,
@@ -150,3 +151,15 @@ def get_legal_notice(request: Request) -> Response:
         address=settings.address,
     )
     return cached_json(request, body, POINTER_CACHE_CONTROL)
+
+
+@router.get(
+    "/donation",
+    response_model=DonationOut,
+    operation_id="getDonation",
+    responses={304: {"description": "Not Modified"}},
+)
+def get_donation(request: Request) -> Response:
+    """The donation link (donate-buymeacoffee), or null; no Session is opened."""
+    url: str | None = request.app.state.donation_url
+    return cached_json(request, DonationOut(url=url), POINTER_CACHE_CONTROL)

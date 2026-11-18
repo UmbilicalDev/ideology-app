@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { createPublicApiClient, type FetchLike } from "@ideology-app/core";
 
-import { datasetVersionJson, electionJson, jsonResponse } from "../test/fetch-mocks";
+import { apiPaths, datasetVersionJson, electionJson, jsonResponse } from "../test/fetch-mocks";
 import { App } from "./App";
 
 function renderAt(path: string, fetch: FetchLike) {
@@ -39,7 +39,7 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }),
     ).toBeTruthy();
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+    expect(apiPaths(fetch)).toEqual([
       "/api/v1/elections",
       "/api/v1/elections/1",
       "/api/v1/dataset-versions/1",
@@ -68,7 +68,7 @@ describe("App routes", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Página no encontrada");
     expect(screen.getByText("Esta dirección no corresponde a ninguna página.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
-    expect(fetch).not.toHaveBeenCalled();
+    expect(apiPaths(fetch)).toEqual([]);
   });
 
   test("the sidebar's Cómo funciona opens the methodology, and Volver al inicio restores the title", async () => {
@@ -84,7 +84,7 @@ describe("App routes", () => {
     expect(h1.textContent).toBe("Metodología");
     expect(document.activeElement).toBe(h1);
     expect(document.title).toBe("Metodología · IdeologiApp");
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(apiPaths(fetch)).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("link", { name: "Volver al inicio" }));
     expect(
@@ -119,7 +119,7 @@ describe("App routes", () => {
     fireEvent.click(within(privacy).getByRole("link", { name: "Aviso legal y privacidad" }));
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Aviso legal y privacidad");
     await screen.findByText("Persona Uno");
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+    expect(apiPaths(fetch)).toEqual([
       "/api/v1/elections",
       "/api/v1/legal-notice",
       "/api/v1/legal-notice",
@@ -130,7 +130,7 @@ describe("App routes", () => {
     const fetch = vi.fn<FetchLike>();
     renderAt("/metodologia", fetch);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Metodología");
-    expect(fetch).not.toHaveBeenCalled();
+    expect(apiPaths(fetch)).toEqual([]);
   });
 
   test("the /resultados deep link opens the Share Link with two id-only requests", async () => {
@@ -149,7 +149,7 @@ describe("App routes", () => {
     // The shared result is the only shell page whose sidebar has Ir al inicio.
     const nav = screen.getByRole("navigation", { name: "Secciones" });
     expect(within(nav).getByRole("link", { name: "Ir al inicio" }).getAttribute("href")).toBe("/");
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+    expect(apiPaths(fetch)).toEqual([
       "/api/v1/dataset-versions/1",
       "/api/v1/elections/1",
     ]);

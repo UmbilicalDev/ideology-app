@@ -6,6 +6,7 @@ import { createPublicApiClient, type FetchLike } from "@ideology-app/core";
 
 import { App } from "../../app/App";
 import { METHODOLOGY_PATH } from "../paths";
+import { apiPaths } from "../../test/fetch-mocks";
 
 const NBSP = " ";
 
@@ -229,6 +230,6 @@ describe("MethodologyPage", () => {
       ["Volver al inicio", "/"],
     ]);
     expect(main.querySelectorAll("img, svg")).toHaveLength(0);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(apiPaths(fetch)).toEqual([]);
   });
 });

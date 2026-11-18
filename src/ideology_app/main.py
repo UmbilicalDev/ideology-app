@@ -12,7 +12,13 @@ from ideology_app.admin.accounts import parse_admin_users
 from ideology_app.admin.sessions import AdminSessionStore
 from ideology_app.api import ApiNotFoundError, admin_router, feedback_router, router
 from ideology_app.api.http_cache import ERROR_CACHE_CONTROL
-from ideology_app.config import LegalNoticeSettings, admin_users_raw, legal_notice_settings
+from ideology_app.config import (
+    LegalNoticeSettings,
+    admin_users_raw,
+    legal_notice_settings,
+    parse_donation_url,
+)
+from ideology_app.config import donation_url as default_donation_url
 from ideology_app.config import database_url as default_database_url
 from ideology_app.config import feedback_database_url as default_feedback_database_url
 from ideology_app.config import web_dist_dir as default_web_dist_dir
@@ -37,6 +43,7 @@ def create_app(
     feedback_database_url: str | None = None,
     admin_users: str | None = None,
     legal_notice: LegalNoticeSettings | None = None,
+    donation_url: str | None = None,
 ) -> FastAPI:
     """Build the app; the Engines live in the lifespan.
 
@@ -47,7 +54,9 @@ def create_app(
     is not a database of its own, or with ``ConfigError`` when ``admin_users``
     (default ``$ADMIN_USERS``) or the legal notice (``legal_notice``, default
     the ``LEGAL_*`` variables) is malformed; the feedback store is then
-    upgraded to its newest revision. The web client is served from
+    upgraded to its newest revision. ``donation_url`` is the raw donation
+    link (default ``$DONATION_URL``); an invalid value only hides the link
+    and logs a warning, it never stops startup. The web client is served from
     ``web_dist_dir`` (default ``$WEB_DIST_DIR`` or ``apps/web/dist`` in the
     current directory), resolved once here.
     """
@@ -63,6 +72,9 @@ def create_app(
         )
         app.state.legal_notice = (
             legal_notice if legal_notice is not None else legal_notice_settings()
+        )
+        app.state.donation_url = (
+            parse_donation_url(donation_url) if donation_url is not None else default_donation_url()
         )
         engine = make_engine(main_url)
         app.state.engine = engine
@@ -96,6 +108,8 @@ def create_app(
     app.state.admin_accounts = {}
     # Replaced in the lifespan by the parsed LEGAL_* settings (legal-privacy-page).
     app.state.legal_notice = legal_notice if legal_notice is not None else LegalNoticeSettings()
+    # Replaced in the lifespan by the parsed DONATION_URL (donate-buymeacoffee).
+    app.state.donation_url = None
     app.include_router(router)
     app.include_router(feedback_router)
     app.include_router(admin_router)

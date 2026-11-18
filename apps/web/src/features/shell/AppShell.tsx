@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
 
 import type { FeedbackApi } from "@ideology-app/core";
@@ -6,6 +6,8 @@ import type { FeedbackApi } from "@ideology-app/core";
 import { BallotIcon, BookIcon, ChipIcon, CloseIcon, HomeIcon, MenuIcon } from "../../ui/icons";
 import { APP_NAME } from "../common/BrandTitle";
 import { ProductLogo } from "../common/ProductLogo";
+import { DonationLink } from "../donate/DonationLink";
+import { DonationUrlContext } from "../donate/donation-context";
 import { FeedbackButton } from "../feedback/FeedbackButton";
 import {
   HOME_PATH,
@@ -42,12 +44,13 @@ const DRAWER_QUERY = "(max-width: 767.98px)";
 /**
  * The web-app layout of every Voter page except the Questionnaire (DESIGN.md
  * "App shell"): a sidebar with the brand, the three sections, `Danos tu
- * opinión` and the legal link, and a canvas with a top bar and a footer that
+ * opinión`, the donation link (only when configured) and the legal link, and a canvas with a top bar and a footer that
  * links to the legal page too. Below 768px the sidebar is a modal
  * drawer opened from the top bar.
  */
 export function AppShell({ api }: { readonly api: FeedbackApi }) {
   const [open, setOpen] = useState(false);
+  const donationUrl = useContext(DonationUrlContext);
   const { pathname } = useLocation();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -170,6 +173,10 @@ export function AppShell({ api }: { readonly api: FeedbackApi }) {
         </div>
         <div className="sidebar__footer">
           <FeedbackButton api={api} origin="landing" />
+          {/* A new tab: the current page stays, so the drawer stays open. */}
+          {donationUrl === null ? null : (
+            <DonationLink url={donationUrl} className="sidebar__donate-link" />
+          )}
           <Link className="sidebar__legal-link" to={LEGAL_PATH} onClick={() => closeFor(LEGAL_PATH)}>
             {LEGAL_LINK_TEXT}
           </Link>

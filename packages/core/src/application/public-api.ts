@@ -13,4 +13,6 @@ export interface PublicApi {
   getDatasetVersion(id: number): Promise<DatasetVersion>;
   /** The site's holders and contact (`GET /api/v1/legal-notice`); empty when not configured. */
   getLegalNotice(): Promise<LegalNotice>;
+  /** The donation link (`GET /api/v1/donation`), or `null` when none is configured. */
+  getDonationUrl(): Promise<string | null>;
 }

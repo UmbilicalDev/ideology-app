@@ -683,3 +683,83 @@ describe("createPublicApiClient getLegalNotice", () => {
     expect(error.kind).toBe("invalid_response");
   });
 });
+
+// donate-buymeacoffee: fictitious profile only.
+const DONATION = "https://www.buymeacoffee.com/perfil_de_prueba";
+
+describe("createPublicApiClient getDonationUrl", () => {
+  test("sends exactly one bare GET to /api/v1/donation with an Accept header", async () => {
+    const fetch = fetchReturning(jsonResponse({ url: DONATION }));
+    await createPublicApiClient({ fetch }).getDonationUrl();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/v1/donation", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  });
+
+  test("prefixes baseUrl", async () => {
+    const fetch = fetchReturning(jsonResponse({ url: null }));
+    await createPublicApiClient({ fetch, baseUrl: "https://api.test/" }).getDonationUrl();
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://api.test/api/v1/donation");
+  });
+
+  test.each([DONATION, "https://buymeacoffee.com/perfil_de_prueba"])(
+    "returns the configured URL %s unchanged",
+    async (url) => {
+      const fetch = fetchReturning(jsonResponse({ url, extra: 1 }));
+      expect(await createPublicApiClient({ fetch }).getDonationUrl()).toBe(url);
+    },
+  );
+
+  test("returns null when not configured", async () => {
+    const fetch = fetchReturning(jsonResponse({ url: null }));
+    expect(await createPublicApiClient({ fetch }).getDonationUrl()).toBeNull();
+  });
+
+  test.each<[string, unknown, string]>([
+    ["a body that is an array", [], "donation must be an object"],
+    ["a body that is null", null, "donation must be an object"],
+    ["a missing url", {}, "donation.url must be null or"],
+    ["a numeric url", { url: 1 }, "donation.url must be null or"],
+    ["an empty url", { url: "" }, "donation.url must be null or"],
+    ["an http url", { url: "http://www.buymeacoffee.com/perfil_de_prueba" }, "donation.url must be null or"],
+    ["a url with a query", { url: `${DONATION}?ref=x` }, "donation.url must be null or"],
+    ["another host", { url: "https://buymeacoffee.com.evil.test/perfil" }, "donation.url must be null or"],
+    ["a javascript url", { url: "javascript:alert(1)" }, "donation.url must be null or"],
+  ])("%s is an invalid response naming donation.url", async (_name, body, message) => {
+    const error = await rejection(
+      createPublicApiClient({ fetch: fetchReturning(jsonResponse(body)) }).getDonationUrl(),
+    );
+    expect(error.kind).toBe("invalid_response");
+    expect(error.message.startsWith(`GET /api/v1/donation: ${message}`)).toBe(true);
+  });
+
+  test("a 500 is an http error and json() is not called", async () => {
+    const response = jsonResponse({}, 500);
+    const error = await rejection(
+      createPublicApiClient({ fetch: fetchReturning(response) }).getDonationUrl(),
+    );
+    expect(error.kind).toBe("http");
+    expect(error.status).toBe(500);
+    expect(response.json).not.toHaveBeenCalled();
+  });
+
+  test("a rejected fetch is a network error", async () => {
+    const fetch = vi.fn<FetchLike>(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const error = await rejection(createPublicApiClient({ fetch }).getDonationUrl());
+    expect(error.kind).toBe("network");
+  });
+
+  test("a body that is not JSON is an invalid response", async () => {
+    const response: HttpResponseLike = {
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError("Unexpected token")),
+    };
+    const error = await rejection(createPublicApiClient({ fetch: fetchReturning(response) }).getDonationUrl());
+    expect(error.kind).toBe("invalid_response");
+  });
+});

@@ -11,6 +11,7 @@ import type {
   Statement,
 } from "../../domain/dataset-version";
 import type { Election, ElectionStatus } from "../../domain/election";
+import { DONATION_URL_FORMAT, isDonationUrl } from "../../domain/donation";
 import type { LegalHolder, LegalNotice } from "../../domain/legal-notice";
 import { NO_STANCE, type ScaleValue } from "../../domain/match-score";
 
@@ -289,6 +290,15 @@ function parseLegalNotice(body: unknown): LegalNotice {
   return { holders, contactEmail, address };
 }
 
+function parseDonation(body: unknown): string | null {
+  const item = requireRecord(body, "donation");
+  const url = item["url"];
+  if (url === null || isDonationUrl(url)) {
+    return url;
+  }
+  throw new ContractError(`donation.url must be null or ${DONATION_URL_FORMAT}`);
+}
+
 export function createPublicApiClient(options: PublicApiClientOptions): PublicApiClient {
   // Called as a plain function: `window.fetch` invoked as a method of another
   // object throws "Illegal invocation".
@@ -376,6 +386,9 @@ export function createPublicApiClient(options: PublicApiClientOptions): PublicAp
     },
     getLegalNotice() {
       return getParsed("/api/v1/legal-notice", parseLegalNotice);
+    },
+    getDonationUrl() {
+      return getParsed("/api/v1/donation", parseDonation);
     },
   };
 }
