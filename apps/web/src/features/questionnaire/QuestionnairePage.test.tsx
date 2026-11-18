@@ -13,6 +13,7 @@ import {
 
 import { App } from "../../app/App";
 import {
+  apiPaths,
   datasetVersionJson,
   electionJson,
   jsonResponse,
@@ -122,7 +123,7 @@ describe("QuestionnairePage", () => {
     );
     // Initial load does not move focus.
     expect(document.activeElement).toBe(document.body);
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
+    expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
   });
 
   test("Scenarios 2-5: answer, skip, go back, change and reach the end", async () => {
@@ -195,7 +196,7 @@ describe("QuestionnairePage", () => {
     expect(checkedRadios()).toHaveLength(0);
 
     // Scenario 8 (jsdom part): only the two loads, and nothing stored.
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
+    expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     expect(document.cookie).toBe("");
@@ -428,7 +429,7 @@ describe("QuestionnairePage", () => {
       const none = screen.getByText("No has marcado ninguna afirmación como importante.");
       expect(none.getAttribute("data-marked")).toBe("false");
 
-      expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
+      expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
       expect(localStorage.length).toBe(0);
       expect(sessionStorage.length).toBe(0);
       expect(document.cookie).toBe("");
@@ -447,7 +448,7 @@ describe("QuestionnairePage", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(apiPaths(fetch)).toHaveLength(1);
   });
 
   test("Scenario 7: a version with zero Statements shows not available", async () => {
@@ -468,7 +469,7 @@ describe("QuestionnairePage", () => {
     expect(
       (await screen.findByRole("heading", { level: 1, name: "Página no encontrada" })).textContent,
     ).toBe("Página no encontrada");
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(apiPaths(fetch)).toHaveLength(1);
   });
 
   test("Scenario 7: an API error shows the alert, and Reintentar loads again", async () => {
@@ -489,7 +490,7 @@ describe("QuestionnairePage", () => {
     fireEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
     expect(screen.getByRole("status").textContent).toBe("Cargando cuestionario…");
     expect(await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" })).toBeTruthy();
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, ELECTION_URL, VERSION_URL]);
+    expect(apiPaths(fetch)).toEqual([ELECTION_URL, ELECTION_URL, VERSION_URL]);
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
@@ -546,7 +547,7 @@ describe("QuestionnairePage", () => {
     );
     expect(ranking).toEqual([partyLogoUrl(2), partyLogoUrl(1)]);
     expect(srcs).toEqual([partyLogoUrl(1), partyLogoUrl(2)]);
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
+    expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
   });
 
   describe("results", () => {
@@ -809,7 +810,7 @@ describe("QuestionnairePage", () => {
       walk([AGREE, { label: "Muy de acuerdo", important: true }, "skip", AGREE, AGREE, AGREE]);
       expect(screen.getByRole("list", { name: "Tus resultados" })).toBeTruthy();
       expect(currentUrl).toBe("/elecciones/1/cuestionario");
-      expect(fetch.mock.calls.map((call) => call[0])).toEqual([ELECTION_URL, VERSION_URL]);
+      expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
       expect(localStorage.length).toBe(0);
       expect(sessionStorage.length).toBe(0);
       expect(document.cookie).toBe("");
@@ -859,7 +860,7 @@ describe("QuestionnairePage", () => {
       expect(posts[0]![1]?.method).toBe("POST");
       const body = JSON.parse(String(posts[0]![1]?.body)) as Record<string, unknown>;
       expect(body).toEqual({ message: "Interesante", origin: "results" });
-      expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      expect(apiPaths(fetch)).toEqual([
         ELECTION_URL,
         VERSION_URL,
         "/api/v1/feedback",

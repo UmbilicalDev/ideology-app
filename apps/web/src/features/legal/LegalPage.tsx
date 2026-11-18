@@ -1,10 +1,11 @@
 // Provisional copy: pending review by a lawyer (docs/risks-and-open-questions.md, "Electoral and legal exposure").
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useRef } from "react";
 import { Link } from "react-router";
 
 import { FEEDBACK_RETENTION_MONTHS, type LegalNotice, type PublicApi } from "@ideology-app/core";
 
 import { HomeButton } from "../common/HomeButton";
+import { DonationUrlContext } from "../donate/donation-context";
 import { PageToc, type TocEntry } from "../common/PageToc";
 import { METHODOLOGY_PATH, TRANSPARENCY_PATH } from "../paths";
 import { useLegalNotice } from "./useLegalNotice";
@@ -24,11 +25,13 @@ const TOC: readonly TocEntry[] = [
 // 8). Static copy except the holders and contact, which come from the
 // server's LEGAL_* settings through `getLegalNotice`. Every statement here
 // must stay true of the code (CONSTRAINTS.md, "Public Copy"): feedback store
-// fields, the abuse guard's sweep, cookies and storage, the hosting provider
-// and FEEDBACK_RETENTION_MONTHS. Names no party.
+// fields, the abuse guard's sweep, cookies and storage, the hosting provider,
+// FEEDBACK_RETENTION_MONTHS and the donation channel (donate-buymeacoffee:
+// its copy shows only when DONATION_URL is configured). Names no party.
 export function LegalPage({ api }: { readonly api: PublicApi }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const { state, retry } = useLegalNotice(api);
+  const donationConfigured = useContext(DonationUrlContext) !== null;
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -78,6 +81,14 @@ export function LegalPage({ api }: { readonly api: PublicApi }) {
               Puedes usar IdeologiApp gratis y sin registrarte. Al usarla aceptas estas condiciones,
               que se rigen por la ley española.
             </p>
+            {donationConfigured ? (
+              <p>
+                Las donaciones son voluntarias: puedes usar IdeologiApp igual sin donar, y donar no
+                cambia las afirmaciones, las posiciones de los partidos ni ningún resultado. No
+                aceptamos donaciones hechas en nombre de partidos políticos. Si detectamos una
+                donación hecha en nombre de un partido político, la devolveremos.
+              </p>
+            ) : null}
             <p>
               IdeologiApp no es una recomendación de voto. Las afirmaciones del cuestionario y las
               posiciones de los partidos las genera automáticamente una inteligencia artificial a
@@ -164,6 +175,24 @@ export function LegalPage({ api }: { readonly api: PublicApi }) {
               o aplicaciones, se abre el servicio que elijas, que trata tus datos según su propia
               política; solo se comparte la dirección de IdeologiApp.
             </p>
+            {donationConfigured ? (
+              <>
+                <h3>Donaciones</h3>
+                <p>
+                  El enlace «Invítanos a un café» abre en una pestaña nueva la página del proyecto en
+                  Buy Me a Coffee, un servicio de otra empresa. Es un enlace normal: IdeologiApp no
+                  carga nada de Buy Me a Coffee, no registra si lo abres y no le envía tus respuestas
+                  ni la página desde la que llegas.
+                </p>
+                <p>
+                  Si donas, lo haces en Buy Me a Coffee, con sus propias condiciones y su política de
+                  privacidad, y es ese servicio el que trata tus datos de pago. Las donaciones las
+                  recibe uno de los titulares en su cuenta de Buy Me a Coffee; de cada donación solo
+                  vemos lo que ese servicio muestra a quien la recibe y lo usamos únicamente para
+                  gestionarla y agradecerla.
+                </p>
+              </>
+            ) : null}
             <h3>Tus derechos</h3>
             <p>
               Puedes pedirnos el acceso a tus datos, su rectificación o supresión, la limitación de

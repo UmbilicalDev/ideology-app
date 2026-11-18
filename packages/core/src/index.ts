@@ -49,6 +49,7 @@ export type { SharedVersionStatus } from "./domain/shared-result";
 export type { PublicApi } from "./application/public-api";
 export type { FeedbackApi, FeedbackInput } from "./application/feedback-api";
 export type { LegalHolder, LegalNotice } from "./domain/legal-notice";
+export { DONATION_URL_PATTERN, isDonationUrl } from "./domain/donation";
 export {
   FEEDBACK_MAX_CHARS,
   FEEDBACK_RETENTION_MONTHS,

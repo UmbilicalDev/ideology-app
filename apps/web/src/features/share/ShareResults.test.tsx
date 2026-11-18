@@ -10,7 +10,7 @@ import {
 } from "@ideology-app/core";
 
 import { App } from "../../app/App";
-import { datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
+import { apiPaths, datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
 import { COPIED_FLASH_MS } from "./useCopiedFlash";
 
 const FALLBACK = "No se ha podido copiar el enlace automáticamente. Cópialo desde este campo:";
@@ -124,7 +124,7 @@ describe("ShareResults", () => {
     expect(url.split("#")).toHaveLength(2);
     expect(within(section).queryByRole("textbox")).toBeNull();
     expect(document.activeElement).toBe(copyButton);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(apiPaths(fetch)).toHaveLength(2);
   });
 
   test("¡Copiado! goes back to Copiar enlace after a moment", async () => {
@@ -203,7 +203,7 @@ describe("ShareResults", () => {
     fireEvent.click(button("Copiar enlace"));
     await vi.waitFor(() => expect(document.activeElement).toBe(field));
     expect(field.selectionEnd).toBe(field.value.length);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(apiPaths(fetch)).toHaveLength(2);
   });
 
   test("Scenario 3: a clipboard without writeText falls back to the field", async () => {
@@ -293,7 +293,7 @@ describe("ShareResults", () => {
       ranking,
     );
     expect(currentLocation).toBe("/resultados#v1-1-dddddA");
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+    expect(apiPaths(fetch)).toEqual([
       "/api/v1/dataset-versions/1",
       "/api/v1/elections/1",
     ]);

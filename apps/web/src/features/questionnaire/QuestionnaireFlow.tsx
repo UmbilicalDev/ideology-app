@@ -26,6 +26,7 @@ import {
   StarIcon,
   StepOverIcon,
 } from "../../ui/icons";
+import { DonationBlock } from "../donate/DonationBlock";
 import { FeedbackButton } from "../feedback/FeedbackButton";
 import { METHODOLOGY_PATH } from "../paths";
 import { useMediaQuery } from "../common/useMediaQuery";
@@ -341,6 +342,7 @@ function EndScreen({
         </p>
       </div>
       <ResultsBreakdown rows={breakdown} />
+      <DonationBlock />
     </>
   );
 }

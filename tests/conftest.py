@@ -21,6 +21,8 @@ def _no_default_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     # No legal notice unless a test passes legal_notice= (legal-privacy-page).
     for name in ("LEGAL_HOLDERS", "LEGAL_CONTACT_EMAIL", "LEGAL_NIF", "LEGAL_ADDRESS"):
         monkeypatch.delenv(name, raising=False)
+    # No donation link unless a test passes donation_url= (donate-buymeacoffee).
+    monkeypatch.delenv("DONATION_URL", raising=False)
     monkeypatch.chdir(tmp_path)
 
 

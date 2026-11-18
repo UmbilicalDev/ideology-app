@@ -189,6 +189,38 @@ h2[tabindex="-1"]:focus {
   text-decoration: underline;
 }
 
+/* `Invítanos a un café` under `Danos tu opinión` (donate-buymeacoffee): like
+   the legal link, with the coffee and external-link icons; never wraps. */
+.sidebar__donate-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 44px;
+  margin-top: var(--space-xs);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.sidebar__donate-link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.sidebar__donate-link .icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.sidebar__donate-link .icon--coffee {
+  width: 20px;
+  height: 20px;
+}
+
 .app-shell__canvas {
   flex: 1 1 auto;
   min-width: 0;
@@ -2951,4 +2983,69 @@ dialog.feedback-dialog {
 
 .feedback__thanks .feedback__actions {
   align-self: stretch;
+}
+
+/* The donation block that ends the results screen (DESIGN.md "Donation link
+   and block", donate-buymeacoffee): low-key text under a hairline, no card. */
+.donate-block {
+  max-width: 72ch;
+  margin-top: var(--space-2xl);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
+}
+
+.donate-block__line {
+  margin: 0;
+}
+
+.donate-block__line .icon--coffee {
+  width: 20px;
+  height: 20px;
+}
+
+.donate-block__summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  list-style: none;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+}
+
+.donate-block__summary:hover {
+  color: var(--color-accent);
+}
+
+.donate-block__summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Decorative chevron like `.position__summary`: right when closed, down when open. */
+.donate-block__summary::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: var(--space-sm);
+  border-right: 2px solid var(--color-text-muted);
+  border-bottom: 2px solid var(--color-text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.donate-block__details[open] > .donate-block__summary::before {
+  transform: rotate(45deg);
+}
+
+.donate-block__details p {
+  margin: 0 0 var(--space-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .donate-block__summary::before {
+    transition: none;
+  }
 }

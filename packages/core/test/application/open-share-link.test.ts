@@ -64,7 +64,8 @@ function fakeApi({
   const getElection = vi.fn(election);
   const listElections = vi.fn(async () => [] as readonly Election[]);
   const getLegalNotice = vi.fn(async () => ({ holders: [], contactEmail: null, address: null }));
-  const api: PublicApi = { getDatasetVersion, getElection, listElections, getLegalNotice };
+  const getDonationUrl = vi.fn(async () => null);
+  const api: PublicApi = { getDatasetVersion, getElection, listElections, getLegalNotice, getDonationUrl };
   return { api, getDatasetVersion, getElection, listElections };
 }
 

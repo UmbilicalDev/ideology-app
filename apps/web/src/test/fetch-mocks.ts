@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-import type { HttpResponseLike } from "@ideology-app/core";
+import type { FetchLike, HttpResponseLike } from "@ideology-app/core";
 
 export function jsonResponse(body: unknown, status = 200): HttpResponseLike {
   return {
@@ -105,4 +105,22 @@ export function recordImageRequests(): { readonly srcs: string[] } {
   }
   vi.stubGlobal("Image", RecordingImage);
   return { srcs };
+}
+
+/** The App-level donation request (donate-buymeacoffee): one per `App` mount. */
+export const DONATION_PATH = "/api/v1/donation";
+
+/**
+ * The URLs a mocked fetch was called with, in order, without the App-level
+ * `GET /api/v1/donation` (donate-buymeacoffee). Assertions about a page's own
+ * requests ("no request", "id-only requests", logo order) use this, so the
+ * donation request, which carries nothing, does not change their intent; one
+ * dedicated test pins that request itself.
+ */
+export function apiPaths(fetch: FetchLike): string[] {
+  // Always a `vi.fn<FetchLike>()` in tests; typed as FetchLike so helpers
+  // that return the plain port type can be passed too.
+  const calls = (fetch as unknown as { readonly mock: { readonly calls: readonly (readonly unknown[])[] } }).mock
+    .calls;
+  return calls.map((call) => String(call[0])).filter((url) => url !== DONATION_PATH);
 }

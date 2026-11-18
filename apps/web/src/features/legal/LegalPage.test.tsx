@@ -7,7 +7,7 @@ import { describe, expect, test, vi } from "vitest";
 import { FEEDBACK_RETENTION_MONTHS, createPublicApiClient, type FetchLike } from "@ideology-app/core";
 
 import { App } from "../../app/App";
-import { jsonResponse, textResponse } from "../../test/fetch-mocks";
+import { apiPaths, jsonResponse, textResponse } from "../../test/fetch-mocks";
 import { LEGAL_PATH } from "../paths";
 import { LEGAL_LAST_UPDATED, LEGAL_TITLE } from "./LegalPage";
 
@@ -137,7 +137,7 @@ describe("LegalPage", () => {
     const mail = within(holders).getByRole("link", { name: "contacto@ideologiapp.test" });
     expect(mail.getAttribute("href")).toBe("mailto:contacto@ideologiapp.test");
     expect(within(holders).queryByRole("status")).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(apiPaths(fetch)).toHaveLength(1);
     expect(fetch).toHaveBeenCalledWith("/api/v1/legal-notice", {
       method: "GET",
       headers: { Accept: "application/json" },
@@ -197,8 +197,8 @@ describe("LegalPage", () => {
     expect(within(holders).getByRole("status").textContent).toBe("Cargando los datos de los titulares…");
     expect(await within(holders).findByRole("list")).toBeTruthy();
     expect(within(holders).queryByRole("alert")).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(fetch.mock.calls.map((call) => call[0])).toEqual(["/api/v1/legal-notice", "/api/v1/legal-notice"]);
+    expect(apiPaths(fetch)).toHaveLength(2);
+    expect(apiPaths(fetch)).toEqual(["/api/v1/legal-notice", "/api/v1/legal-notice"]);
   });
 
   test("the h1 is focused, the tab title is set and restored on leaving", async () => {
@@ -299,5 +299,79 @@ describe("LegalPage", () => {
       expect(main.textContent).not.toContain(word);
     }
     expect(screen.getByRole("link", { name: "Volver al inicio" }).getAttribute("href")).toBe("/");
+  });
+});
+
+// donate-buymeacoffee Scenario 5: the donation copy shows only when the
+// server has a donation link. Fictitious profile only.
+describe("LegalPage donation copy", () => {
+  const PROFILE = "https://www.buymeacoffee.com/perfil_de_prueba";
+  const TERMS_DONATION =
+    "Las donaciones son voluntarias: puedes usar IdeologiApp igual sin donar, y donar no cambia " +
+    "las afirmaciones, las posiciones de los partidos ni ningún resultado. No aceptamos donaciones " +
+    "hechas en nombre de partidos políticos. Si detectamos una donación hecha en nombre de un " +
+    "partido político, la devolveremos.";
+  const PRIVACY_DONATION = [
+    "El enlace «Invítanos a un café» abre en una pestaña nueva la página del proyecto en Buy Me a " +
+      "Coffee, un servicio de otra empresa. Es un enlace normal: IdeologiApp no carga nada de Buy " +
+      "Me a Coffee, no registra si lo abres y no le envía tus respuestas ni la página desde la que " +
+      "llegas.",
+    "Si donas, lo haces en Buy Me a Coffee, con sus propias condiciones y su política de " +
+      "privacidad, y es ese servicio el que trata tus datos de pago. Las donaciones las recibe uno " +
+      "de los titulares en su cuenta de Buy Me a Coffee; de cada donación solo vemos lo que ese " +
+      "servicio muestra a quien la recibe y lo usamos únicamente para gestionarla y agradecerla.",
+  ];
+
+  function withDonation(donation: unknown) {
+    return vi.fn<FetchLike>(async (url) => {
+      if (url === "/api/v1/legal-notice") return jsonResponse(CONFIGURED);
+      if (url === "/api/v1/donation") return jsonResponse(donation);
+      throw new Error(`unexpected request ${url}`);
+    });
+  }
+
+  const squash = (texts: string[]) => texts.map((t) => t.replace(/\s+/g, " ").trim());
+
+  test("configured: the terms paragraph and the Donaciones subsection, in place", async () => {
+    renderLegal(withDonation({ url: PROFILE }));
+    await screen.findByRole("heading", { level: 3, name: "Donaciones" });
+
+    const terms = squash(paragraphs(region("Condiciones de uso")));
+    const free = terms.findIndex((t) => t.startsWith("Puedes usar IdeologiApp gratis"));
+    expect(terms[free + 1]).toBe(TERMS_DONATION);
+
+    const privacy = region("Política de privacidad");
+    expect(within(privacy).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
+      "Responsables",
+      "Tus respuestas no salen de tu dispositivo",
+      "Qué datos tratamos",
+      "Para qué y con qué base legal",
+      "Cuánto tiempo los guardamos",
+      "Quién más accede a los datos",
+      "Donaciones",
+      "Tus derechos",
+    ]);
+    const heading = within(privacy).getByRole("heading", { level: 3, name: "Donaciones" });
+    const following = [heading.nextElementSibling, heading.nextElementSibling?.nextElementSibling];
+    expect(squash(following.map((el) => el?.textContent ?? ""))).toEqual(PRIVACY_DONATION);
+    expect(following[1]?.nextElementSibling?.textContent).toBe("Tus derechos");
+    // The copy names no holder, and no profile URL is printed.
+    expect(screen.getByRole("main").textContent).not.toContain("buymeacoffee.com");
+  });
+
+  test.each([
+    ["unset", { url: null }],
+    ["a contract break", { url: "https://www.buymeacoffee.com/perfil?ref=x" }],
+  ])("%s: no donation copy, and the rest of the page is unchanged", async (_name, donation) => {
+    const fetch = withDonation(donation);
+    renderLegal(fetch);
+    await screen.findByRole("link", { name: "contacto@ideologiapp.test" });
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([u]) => u === "/api/v1/donation")).toBe(true));
+    await Promise.resolve();
+    const main = screen.getByRole("main");
+    expect(within(main).queryByRole("heading", { name: "Donaciones" })).toBeNull();
+    expect(main.textContent).not.toContain("donaci");
+    expect(main.textContent).not.toContain("Buy Me a Coffee");
+    for (const text of TERMS_TEXTS) expect(paragraphs(region("Condiciones de uso"))).toContain(text);
   });
 });
