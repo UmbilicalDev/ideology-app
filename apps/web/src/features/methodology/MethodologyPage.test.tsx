@@ -48,6 +48,10 @@ const FEEDBACK_TEXT =
   "masivos, el servidor cuenta durante unos minutos, solo en memoria, los envíos de cada " +
   "conexión. No escribas datos personales en el mensaje.";
 
+const LEGAL_LINK_TEXT =
+  "Quién es responsable, cuánto tiempo se guardan las opiniones y cómo ejercer tus derechos se " +
+  "explica en Aviso legal y privacidad.";
+
 const DISCLAIMER_TEXT =
   "Esta herramienta no es una recomendación de voto. Las afirmaciones y las posiciones las " +
   "genera automáticamente una inteligencia artificial, sin revisión humana, y pueden contener " +
@@ -198,14 +202,18 @@ describe("MethodologyPage", () => {
     expect(within(privacy).getByText(SHARE_TEXT)).toBeTruthy();
     // feedback-api: the third paragraph says what feedback stores.
     const paragraphs = Array.from(privacy.querySelectorAll("p")).map((p) => p.textContent);
-    expect(paragraphs).toEqual([PRIVACY_TEXT, SHARE_TEXT, FEEDBACK_TEXT]);
+    expect(paragraphs).toEqual([PRIVACY_TEXT, SHARE_TEXT, FEEDBACK_TEXT, LEGAL_LINK_TEXT]);
+    // legal-privacy-page: the privacy section links to the legal page.
+    expect(within(privacy).getByRole("link", { name: "Aviso legal y privacidad" }).getAttribute("href")).toBe(
+      "/legal",
+    );
     expect(privacy.textContent).not.toContain("se usará");
     const disclaimer = screen.getByRole("region", { name: "Aviso" });
     expect(disclaimer.className).toBe("card");
     expect(within(disclaimer).getByText(DISCLAIMER_TEXT)).toBeTruthy();
   });
 
-  test("main links only to its own sections and home, has no images and no request", () => {
+  test("main links only to its own sections, the legal page and home, has no images and no request", () => {
     const fetch = renderMethodology();
     const main = screen.getByRole("main");
     const toc = within(main).getByRole("navigation", { name: "En esta página" });
@@ -216,9 +224,10 @@ describe("MethodologyPage", () => {
       expect(target?.tagName).toBe("H2");
     }
     const links = within(main).getAllByRole("link").filter((link) => !toc.contains(link));
-    expect(links).toHaveLength(1);
-    expect(links[0]?.textContent).toBe("Volver al inicio");
-    expect(links[0]?.getAttribute("href")).toBe("/");
+    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Aviso legal y privacidad", "/legal"],
+      ["Volver al inicio", "/"],
+    ]);
     expect(main.querySelectorAll("img, svg")).toHaveLength(0);
     expect(fetch).not.toHaveBeenCalled();
   });

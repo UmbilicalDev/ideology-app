@@ -52,6 +52,7 @@ Rules:
 | `DATABASE_URL` / `--database-url` | SQLAlchemy URL, default `sqlite:///ideology.db` | `sqlite:///data/ideology.db` (from the repo root) selects the shared database committed to git (`shared-database`); there is no other selector. On it, `pipeline run` / `run-queued` ask for confirmation (`--yes` skips it) and a missing file is refused instead of created. The default stays a local file so a stray command never writes the shared one. |
 | `FEEDBACK_DATABASE_URL` / `ideology feedback --feedback-database-url` | SQLAlchemy URL, default `sqlite:///feedback.db` (current directory, git-ignored) | The anonymous Voter feedback store (`feedback-api`), separate from the shared database: pointing it at `data/ideology.db`, at the `DATABASE_URL` database or at an in-memory database is refused at startup and by the CLI. PostgreSQL URLs are allowed for a deployment. Its schema has its own Alembic environment (`feedback_alembic_version`), applied at startup and by `ideology feedback upgrade`. |
 | `ADMIN_USERS` | `username:scrypt-hash` entries, comma-separated; unset = no Operator account | Operator accounts for the admin page (`feedback-admin`); hashes from `ideology admin hash-password`. Only in the deployment environment, never in git. Malformed values stop startup. Sessions are in memory, so one worker. |
+| `LEGAL_HOLDERS`, `LEGAL_CONTACT_EMAIL`, `LEGAL_NIF`, `LEGAL_ADDRESS` | see the run-time table under Deployment and Operations | The holders and contact shown on `/legal` (`legal-privacy-page`), served by `GET /api/v1/legal-notice`. Personal data: only in the deployment environment, never in git. Malformed values stop startup with a `ConfigError` naming the variable, not the value; unset values show "pendiente de publicación". |
 
 ## Data and Storage
 
@@ -111,18 +112,24 @@ Run-time settings (never in the image or git):
 | Variable | Value | Why |
 | --- | --- | --- |
 | `ADMIN_USERS` | `miguel:scrypt…,enrique:scrypt…` from `ideology admin hash-password` | Operator accounts for `/admin`; unset = admin disabled |
+| `LEGAL_HOLDERS` | `Nombre Apellidos;Nombre Apellidos` (1..10 names, each 1..120 code points), a secret | Holders on `/legal`; unset = "pendiente de publicación" |
+| `LEGAL_CONTACT_EMAIL` | `alias@dominio` (at most 254 characters; `example.com/.net/.org` refused), a secret | Contact on `/legal` (`mailto:`); unset = "pendiente de publicación" |
+| `LEGAL_NIF` (optional) | one DNI or NIE per holder, same order, `;`-separated; control letter checked; needs `LEGAL_HOLDERS` | Published only when set (user decision 2026-11-18: unset for now) |
+| `LEGAL_ADDRESS` (optional) | one line, 1..300 code points | Published only when set (user decision 2026-11-18: unset for now) |
 | `FORWARDED_ALLOW_IPS` | `*`, only behind a proxy that is the sole way to reach the container | uvicorn then trusts `X-Forwarded-For`/`-Proto`, so the rate limiters key the real client. Unset, it trusts only loopback and every client shares the proxy's key (fail closed). uvicorn keys on the leftmost `X-Forwarded-For` entry, so `*` is safe only while the proxy replaces a client-sent `X-Forwarded-For` instead of appending to it: keep Traefik's entrypoint `forwardedHeaders` untrusted (Coolify's default, no `insecure`, no `trustedIPs`), and revisit before putting a CDN such as Cloudflare in front |
 
 Runbook (VPS with Coolify, user decision 2026-11-08):
 
 1. Build and check locally: `docker build -t ideology-app .`, then `docker run --rm -p 127.0.0.1:8000:8000 -v ideology-data:/data ideology-app` and open `http://127.0.0.1:8000/`.
 2. In Coolify: a new resource from the GitHub repository, build pack Dockerfile, branch `main`, port `8000`. Do not publish the port on the host: only Coolify's proxy may reach it (that is what makes `FORWARDED_ALLOW_IPS=*` safe).
-3. Add a persistent volume mounted at `/data`, and the two variables above (`ADMIN_USERS` as a secret).
+3. Add a persistent volume mounted at `/data`, and the variables above (`ADMIN_USERS`, `LEGAL_HOLDERS` and `LEGAL_CONTACT_EMAIL` as secrets; `LEGAL_NIF` and `LEGAL_ADDRESS` only if they are to be published). The `LEGAL_*` values are read at startup: a change needs a restart, not a rebuild. Values are trimmed; control characters, `<` and `>` are refused.
 4. Domains: `https://ideologiapp.es`, with `www` and `ideologiapp.com` redirecting to it. Coolify's proxy gets the Let's Encrypt certificates once DNS `A` records point at the VPS. TLS is required: the admin cookie is `Secure` off localhost.
-5. Leave the proxy's own access log off, so no request line or client IP is recorded anywhere.
-6. Check after each deploy: `/health` answers 200; the Landing, a Questionnaire, results, a Share Link and `/metodologia` work; no request carries Answers; a feedback message survives a redeploy; `/admin` signs in.
+5. Leave the proxy's own access log off, so no request line or client IP is recorded anywhere. Confirm it in Coolify (Traefik's access log): the privacy copy on `/legal` says no access log is kept (`legal-privacy-page`).
+6. Check after each deploy: `/health` answers 200; the Landing, a Questionnaire, results, a Share Link and `/metodologia` work; `/legal` shows the configured holders and contact (or the "pendiente de publicación" sentences); no request carries Answers; a feedback message survives a redeploy; `/admin` signs in.
 7. Backups: copy the feedback store off the server regularly (a consistent copy, not the raw file while it is open): `docker exec <container> python -c "import sqlite3; sqlite3.connect('/data/feedback.db').backup(sqlite3.connect('/data/feedback-backup.db'))"`, then copy `/data/feedback-backup.db` out (`docker cp <container>:/data/feedback-backup.db .`) and delete it from the volume (`docker exec <container> rm /data/feedback-backup.db`), so messages that Operators delete later do not stay on the server in an old copy. Restore by stopping the container and putting the copy back as `/data/feedback.db`.
 8. Roll back by redeploying the previous commit; the feedback volume is untouched.
+9. Retention (`legal-privacy-page`): `/legal` promises each feedback message is kept at most `FEEDBACK_RETENTION_MONTHS` (12) months, backups included. Each month, delete in `/admin` the messages older than that (filter `Hasta (UTC)` set to today minus 12 months, then `Borrar`), and delete off-server backups older than that. There is no automatic purge.
+10. Sign Netcup's data-processing agreement (AVV, Auftragsverarbeitungsvertrag) in its customer panel: the privacy copy names Netcup GmbH as processor.
 
 ## Testing and Verification
 

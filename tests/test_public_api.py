@@ -676,6 +676,7 @@ def test_api_routes_are_get_only_without_query_or_body() -> None:
         "/api/v1/elections/{election_id}/published-dataset-version",
         "/api/v1/dataset-versions/{dataset_version_id}",
         "/api/v1/parties/{party_id}/logo",
+        "/api/v1/legal-notice",
     }
     for route in api_routes:
         assert route.methods == {"GET"}, route.path
@@ -755,6 +756,20 @@ def test_openapi_is_exposed_under_api(client_for: Callable[[], TestClient]) -> N
             "$ref": "#/components/schemas/ErrorOut"
         }
         assert "304" in responses
+    # legal-privacy-page: no parameter and no 404 (the notice always exists).
+    legal = schema["paths"]["/api/v1/legal-notice"]
+    assert set(legal) == {"get"}
+    assert legal["get"]["operationId"] == "getLegalNotice"
+    assert "parameters" not in legal["get"]
+    assert legal["get"]["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/LegalNoticeOut"
+    }
+    assert set(legal["get"]["responses"]) == {"200", "304"}
+    assert list(schema["components"]["schemas"]["LegalNoticeOut"]["properties"]) == [
+        "holders",
+        "contact_email",
+        "address",
+    ]
     value = schema["components"]["schemas"]["PositionOut"]["properties"]["value"]
     assert value["anyOf"] == [
         {"type": "integer", "minimum": -2, "maximum": 2},

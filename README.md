@@ -175,6 +175,10 @@ Variables de entorno (lee `src/ideology_app/config.py`):
 | `WEB_DIST_DIR` | `apps/web/dist` | Build del cliente web que sirve FastAPI. |
 | `FEEDBACK_DATABASE_URL` | `sqlite:///feedback.db` | Almacén aparte de las opiniones anónimas (`POST /api/v1/feedback`), en el directorio actual e ignorado por git. No puede ser `data/ideology.db`, la base de `DATABASE_URL` ni una base en memoria: la app no arranca. También vale `ideology feedback --feedback-database-url …`. |
 | `ADMIN_USERS` | (ninguno) | Cuentas de Operador de la página `/admin`: `usuario:hash,usuario:hash`, con hashes de `ideology admin hash-password`. Solo en el entorno del servidor, nunca en git. Sin valor, nadie puede entrar. |
+| `LEGAL_HOLDERS` | (ninguno) | Titulares que muestra `/legal`: `Nombre Apellidos;Nombre Apellidos` (de 1 a 10 nombres, cada uno de hasta 120 caracteres). Solo en el entorno del servidor, nunca en git. Sin valor, la página dice que los nombres están pendientes de publicación. |
+| `LEGAL_CONTACT_EMAIL` | (ninguno) | Dirección de contacto de `/legal` (`alias@dominio`, hasta 254 caracteres; se rechazan los dominios `example.com/.net/.org`). Solo en el entorno del servidor. Sin valor, la página dice que el contacto está pendiente de publicación. |
+| `LEGAL_NIF` | (ninguno, opcional) | Un DNI o NIE por titular, en el mismo orden y separados por `;` (se comprueba la letra). Necesita `LEGAL_HOLDERS`. Sin valor, no se publica ningún NIF. |
+| `LEGAL_ADDRESS` | (ninguno, opcional) | Dirección postal en una línea (hasta 300 caracteres). Sin valor, no se publica. |
 
 Los umbrales de Validación son valores por defecto del código decididos por el equipo. No los cambies para una ejecución concreta: por eso el comando de generación los desactiva con `env -u`.
 
@@ -294,7 +298,10 @@ En el servidor (Coolify), configura:
 - **`ADMIN_USERS`** como secreto (ver "Cuentas de Operador"). Sin él, `/admin` no deja entrar a nadie.
 - **`FORWARDED_ALLOW_IPS=*`**, solo si el puerto 8000 no está publicado y únicamente el proxy de Coolify llega al contenedor. Así el límite de envíos ve la IP real de cada usuario. Sin esta variable, todos los usuarios comparten el límite del proxy. Es seguro mientras el proxy sustituya la cabecera `X-Forwarded-For` que mande el cliente, como hace Traefik por defecto en Coolify; si pones una CDN como Cloudflare delante, revísalo antes.
 - **HTTPS** en el dominio, que Coolify gestiona con Let's Encrypt. Es obligatorio para `/admin`.
-- **Sin registro de accesos** en el proxy. La app ya no guarda ninguno (`--no-access-log`).
+- **Sin registro de accesos** en el proxy. La app ya no guarda ninguno (`--no-access-log`). La política de privacidad de `/legal` lo promete: compruébalo en Coolify.
+- **`LEGAL_HOLDERS`** y **`LEGAL_CONTACT_EMAIL`** como secretos, y, si se decide publicarlos, `LEGAL_NIF` y `LEGAL_ADDRESS` (formatos en la tabla de variables). Son datos personales: nunca en git. Se leen al arrancar, así que un cambio solo necesita reiniciar, no reconstruir. Un valor mal formado impide arrancar con un error que nombra la variable, sin mostrar su valor; sin valor, `/legal` dice que el dato está pendiente de publicación. Después de cada despliegue, abre `/legal` y comprueba los titulares y el contacto.
+- **Retención de las opiniones**: `/legal` promete borrarlas a los 12 meses (`FEEDBACK_RETENTION_MONTHS`). Cada mes, borra en `/admin` las anteriores a esa fecha (filtro `Hasta`) y las copias de seguridad fuera del servidor más antiguas que eso.
+- **Contrato de encargo del tratamiento** (AVV) de Netcup, aceptado en su panel de cliente.
 
 El runbook completo, con las copias de seguridad de las opiniones y la vuelta atrás, está en [`docs/technical-discovery.md`](docs/technical-discovery.md) ("Deployment and Operations").
 

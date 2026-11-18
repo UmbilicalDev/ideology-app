@@ -1,8 +1,10 @@
 // Provisional copy: pending legal review before a public launch (docs/risks-and-open-questions.md, "Electoral and legal exposure").
 import { useEffect, useRef } from "react";
+import { Link } from "react-router";
 
 import { HomeButton } from "../common/HomeButton";
 import { PageToc, type TocEntry } from "../common/PageToc";
+import { LEGAL_PATH } from "../paths";
 
 export const METHODOLOGY_TITLE = "Metodología · IdeologiApp";
 
@@ -199,6 +201,14 @@ export function MethodologyPage() {
               guardan tus respuestas, tu dirección IP ni ningún otro dato sobre ti. Para frenar los
               envíos masivos, el servidor cuenta durante unos minutos, solo en memoria, los envíos
               de cada conexión. No escribas datos personales en el mensaje.
+            </p>
+            <p>
+              Quién es responsable, cuánto tiempo se guardan las opiniones y cómo ejercer tus
+              derechos se explica en{" "}
+              <Link className="text-link" to={LEGAL_PATH}>
+                Aviso legal y privacidad
+              </Link>
+              .
             </p>
           </section>
 

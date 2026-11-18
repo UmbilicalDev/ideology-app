@@ -61,6 +61,7 @@ describe("App routes", () => {
     "/elecciones/2147483648/cuestionario",
     "/nada",
     "/metodologia/x",
+    "/legal/x",
   ])("%s renders Página no encontrada without an API request", (path) => {
     const fetch = vi.fn<FetchLike>();
     renderAt(path, fetch);
@@ -90,6 +91,39 @@ describe("App routes", () => {
       await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" }),
     ).toBeTruthy();
     expect(document.title).toBe("IdeologiApp");
+  });
+
+  test("legal-privacy-page: the sidebar link opens /legal from the Landing, and the methodology and legal pages link to each other", async () => {
+    document.title = "IdeologiApp";
+    const fetch = vi.fn<FetchLike>(async (url) => {
+      if (url === "/api/v1/elections") return jsonResponse({ elections: [electionJson()] });
+      if (url === "/api/v1/legal-notice") {
+        return jsonResponse({ holders: [{ name: "Persona Uno", nif: null }], contact_email: null, address: null });
+      }
+      throw new Error(`unexpected request ${url}`);
+    });
+    renderAt("/", fetch);
+    await screen.findByRole("link", { name: "Generales 2023 23 de julio de 2023 Realizar cuestionario" });
+
+    const sidebar = screen.getByRole("complementary", { name: "Menú principal" });
+    fireEvent.click(within(sidebar).getByRole("link", { name: "Aviso legal y privacidad" }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Aviso legal y privacidad");
+    expect(document.title).toBe("Aviso legal y privacidad · IdeologiApp");
+    expect(await screen.findByText("Persona Uno")).toBeTruthy();
+
+    // Terms link to the methodology; its privacy section links back here.
+    const terms = screen.getByRole("region", { name: "Condiciones de uso" });
+    fireEvent.click(within(terms).getByRole("link", { name: "Metodología" }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Metodología");
+    const privacy = screen.getByRole("region", { name: "Tus respuestas" });
+    fireEvent.click(within(privacy).getByRole("link", { name: "Aviso legal y privacidad" }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Aviso legal y privacidad");
+    await screen.findByText("Persona Uno");
+    expect(fetch.mock.calls.map((call) => call[0])).toEqual([
+      "/api/v1/elections",
+      "/api/v1/legal-notice",
+      "/api/v1/legal-notice",
+    ]);
   });
 
   test("the methodology deep link renders without an API request", () => {

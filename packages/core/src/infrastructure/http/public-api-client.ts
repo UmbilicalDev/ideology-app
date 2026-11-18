@@ -11,6 +11,7 @@ import type {
   Statement,
 } from "../../domain/dataset-version";
 import type { Election, ElectionStatus } from "../../domain/election";
+import type { LegalHolder, LegalNotice } from "../../domain/legal-notice";
 import { NO_STANCE, type ScaleValue } from "../../domain/match-score";
 
 export interface HttpResponseLike {
@@ -255,6 +256,39 @@ function parseDatasetVersion(body: unknown): DatasetVersion {
   return { id, electionId, createdAt, statements, parties };
 }
 
+function parseLegalHolder(value: unknown, path: string): LegalHolder {
+  const item = requireRecord(value, path);
+  const name = item["name"];
+  if (typeof name !== "string" || name === "") {
+    throw new ContractError(`${path}.name must be a non-empty string`);
+  }
+  const nif = item["nif"];
+  if (nif !== null && (typeof nif !== "string" || nif === "")) {
+    throw new ContractError(`${path}.nif must be null or a non-empty string`);
+  }
+  return { name, nif };
+}
+
+function parseLegalNotice(body: unknown): LegalNotice {
+  const path = "legal_notice";
+  const item = requireRecord(body, path);
+  const holders = requireArray(item, "holders", path).map((holder, index) =>
+    parseLegalHolder(holder, `holders[${index}]`),
+  );
+  const contactEmail = item["contact_email"];
+  if (
+    contactEmail !== null &&
+    (typeof contactEmail !== "string" || !contactEmail.includes("@") || /\s/.test(contactEmail))
+  ) {
+    throw new ContractError(`${path}.contact_email must be null or an address with "@" and no spaces`);
+  }
+  const address = item["address"];
+  if (address !== null && (typeof address !== "string" || address === "")) {
+    throw new ContractError(`${path}.address must be null or a non-empty string`);
+  }
+  return { holders, contactEmail, address };
+}
+
 export function createPublicApiClient(options: PublicApiClientOptions): PublicApiClient {
   // Called as a plain function: `window.fetch` invoked as a method of another
   // object throws "Illegal invocation".
@@ -339,6 +373,9 @@ export function createPublicApiClient(options: PublicApiClientOptions): PublicAp
     },
     getDatasetVersion(id: number) {
       return getParsed(`/api/v1/dataset-versions/${id}`, parseDatasetVersion);
+    },
+    getLegalNotice() {
+      return getParsed("/api/v1/legal-notice", parseLegalNotice);
     },
   };
 }

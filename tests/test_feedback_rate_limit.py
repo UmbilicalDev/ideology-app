@@ -1,6 +1,6 @@
 """feedback-api Scenario 5: the per-process abuse guard (Decision 8), with a fake clock."""
 
-from ideology_app.feedback.rate_limit import FeedbackRateLimiter
+from ideology_app.feedback.rate_limit import SWEEP_INTERVAL_SECONDS, FeedbackRateLimiter
 
 
 class FakeClock:
@@ -87,3 +87,42 @@ def test_keys_are_keyed_hashes_not_addresses() -> None:
     other = FeedbackRateLimiter()
     other.check_and_consume("192.0.2.7")
     assert list(other._clients) != keys  # noqa: SLF001
+
+
+def test_expired_keys_are_swept_by_other_clients_calls() -> None:
+    # legal-privacy-page: an expired key leaves memory without waiting for a full map.
+    assert SWEEP_INTERVAL_SECONDS == 60
+    clock = FakeClock()
+    limiter = FeedbackRateLimiter(clock=clock)
+    assert limiter.check_and_consume("a") is None
+    clock.now += 61
+    assert limiter.check_and_consume("b") is None  # a sweep runs: "a" is still in its window
+    assert limiter.tracked_keys() == 2
+    # "a" expires at 1600, "b" at 1661. A sweep at 1599 keeps both.
+    clock.now = 1599
+    assert limiter.check_and_consume("c") is None
+    assert limiter.tracked_keys() == 3
+    # Less than 60 s since the last sweep: "a" has expired but stays.
+    clock.now = 1620
+    assert limiter.check_and_consume("c") is None
+    assert limiter.tracked_keys() == 3
+    # 60 s after the last sweep another client's call drops "a" (and only "a").
+    clock.now = 1659
+    assert limiter.check_and_consume("d") is None
+    assert limiter.tracked_keys() == 3
+    clock.now = 1661 + 60
+    assert limiter.check_and_consume("d") is None
+    assert limiter.tracked_keys() == 2  # "b" gone; "c" (1599, 1620) and "d" stay
+
+
+def test_a_key_is_never_swept_inside_its_window() -> None:
+    clock = FakeClock()
+    limiter = FeedbackRateLimiter(clock=clock)
+    assert limiter.check_and_consume("a") is None
+    for _ in range(9):
+        clock.now += 60
+        limiter.check_and_consume("b")  # allowed or refused: either call may sweep
+        assert limiter.tracked_keys() == 2
+    clock.now = 1600
+    limiter.check_and_consume("b")
+    assert limiter.tracked_keys() == 1

@@ -3,6 +3,7 @@
 export const HOME_PATH = "/";
 export const METHODOLOGY_PATH = "/metodologia";
 export const TRANSPARENCY_PATH = "/transparencia";
+export const LEGAL_PATH = "/legal";
 export const QUESTIONNAIRE_ROUTE = "/elecciones/:electionId/cuestionario";
 // A Share Link opens here; only the fragment ("#...") carries data, and
 // browsers never send the fragment in a request.

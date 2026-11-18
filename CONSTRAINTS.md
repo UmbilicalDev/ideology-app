@@ -78,6 +78,7 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 ## Public API
 
 - `/api/` routes MUST be `GET`-only and read-only (SELECT only; the request Session is never committed) and MUST NOT accept Answers (no query or body parameters). Reason: voter answers never reach the server, and the API is a public read surface.
+- `GET /api/v1/legal-notice` (`getLegalNotice`, legal-privacy-page) is part of this read-only surface: no parameter, no Session, it serves only `app.state.legal_notice` (the parsed `LEGAL_*` settings). It is not a write.
 - The single exception is `POST /api/v1/feedback` (`api/feedback_routes.py`, `feedback_router`): it writes only the feedback store, never the shared database Engine, and its body is limited to `message`, `origin` and `website` (any other key is refused with 422). Any other write route needs its own spec and a change to this rule. Reason: anonymous feedback is the only Voter-written data the server keeps (`feedback-api`).
 - Operator routes live under `/admin/api/v1` (`api/admin_routes.py`, `admin_router`), outside the public `/api/` prefix, MUST NOT appear in the public OpenAPI (`include_in_schema=False`), and every one of them except sign-in (`POST /admin/api/v1/session`) MUST need a session. Reason: the public API stays a read-only, anonymous surface (`feedback-admin`).
 - The API MUST NOT serve `candidate` Dataset Versions; an unknown and a `candidate` id MUST get the same `404 dataset_version_not_found`. Reason: only versions that passed Validation are published.
@@ -126,12 +127,15 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 
 - `apps/web/src/features/methodology/MethodologyPage.tsx` and its test MUST be updated in the same change whenever a Validation check, a `ValidationSettings` default, the matching rule (`match-score.ts` constants or formula), the prompt rules it describes, or the privacy model changes. Reason: the page is static copy and the public description of the method; stale copy is a legal and trust risk.
 
+- `apps/web/src/features/legal/LegalPage.tsx` and its test MUST be updated in the same change whenever any of these change: the feedback store fields or the abuse-guard key; cookies or browser storage; the hosting provider, any processor or recipient, or any request to another origin; `FEEDBACK_RETENTION_MONTHS` (`packages/core/src/domain/feedback.ts`); the holders' data model (`LegalNoticeSettings`). Its copy MUST NOT contradict `MethodologyPage.tsx` "Tus respuestas". Reason: the page is the GDPR art. 13 information and the LSSI legal notice; stale copy is a legal risk (legal-privacy-page).
+
 ## Voter Feedback
 
 - The feedback store MUST hold only `message`, `origin`, `created_at` (UTC, whole seconds) and a surrogate `id`, plus `reviewed_at` (UTC, whole seconds), an Operator mark that is not Voter data (`feedback-admin`): no IP, user agent, cookie, Election, Dataset Version, Answers or honeypot value. Reason: anonymous feedback, and the methodology copy promises exactly this.
 - `FEEDBACK_DATABASE_URL` MUST NOT point at the shared `data/ideology.db` or at the `DATABASE_URL` database (symlinks and hard links included) and MUST NOT be in-memory; `feedback.store.check_separate` refuses it at app startup and in `ideology feedback list` / `upgrade`. Reason: Voter text must never be written into the committed shared database.
 - Application code MUST NOT log feedback message text or client addresses. Reason: logs would become an unlisted store of Voter data.
 - The abuse guard (`feedback.rate_limit.FeedbackRateLimiter`) MUST keep only per-process HMAC keys (random key per instance, never persisted) in memory, never an address. Reason: no IP is stored anywhere, even transiently in a readable form.
+- The abuse guard MUST drop expired keys within one window plus its sweep interval (`SWEEP_INTERVAL_SECONDS`, 60 s): every `check_and_consume` sweeps when that interval has passed since the last sweep, so no key is kept until the map is full. Reason: the privacy copy on `/legal` promises the key is discarded from 10 minutes on (legal-privacy-page).
 - The message rule MUST live only in `src/ideology_app/feedback/message.py` and `packages/core/src/domain/feedback.ts`, kept equal by the shared vectors in `tests/test_feedback_message.py` and `packages/core/test/domain/feedback.test.ts`. Reason: the client counter and the server must agree on every message.
 - The feedback dialog MUST count with `countFeedbackChars(trimFeedback(...))` (after replacing tabs with spaces) and gate `Enviar` on `feedbackProblem`, never on `maxLength` or `.length`. Reason: those count UTF-16 units, so the counter and the server would disagree on emoji and the limit would cut pasted text.
 - The feedback dialog MUST receive no Questionnaire state (only the `FeedbackApi` port and the origin) and MUST send only through `sendFeedback`. Reason: feedback must never carry Answers, an Election or a Dataset Version, and components never call `fetch`.
@@ -146,6 +150,12 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - Application code MUST NOT log anything about sign-in (username, password, hash, session or CSRF token). Reason: logs must not become a credential store.
 - Every admin API response and the admin page MUST send `Cache-Control: no-store` and `X-Robots-Tag: noindex, nofollow`. Reason: Voter messages and sessions must not be cached or indexed.
 - Tests MUST use throwaway hashes made in the test (e.g. user `prueba`), never the real accounts. Reason: no real credential ever lands in the repository.
+
+## Legal
+
+- Public pages MUST NOT set cookies or use Web Storage (`localStorage`, `sessionStorage`), IndexedDB or the Cookie Store API; the only cookie is the Operators' `ideology_admin`. A non-technical cookie (analytics, ads) needs a consent feature first. Enforced by `apps/web/src/features/legal/browser-storage.test.tsx` and `tests/test_legal_notice.py`. Reason: LSSI art. 22.2; the cookie statement on `/legal` says so (legal-privacy-page).
+- `LEGAL_*` values (holder names, NIFs, postal address, contact email) MUST NOT be in git or in code; they live only in the server environment. Tests and docs use fictitious values such as `Persona Uno` and `contacto@ideologiapp.test`. Reason: personal data.
+- A malformed `LEGAL_*` value MUST fail startup with a `ConfigError` that names the variable but never echoes the value. Reason: no half-configured legal notice is published, and personal data never reaches logs.
 
 ## Shared Database
 

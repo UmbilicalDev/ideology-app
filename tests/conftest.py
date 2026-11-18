@@ -18,6 +18,9 @@ def _no_default_database(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.delenv("FEEDBACK_DATABASE_URL", raising=False)
     # No Operator account unless a test passes admin_users= (feedback-admin).
     monkeypatch.delenv("ADMIN_USERS", raising=False)
+    # No legal notice unless a test passes legal_notice= (legal-privacy-page).
+    for name in ("LEGAL_HOLDERS", "LEGAL_CONTACT_EMAIL", "LEGAL_NIF", "LEGAL_ADDRESS"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)
 
 

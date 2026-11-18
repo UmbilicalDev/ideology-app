@@ -76,6 +76,22 @@ class DatasetVersionOut(_Out):
     parties: list[PartyOut]
 
 
+class LegalHolderOut(_Out):
+    name: str
+    nif: str | None = Field(description="The holder's DNI or NIE, or null when not published.")
+
+
+class LegalNoticeOut(_Out):
+    """The site's holders and contact (legal-privacy-page), from the ``LEGAL_*`` settings.
+
+    Empty (``holders: []``, nulls) when nothing is configured.
+    """
+
+    holders: list[LegalHolderOut]
+    contact_email: str | None
+    address: str | None
+
+
 class ErrorBody(_Out):
     code: str
     message: str

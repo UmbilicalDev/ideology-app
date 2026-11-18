@@ -171,6 +171,24 @@ h2[tabindex="-1"]:focus {
   width: 100%;
 }
 
+/* The legal page link under `Danos tu opinión` (legal-privacy-page). */
+.sidebar__legal-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: var(--space-xs);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
+  text-decoration: none;
+}
+
+.sidebar__legal-link:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
 .app-shell__canvas {
   flex: 1 1 auto;
   min-width: 0;
@@ -1005,7 +1023,7 @@ a.button-secondary {
 }
 
 /* ------------------------------------------------------------------ */
-/* Document pages: Metodología and Transparencia IA. */
+/* Document pages: Metodología, Transparencia IA and Aviso legal y privacidad. */
 
 .doc-page__header {
   margin: 0 0 var(--space-xl);
@@ -1022,6 +1040,20 @@ a.button-secondary {
 
 .doc-page h2 {
   scroll-margin-top: calc(var(--topbar-height) + var(--space-md));
+}
+
+.doc-page__updated {
+  margin: var(--space-sm) 0 0;
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
+}
+
+.doc-page h3 {
+  margin-top: var(--space-lg);
+}
+
+.doc-page h2 + h3 {
+  margin-top: 0;
 }
 
 .doc-page__body section {
