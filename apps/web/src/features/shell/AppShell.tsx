@@ -7,7 +7,13 @@ import { BallotIcon, BookIcon, ChipIcon, CloseIcon, HomeIcon, MenuIcon } from ".
 import { APP_NAME } from "../common/BrandTitle";
 import { ProductLogo } from "../common/ProductLogo";
 import { FeedbackButton } from "../feedback/FeedbackButton";
-import { HOME_PATH, METHODOLOGY_PATH, SHARED_RESULTS_PATH, TRANSPARENCY_PATH } from "../paths";
+import {
+  HOME_PATH,
+  LEGAL_PATH,
+  METHODOLOGY_PATH,
+  SHARED_RESULTS_PATH,
+  TRANSPARENCY_PATH,
+} from "../paths";
 
 export const APP_TAGLINE = "Comparador de programas electorales";
 
@@ -23,7 +29,11 @@ const SECTION_NAMES: Readonly<Record<string, string>> = {
   [METHODOLOGY_PATH]: "Cómo funciona",
   [TRANSPARENCY_PATH]: "Transparencia IA",
   [SHARED_RESULTS_PATH]: "Resultado compartido",
+  [LEGAL_PATH]: "Aviso legal",
 };
+
+// The link text to the legal page in the sidebar and the footer.
+export const LEGAL_LINK_TEXT = "Aviso legal y privacidad";
 
 // Below this width the sidebar is a drawer (DESIGN.md "App shell"); keep in
 // sync with the media query in components.css.
@@ -31,8 +41,9 @@ const DRAWER_QUERY = "(max-width: 767.98px)";
 
 /**
  * The web-app layout of every Voter page except the Questionnaire (DESIGN.md
- * "App shell"): a sidebar with the brand, the three sections and `Danos tu
- * opinión`, and a canvas with a top bar. Below 768px the sidebar is a modal
+ * "App shell"): a sidebar with the brand, the three sections, `Danos tu
+ * opinión` and the legal link, and a canvas with a top bar and a footer that
+ * links to the legal page too. Below 768px the sidebar is a modal
  * drawer opened from the top bar.
  */
 export function AppShell({ api }: { readonly api: FeedbackApi }) {
@@ -159,6 +170,9 @@ export function AppShell({ api }: { readonly api: FeedbackApi }) {
         </div>
         <div className="sidebar__footer">
           <FeedbackButton api={api} origin="landing" />
+          <Link className="sidebar__legal-link" to={LEGAL_PATH} onClick={() => closeFor(LEGAL_PATH)}>
+            {LEGAL_LINK_TEXT}
+          </Link>
         </div>
       </aside>
       <div className="app-shell__canvas" inert={open}>
@@ -195,6 +209,11 @@ export function AppShell({ api }: { readonly api: FeedbackApi }) {
           <p>
             {APP_NAME} no es una recomendación de voto. Las afirmaciones y las posiciones las genera
             una inteligencia artificial y pueden contener errores.
+          </p>
+          <p>
+            <Link className="text-link" to={LEGAL_PATH}>
+              {LEGAL_LINK_TEXT}
+            </Link>
           </p>
         </footer>
       </div>

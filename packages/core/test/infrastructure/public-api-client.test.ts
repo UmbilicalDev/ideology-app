@@ -578,3 +578,108 @@ describe("createPublicApiClient sendFeedback", () => {
     expect(receiver).toBeUndefined();
   });
 });
+
+// legal-privacy-page: fictitious values only.
+function legalNoticeBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    holders: [
+      { name: "Persona Uno", nif: "00000000T" },
+      { name: "Persona Dos", nif: null },
+    ],
+    contact_email: "contacto@ideologiapp.test",
+    address: "Calle Ficticia 1",
+    ...overrides,
+  };
+}
+
+describe("createPublicApiClient getLegalNotice", () => {
+  test("sends exactly one GET to /api/v1/legal-notice with an Accept header", async () => {
+    const fetch = fetchReturning(jsonResponse(legalNoticeBody()));
+    await createPublicApiClient({ fetch }).getLegalNotice();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/v1/legal-notice", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  });
+
+  test("prefixes baseUrl", async () => {
+    const fetch = fetchReturning(jsonResponse(legalNoticeBody()));
+    await createPublicApiClient({ fetch, baseUrl: "https://api.test/" }).getLegalNotice();
+    expect(fetch.mock.calls[0]?.[0]).toBe("https://api.test/api/v1/legal-notice");
+  });
+
+  test("maps the body to camelCase and ignores unknown keys", async () => {
+    const body = legalNoticeBody({ extra: 1 });
+    (body["holders"] as Record<string, unknown>[])[0]!["extra"] = true;
+    const notice = await createPublicApiClient({ fetch: fetchReturning(jsonResponse(body)) }).getLegalNotice();
+    expect(notice).toEqual({
+      holders: [
+        { name: "Persona Uno", nif: "00000000T" },
+        { name: "Persona Dos", nif: null },
+      ],
+      contactEmail: "contacto@ideologiapp.test",
+      address: "Calle Ficticia 1",
+    });
+  });
+
+  test("accepts the empty notice", async () => {
+    const fetch = fetchReturning(jsonResponse({ holders: [], contact_email: null, address: null }));
+    expect(await createPublicApiClient({ fetch }).getLegalNotice()).toEqual({
+      holders: [],
+      contactEmail: null,
+      address: null,
+    });
+  });
+
+  test.each<[string, Record<string, unknown>, string]>([
+    ["a body that is an array", { __array: true }, "legal_notice must be an object"],
+    ["missing holders", { holders: undefined }, "legal_notice.holders must be an array"],
+    ["holders not an array", { holders: "Persona Uno" }, "legal_notice.holders must be an array"],
+    ["a holder that is not an object", { holders: ["Persona Uno"] }, "holders[0] must be an object"],
+    ["an empty name", { holders: [{ name: "", nif: null }] }, "holders[0].name must be a non-empty string"],
+    ["a missing name", { holders: [{ nif: null }] }, "holders[0].name must be a non-empty string"],
+    ["an empty nif", { holders: [{ name: "Persona Uno", nif: "" }] }, "holders[0].nif must be null or a non-empty string"],
+    ["a missing nif", { holders: [{ name: "Persona Uno" }] }, "holders[0].nif must be null or a non-empty string"],
+    ["an email without @", { contact_email: "contacto" }, 'legal_notice.contact_email must be null or an address with "@" and no spaces'],
+    ["an email with a space", { contact_email: "a b@ideologiapp.test" }, 'legal_notice.contact_email must be null or an address with "@" and no spaces'],
+    ["a missing email", { contact_email: undefined }, 'legal_notice.contact_email must be null or an address with "@" and no spaces'],
+    ["an empty address", { address: "" }, "legal_notice.address must be null or a non-empty string"],
+    ["a numeric address", { address: 1 }, "legal_notice.address must be null or a non-empty string"],
+  ])("%s is an invalid response naming the field", async (_name, overrides, message) => {
+    const body = "__array" in overrides ? [] : legalNoticeBody(overrides);
+    const error = await rejection(
+      createPublicApiClient({ fetch: fetchReturning(jsonResponse(body)) }).getLegalNotice(),
+    );
+    expect(error.kind).toBe("invalid_response");
+    expect(error.message).toBe(`GET /api/v1/legal-notice: ${message}`);
+  });
+
+  test("a 500 is an http error and json() is not called", async () => {
+    const response = jsonResponse({}, 500);
+    const error = await rejection(
+      createPublicApiClient({ fetch: fetchReturning(response) }).getLegalNotice(),
+    );
+    expect(error.kind).toBe("http");
+    expect(error.status).toBe(500);
+    expect(response.json).not.toHaveBeenCalled();
+  });
+
+  test("a rejected fetch is a network error", async () => {
+    const fetch = vi.fn<FetchLike>(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const error = await rejection(createPublicApiClient({ fetch }).getLegalNotice());
+    expect(error.kind).toBe("network");
+  });
+
+  test("a body that is not JSON is an invalid response", async () => {
+    const response: HttpResponseLike = {
+      ok: true,
+      status: 200,
+      json: () => Promise.reject(new SyntaxError("Unexpected token")),
+    };
+    const error = await rejection(createPublicApiClient({ fetch: fetchReturning(response) }).getLegalNotice());
+    expect(error.kind).toBe("invalid_response");
+  });
+});

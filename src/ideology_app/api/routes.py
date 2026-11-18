@@ -1,6 +1,7 @@
 """The ``GET /api/v1`` routes. Path parameters only; no declared query or body.
 
-Four JSON routes, plus ``getPartyLogo``, which serves a Party's logo bytes and
+Five JSON routes (``getLegalNotice`` reads only the app's settings, no
+database), plus ``getPartyLogo``, which serves a Party's logo bytes and
 reads only the cache-busting ``v`` from the raw query string to choose its
 Cache-Control (the body never depends on it).
 """
@@ -19,7 +20,15 @@ from ideology_app.api.http_cache import (
     logo_response,
 )
 from ideology_app.party_logos import MEDIA_TYPES, logo_version
-from ideology_app.api.schemas import DatasetVersionOut, ElectionListOut, ElectionOut, ErrorOut
+from ideology_app.api.schemas import (
+    DatasetVersionOut,
+    ElectionListOut,
+    ElectionOut,
+    ErrorOut,
+    LegalHolderOut,
+    LegalNoticeOut,
+)
+from ideology_app.config import LegalNoticeSettings
 
 # Fits a 32-bit integer column; larger values would overflow SQLite (500).
 MAX_ID = 2_147_483_647
@@ -124,3 +133,20 @@ def get_party_logo(request: Request, session: SessionDep, party_id: PartyId) -> 
     """
     data, media_type, sha256 = queries.get_party_logo(session, party_id)
     return logo_response(request, data, media_type, sha256, logo_version(sha256))
+
+
+@router.get(
+    "/legal-notice",
+    response_model=LegalNoticeOut,
+    operation_id="getLegalNotice",
+    responses={304: {"description": "Not Modified"}},
+)
+def get_legal_notice(request: Request) -> Response:
+    """The site's holders and contact details (legal-privacy-page); no Session is opened."""
+    settings: LegalNoticeSettings = request.app.state.legal_notice
+    body = LegalNoticeOut(
+        holders=[LegalHolderOut(name=h.name, nif=h.nif) for h in settings.holders],
+        contact_email=settings.contact_email,
+        address=settings.address,
+    )
+    return cached_json(request, body, POINTER_CACHE_CONTROL)

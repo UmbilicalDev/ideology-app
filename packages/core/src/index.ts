@@ -48,8 +48,10 @@ export { isQuestionnaireAvailable, sharedVersionStatus } from "./domain/shared-r
 export type { SharedVersionStatus } from "./domain/shared-result";
 export type { PublicApi } from "./application/public-api";
 export type { FeedbackApi, FeedbackInput } from "./application/feedback-api";
+export type { LegalHolder, LegalNotice } from "./domain/legal-notice";
 export {
   FEEDBACK_MAX_CHARS,
+  FEEDBACK_RETENTION_MONTHS,
   countFeedbackChars,
   feedbackProblem,
   trimFeedback,

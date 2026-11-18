@@ -31,7 +31,10 @@ function fetchResolving(...responses: HttpResponseLike[]) {
 // footer states it on every page and /transparencia explains it.
 function expectDisclosureAndMethodology() {
   expect(screen.queryByRole("region", { name: "Contenido generado con IA" })).toBeNull();
-  expect(screen.getByRole("contentinfo").textContent).toBe(FOOTER_TEXT);
+  const footer = screen.getByRole("contentinfo");
+  expect(footer.querySelector("p")?.textContent).toBe(FOOTER_TEXT);
+  // legal-privacy-page: the footer's second line links to the legal page.
+  expect(footer.textContent).toBe(`${FOOTER_TEXT}Aviso legal y privacidad`);
   // No section title and no methodology link (it is in the sidebar): the
   // carousel region carries the name.
   expect(screen.queryByRole("heading", { name: "Cómo funciona" })).toBeNull();

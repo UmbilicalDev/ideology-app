@@ -2,6 +2,7 @@
 
 import datetime as dt
 import os
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -277,4 +278,137 @@ def claude_code_settings() -> ClaudeCodeSettings:
         max_wait_hours=_positive_int_env(
             "LLM_CLAUDE_CODE_MAX_WAIT_HOURS", DEFAULT_CLAUDE_CODE_MAX_WAIT_HOURS
         ),
+    )
+
+
+# --- Legal notice (legal-privacy-page) ---------------------------------------
+# The holders and contact details shown on /legal. Personal data: set only in
+# the server environment, never in git, and never logged or echoed in errors.
+
+LEGAL_MAX_HOLDERS = 10
+LEGAL_MAX_NAME_CHARS = 120
+LEGAL_MAX_EMAIL_CHARS = 254
+LEGAL_MAX_ADDRESS_CHARS = 300
+
+_LEGAL_EMAIL_RE = re.compile(r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$")
+# Documentation domains (RFC 2606): a value left from an example is refused.
+_LEGAL_PLACEHOLDER_DOMAINS = ("example.com", "example.net", "example.org")
+_DNI_RE = re.compile(r"^\d{8}[A-Z]$")
+_NIE_RE = re.compile(r"^[XYZ]\d{7}[A-Z]$")
+_NIF_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE"
+# C0, DEL and C1 control characters.
+_CONTROL_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f]")
+
+
+@dataclass(frozen=True)
+class LegalHolder:
+    """One holder of the site: a natural person's name and, optionally, their NIF."""
+
+    name: str
+    nif: str | None = None
+
+
+@dataclass(frozen=True)
+class LegalNoticeSettings:
+    """What ``GET /api/v1/legal-notice`` serves; empty when nothing is configured."""
+
+    holders: tuple[LegalHolder, ...] = ()
+    contact_email: str | None = None
+    address: str | None = None
+
+
+def _legal_text(name: str, raw: str | None) -> str | None:
+    """``raw`` trimmed, ``None`` if blank; refuses control characters, ``<`` and ``>``."""
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    if _CONTROL_RE.search(value) or "<" in value or ">" in value:
+        raise ConfigError(f"Invalid {name}: control characters, '<' and '>' are not allowed")
+    return value
+
+
+def _valid_nif(value: str) -> bool:
+    """A DNI (8 digits + letter) or NIE (X/Y/Z + 7 digits + letter) with its mod-23 letter."""
+    if _DNI_RE.match(value):
+        number = value[:8]
+    elif _NIE_RE.match(value):
+        number = str("XYZ".index(value[0])) + value[1:8]
+    else:
+        return False
+    return _NIF_LETTERS[int(number) % 23] == value[-1]
+
+
+def parse_legal_notice(
+    holders: str | None,
+    contact_email: str | None,
+    nif: str | None = None,
+    address: str | None = None,
+) -> LegalNoticeSettings:
+    """Parse the ``LEGAL_*`` values; unset or blank means "not configured".
+
+    ``holders``: 1..10 names separated by ``;``, each 1..120 code points.
+    ``contact_email``: at most 254 characters, ``alias@dominio``; the
+    ``example.com/.net/.org`` domains are refused. ``nif`` (optional): needs
+    ``holders``; one DNI or NIE per holder, in the same order, separated by
+    ``;``, checked after upper-casing. ``address`` (optional): one line of
+    1..300 code points. A malformed value raises ``ConfigError`` naming the
+    variable, never the value.
+    """
+    holders_text = _legal_text("LEGAL_HOLDERS", holders)
+    email = _legal_text("LEGAL_CONTACT_EMAIL", contact_email)
+    nif_text = _legal_text("LEGAL_NIF", nif)
+    address_text = _legal_text("LEGAL_ADDRESS", address)
+
+    names: list[str] = []
+    if holders_text is not None:
+        names = [part.strip() for part in holders_text.split(";")]
+        if len(names) > LEGAL_MAX_HOLDERS:
+            raise ConfigError(f"Invalid LEGAL_HOLDERS: at most {LEGAL_MAX_HOLDERS} names")
+        if any(not 1 <= len(name) <= LEGAL_MAX_NAME_CHARS for name in names):
+            raise ConfigError(
+                "Invalid LEGAL_HOLDERS: each name separated by ';' must have "
+                f"1 to {LEGAL_MAX_NAME_CHARS} characters"
+            )
+
+    nifs: list[str | None] = [None] * len(names)
+    if nif_text is not None:
+        if not names:
+            raise ConfigError("Invalid LEGAL_NIF: it needs LEGAL_HOLDERS")
+        values = [part.strip().upper() for part in nif_text.split(";")]
+        if len(values) != len(names):
+            raise ConfigError("Invalid LEGAL_NIF: it needs one NIF per name in LEGAL_HOLDERS")
+        if not all(_valid_nif(value) for value in values):
+            raise ConfigError("Invalid LEGAL_NIF: each value must be a valid DNI or NIE")
+        nifs = list(values)
+
+    if email is not None:
+        domain = email.rsplit("@", 1)[-1].lower()
+        if (
+            len(email) > LEGAL_MAX_EMAIL_CHARS
+            or not _LEGAL_EMAIL_RE.match(email)
+            or any(domain == d or domain.endswith("." + d) for d in _LEGAL_PLACEHOLDER_DOMAINS)
+        ):
+            raise ConfigError("Invalid LEGAL_CONTACT_EMAIL: expected an address like alias@dominio")
+
+    if address_text is not None and len(address_text) > LEGAL_MAX_ADDRESS_CHARS:
+        raise ConfigError(
+            f"Invalid LEGAL_ADDRESS: at most {LEGAL_MAX_ADDRESS_CHARS} characters"
+        )
+
+    return LegalNoticeSettings(
+        holders=tuple(LegalHolder(name=n, nif=v) for n, v in zip(names, nifs, strict=True)),
+        contact_email=email,
+        address=address_text,
+    )
+
+
+def legal_notice_settings() -> LegalNoticeSettings:
+    """The legal notice from ``LEGAL_HOLDERS``, ``LEGAL_CONTACT_EMAIL``, ``LEGAL_NIF`` and ``LEGAL_ADDRESS``."""
+    return parse_legal_notice(
+        os.environ.get("LEGAL_HOLDERS"),
+        os.environ.get("LEGAL_CONTACT_EMAIL"),
+        os.environ.get("LEGAL_NIF"),
+        os.environ.get("LEGAL_ADDRESS"),
     )

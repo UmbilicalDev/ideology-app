@@ -11,6 +11,11 @@
 
 export const FEEDBACK_MAX_CHARS = 500;
 
+// How long a feedback message is kept, in months from its receipt
+// (legal-privacy-page). Stated on `/legal`; deletion is manual (runbook in
+// docs/technical-discovery.md). An automatic purge must reuse this number.
+export const FEEDBACK_RETENTION_MONTHS = 12;
+
 export type FeedbackOrigin = "landing" | "results";
 
 export type FeedbackProblem = "control_character" | "empty" | "too_long";

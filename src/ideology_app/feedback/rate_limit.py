@@ -7,7 +7,10 @@ Sliding windows: at most ``per_client`` accepted requests per client and
 ``global_limit`` in total per ``window_seconds``. A request is counted only
 when both limits allow it. At most ``max_keys`` clients are tracked; when the
 map is full, expired entries are pruned, and if it is still full the request
-is refused (fails closed).
+is refused (fails closed). Independently, every call sweeps expired entries
+when at least ``SWEEP_INTERVAL_SECONDS`` have passed since the last sweep, so
+an expired key is dropped at the first call after its window plus that
+interval at the latest (the privacy copy on ``/legal`` relies on it).
 
 A client is keyed by ``HMAC-SHA256(process_key, host)[:16]`` under a random
 key made per limiter instance and never persisted, so a key cannot be linked
@@ -23,6 +26,10 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+
+
+# How often ``check_and_consume`` drops expired client keys (legal-privacy-page).
+SWEEP_INTERVAL_SECONDS = 60.0
 
 
 class FeedbackRateLimiter:
@@ -43,6 +50,7 @@ class FeedbackRateLimiter:
         self._clients: dict[bytes, deque[float]] = {}
         self._global: deque[float] = deque()
         self._lock = threading.Lock()
+        self._last_sweep = clock()
 
     def _key(self, client_host: str) -> bytes:
         return hmac.new(self._process_key, client_host.encode(), hashlib.sha256).digest()[:16]
@@ -66,6 +74,9 @@ class FeedbackRateLimiter:
         """``None`` and one unit consumed when allowed, else the Retry-After seconds (>= 1)."""
         with self._lock:
             now = self._clock()
+            if now - self._last_sweep >= SWEEP_INTERVAL_SECONDS:
+                self._prune_keys(now)
+                self._last_sweep = now
             self._prune(self._global, now)
             key = self._key(client_host)
             entries = self._clients.get(key)
@@ -93,4 +104,4 @@ class FeedbackRateLimiter:
             return None
 
 
-__all__ = ["FeedbackRateLimiter"]
+__all__ = ["SWEEP_INTERVAL_SECONDS", "FeedbackRateLimiter"]

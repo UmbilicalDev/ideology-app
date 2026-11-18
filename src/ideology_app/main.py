@@ -12,7 +12,7 @@ from ideology_app.admin.accounts import parse_admin_users
 from ideology_app.admin.sessions import AdminSessionStore
 from ideology_app.api import ApiNotFoundError, admin_router, feedback_router, router
 from ideology_app.api.http_cache import ERROR_CACHE_CONTROL
-from ideology_app.config import admin_users_raw
+from ideology_app.config import LegalNoticeSettings, admin_users_raw, legal_notice_settings
 from ideology_app.config import database_url as default_database_url
 from ideology_app.config import feedback_database_url as default_feedback_database_url
 from ideology_app.config import web_dist_dir as default_web_dist_dir
@@ -36,6 +36,7 @@ def create_app(
     web_dist_dir: Path | None = None,
     feedback_database_url: str | None = None,
     admin_users: str | None = None,
+    legal_notice: LegalNoticeSettings | None = None,
 ) -> FastAPI:
     """Build the app; the Engines live in the lifespan.
 
@@ -44,7 +45,8 @@ def create_app(
     ``$FEEDBACK_DATABASE_URL`` or ``sqlite:///feedback.db``). Startup fails with
     ``FeedbackStoreError`` before any Engine is created when the feedback store
     is not a database of its own, or with ``ConfigError`` when ``admin_users``
-    (default ``$ADMIN_USERS``) is malformed; the feedback store is then
+    (default ``$ADMIN_USERS``) or the legal notice (``legal_notice``, default
+    the ``LEGAL_*`` variables) is malformed; the feedback store is then
     upgraded to its newest revision. The web client is served from
     ``web_dist_dir`` (default ``$WEB_DIST_DIR`` or ``apps/web/dist`` in the
     current directory), resolved once here.
@@ -58,6 +60,9 @@ def create_app(
         check_separate(feedback_url, main_url)
         app.state.admin_accounts = parse_admin_users(
             admin_users if admin_users is not None else admin_users_raw()
+        )
+        app.state.legal_notice = (
+            legal_notice if legal_notice is not None else legal_notice_settings()
         )
         engine = make_engine(main_url)
         app.state.engine = engine
@@ -89,6 +94,8 @@ def create_app(
     )
     app.state.admin_sessions = AdminSessionStore()
     app.state.admin_accounts = {}
+    # Replaced in the lifespan by the parsed LEGAL_* settings (legal-privacy-page).
+    app.state.legal_notice = legal_notice if legal_notice is not None else LegalNoticeSettings()
     app.include_router(router)
     app.include_router(feedback_router)
     app.include_router(admin_router)
