@@ -45,6 +45,7 @@ Publish a Dataset Version for the 29 November 2026 general election (Election 2 
    - `position_findings` becomes `v5`: same text as v4, but its schema now allows up to 80 findings, and run 4 recorded v4 calls with the old schema.
    - `/metodologia` copy updated: about 70 Statements, pool 60..80, self-contained wording, quote repair.
 8. **Hand-off.** The next real run is left to Kike on this branch (`PROGRESS.md`, Session 092). `--reuse-from 4` replays the 59 `statement_candidates` calls (v1 is unchanged and the chunks are identical). Everything after them is called fresh: about 1 + 247 calls.
+9. **Run 5** (2026-11-19, `--reuse-from 4`, run by the main session because Kike could not yet). It passed and published Dataset Version 5: 30 Statements from an 80-Statement pool, worst coverage 50% (PP, PSOE, VOX, EH Bildu), 3 findings repaired, none discarded.
 5. **Landing.** The fixed `Próximamente` card is removed. The grid shows exactly the API's Elections. The card CSS stays, unused, for a future upcoming Election.
 
 ## Verification
