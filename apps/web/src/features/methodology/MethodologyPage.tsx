@@ -76,9 +76,11 @@ export function MethodologyPage() {
             </p>
             <p>
               Con esas candidatas, la inteligencia artificial redacta una lista más amplia, de unas
-              55 afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación
+              70 afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación
               política con una dirección clara, como subir o bajar un impuesto, y no una medida de
-              detalle, para que el mayor número posible de partidos se pueda situar en ella.
+              detalle, para que el mayor número posible de partidos se pueda situar en ella. Debe
+              entenderse por sí sola: si propone cambiar o derogar una ley o una política vigente,
+              dice cuál es o en qué consiste.
             </p>
             <p>
               Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres
@@ -94,7 +96,9 @@ export function MethodologyPage() {
               La inteligencia artificial vuelve a leer el programa de cada partido y, en cada
               afirmación que el programa trata de forma explícita, le asigna una posición en una
               escala de cinco puntos, de «totalmente en desacuerdo» a «totalmente de acuerdo», y
-              copia una cita literal del programa, con su página, que la respalda.
+              copia una cita literal del programa, con su página, que la respalda. Si esa copia
+              tiene una pequeña errata o indica otra página del fragmento que leía, se guarda en su
+              lugar el texto exacto del programa y su página; la posición no cambia.
             </p>
             <p>
               Si el programa no trata una afirmación, el partido queda sin posición en ella: sus
@@ -115,7 +119,7 @@ export function MethodologyPage() {
             <h2 id="methodology-selection-title">Cómo se eligen las afirmaciones del cuestionario</h2>
             <p>
               La inteligencia artificial propone más afirmaciones de las que tendrá el cuestionario,
-              entre 45 y 60, y sitúa a cada partido en todas ellas. Después, un procedimiento
+              entre 60 y 80, y sitúa a cada partido en todas ellas. Después, un procedimiento
               automático, sin inteligencia artificial y sin azar, elige entre 25 y 35 para el
               cuestionario.
             </p>

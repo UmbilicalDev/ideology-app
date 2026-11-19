@@ -19,12 +19,9 @@ const LEAD_POINTS = [
   "Comprueba las citas sobre las afirmaciones en los programas.",
 ] as const;
 
-const UPCOMING_TEXT =
-  "Pronto añadiremos el cuestionario para el 29N en cuanto los partidos publiquen sus programas.";
-
 // Landing screen (DESIGN.md Core Screens 1): a compact hero, the Elections
-// grid (exactly what the API returns, in API order, plus a fixed upcoming
-// card) and the full-width `Cómo funciona` carousel (no section title; the
+// grid (exactly what the API returns, in API order; the fixed 2026 upcoming
+// card was removed when the 2026 Election was published) and the full-width `Cómo funciona` carousel (no section title; the
 // methodology is in the sidebar). The AI
 // disclosure lives in the shell footer and on /transparencia. No party names
 // or colours in the page's own markup.
@@ -89,7 +86,6 @@ function ElectionsList({
             {state.elections.map((election) => (
               <ElectionItem key={election.id} election={election} />
             ))}
-            <UpcomingItem />
           </ul>
         </>
       );
@@ -115,18 +111,6 @@ function ElectionItem({ election }: { readonly election: Election }) {
           <ArrowForwardIcon />
         </span>
       </Link>
-    </li>
-  );
-}
-
-function UpcomingItem() {
-  return (
-    <li className="election-card election-card--upcoming">
-      <h3 className="election-card__name">Elecciones generales 2026</h3>
-      <p className="election-card__text">{UPCOMING_TEXT}</p>
-      {/* Looks like a disabled button in the amber "not yet" colour; plain
-          text, so the state is still read out without the old chip. */}
-      <span className="election-card__soon">Próximamente</span>
     </li>
   );
 }

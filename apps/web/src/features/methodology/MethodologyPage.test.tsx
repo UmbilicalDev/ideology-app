@@ -67,10 +67,12 @@ const STATEMENTS_TEXTS = [
     "mismo número de candidatas de cada partido, sea cual sea la extensión de su programa, " +
     "repartidas entre los temas que más trata cada programa. Un partido con menos candidatas " +
     "aporta todas las que tiene.",
-  "Con esas candidatas, la inteligencia artificial redacta una lista más amplia, de unas 55 " +
+  "Con esas candidatas, la inteligencia artificial redacta una lista más amplia, de unas 70 " +
     "afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación " +
     "política con una dirección clara, como subir o bajar un impuesto, y no una medida de " +
-    "detalle, para que el mayor número posible de partidos se pueda situar en ella.",
+    "detalle, para que el mayor número posible de partidos se pueda situar en ella. Debe " +
+    "entenderse por sí sola: si propone cambiar o derogar una ley o una política vigente, dice " +
+    "cuál es o en qué consiste.",
   "Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres de " +
     "partidos o de políticos, una sola propuesta por afirmación, temas variados, orientaciones " +
     "en las que los partidos discrepen y no añadir nada que no esté en las candidatas. Nadie " +
@@ -86,7 +88,7 @@ const POSITIONS_NO_STANCE_TEXT =
 
 const SELECTION_TEXTS = [
   "La inteligencia artificial propone más afirmaciones de las que tendrá el cuestionario, " +
-    "entre 45 y 60, y sitúa a cada partido en todas ellas. Después, un procedimiento " +
+    "entre 60 y 80, y sitúa a cada partido en todas ellas. Después, un procedimiento " +
     "automático, sin inteligencia artificial y sin azar, elige entre 25 y 35 para el " +
     "cuestionario.",
   "Deja fuera las afirmaciones repetidas y las que no separan a los partidos, porque todos " +
@@ -147,6 +149,16 @@ describe("MethodologyPage", () => {
     renderMethodology();
     const region = screen.getByRole("region", { name: "Cómo se sitúa a cada partido" });
     expect(within(region).getByText(POSITIONS_NO_STANCE_TEXT)).toBeTruthy();
+  });
+
+  test("says a slipped quote copy is replaced by the manifesto's exact text, never the stance", () => {
+    renderMethodology();
+    const region = screen.getByRole("region", { name: "Cómo se sitúa a cada partido" });
+    expect(
+      within(region).getByText(
+        /Si esa copia tiene una pequeña errata o indica otra página del fragmento que leía, se guarda en su lugar el texto exacto del programa y su página; la posición no cambia\.$/,
+      ),
+    ).toBeTruthy();
   });
 
   test("explains the deterministic selection of the questionnaire", () => {

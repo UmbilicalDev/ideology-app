@@ -1452,5 +1452,29 @@
       "2026-11-18 main session: Low (1) fixed (risks entry now says retention is settled by legal-privacy-page); Low (2) fixed (the AEPD sentence drops the parentheses: '...Protección de Datos en www.aepd.es.', LegalPage.test.tsx updated); Low (3) recorded as an accepted Low in docs/risks-and-open-questions.md for the lawyer review. CI=true ./init.sh rerun after the fixes (see PROGRESS Session 090). Status accepted."
     ],
     "notes": "User request 2026-11-18 after the first production deployment (legal assessment in session). Holders: Enrique and Miguel as natural persons, joint controllers (no company exists yet; may change to an entity later). No corporate email yet: contact email is configuration so it can change without code. Holder data via environment variables (not git). User decisions 2026-11-18: retention 12 months (final); NIF and address not published for now (no economic activity; donations only); contact email pending (domain forwarding being checked); lawyer review pending. Spec: docs/specs/legal-privacy-page.md."
+  },
+  {
+    "id": "e2e-real-2026-election",
+    "area": "validation",
+    "title": "Real run on the 29 November 2026 general election",
+    "user_visible_behavior": "The Landing lists 'Elecciones generales 2026' next to 2023 and no longer shows the fixed Próximamente card. A Voter answers the 2026 Questionnaire, built by the pipeline from the official 2026 manifestos of 11 Parties (PP, PSOE, VOX, Frente Amplio, Podemos, ERC, EH Bildu, BNG, Compromís, Adelante Andalucía, SALF), and gets a ranking with Evidence.",
+    "depends_on": [
+      "e2e-real-2023-election"
+    ],
+    "status": "in_progress",
+    "verification": [
+      "A recorded Pipeline Run report for Election 2 with status passed and publication live",
+      "position_findings batches of at most 20 Statements per call, covered by tests; prompt v4 pinned",
+      "Statement Pool 60..80 (target 70; position_findings v5 for the 80-item schema); generate_statements v5 asks for self-contained Statements that name the law or policy they would change; covered by tests",
+      "Quote repair (pipeline.quote_repair, findings check v2): a verbatim quote on another page of its chunk gets that page; a near-identical slipped copy (>= 40 letters, similarity >= 0.85) becomes the source's own text; Statement and value never change; invented, paraphrased and short quotes are still discarded; covered by tests on the real run-4 slips",
+      "A sample of positions read against their Evidence (observation only)",
+      "Browser walk at 375px and desktop: Landing without the Próximamente card, 2026 Questionnaire, results and Share Link; console clean; no request carries answers"
+    ],
+    "evidence": [
+      "2026-11-19 bundle: data/elections/es-general-2026-11-29 from official 2026 PDFs (ideology source extract). Run 4 (13 Parties) failed before any call (expired Claude Code login). Run 5 (13 Parties, position_findings v3; 142 calls, 2,310,237 in / 96,667 out tokens, 694 s) failed party_coverage only: PP 44%, VOX 44%, ERC 48%, EH Bildu 44%, EAJ-PNV 36%, SALF 36%, CC 16%. Byte-identical repeats of run 5's SALF findings requests found 23-25 Statements (run 5: 11); CC 5/58 and EAJ-PNV 9-12/58 in every repeat. User decisions: batch Statements in position_findings (v4) and exclude CC and EAJ-PNV; threshold stays 50%. Runs 4-5 kept outside the repo (~/ideology-e2e-2026-logs/ideology.db.pre-cc-pnv-removal); the committed DB was re-imported with 11 Parties.",
+      "2026-11-19 run 4 on the re-imported DB (run ids restarted; 11 Parties, position_findings v4 batches, generate_statements v4, pool 45..60; 248 calls, 4,018,271 in / 103,681 out tokens, 12,101 s including a usage-limit wait) failed party_coverage only: PP, PSOE, VOX, SALF 12/25 (48%), ERC 11/25 (44%). Pool 53, 34 of them separating; ERC had a stance on 16 of 53 and on 11 of the 34 separating ones, so no selection of 25..35 could reach 50% (checked with a local search over the stored pool). 4 stances were cleared by model copy slips (PP p.46 dropped words, VOX p.12 'nu - clearas', PSOE p.101 vs 100, ERC p.20 vs 22). User decisions: widen the pool (questionnaire stays 25..35, at most ~40-50 for the Voter), repair slipped quotes without ever assuming a stance, and ask for more specific, self-contained Statements (2023 had some cryptic ones). The next run is left to Kike on this branch (see PROGRESS.md Session 092): `--reuse-from 4` reuses the 59 statement_candidates calls (v1, unchanged).",
+      "2026-11-19 after the changes: CI=true ./init.sh exit 0 (pytest 1897, Vitest 932, vite build ok). Quote repair tried on run 4's 5 discarded findings with the real pages: the 4 model slips are repaired and pass the matcher, page_not_in_chunk stays discarded, and an invented and a paraphrased quote are not snapped. Browser (Claude desktop Browser pane, Chromium) /metodologia against the shared DB at 375x812 and 1024 wide: new copy present (about 70, 60 to 80, self-contained Statements, quote repair), no horizontal scroll, console empty, all requests same-origin 200/206. Still to do: a real run, the quote sample and the full voter-flow browser walk."
+    ],
+    "notes": "Spec: docs/specs/e2e-real-2026-election.md. Junts excluded (no 2026 manifesto as of 2026-11-19)."
   }
 ]

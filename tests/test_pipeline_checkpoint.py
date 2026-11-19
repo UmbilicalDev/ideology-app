@@ -36,16 +36,18 @@ from ideology_app.pipeline import (
 )
 from ideology_app.pipeline.prompts import CandidateList
 
-# The default fake run: 2 candidate calls + 1 reduce, then 2 findings + 2 reduces.
+# The default fake run: 2 candidate calls + 1 reduce, then per Party one chunk
+# in 4 findings calls (70 pool Statements in batches of 20) + 1 reduce.
 DEFAULT_TASKS = [
     "statement_candidates",
     "statement_candidates",
     "generate_statements",
-    "position_findings",
+    *["position_findings"] * 4,
     "party_positions",
-    "position_findings",
+    *["position_findings"] * 4,
     "party_positions",
 ]
+CALLS = len(DEFAULT_TASKS)  # 13
 
 
 @pytest.fixture(autouse=True)
@@ -147,10 +149,10 @@ def test_every_call_is_recorded_in_order(seeded: Engine) -> None:
     assert outcome.status is PipelineRunStatus.PASSED
     rows = calls(seeded, run_id)
     assert [r.task for r in rows] == DEFAULT_TASKS
-    assert [r.sequence for r in rows] == list(range(1, 8))
+    assert [r.sequence for r in rows] == list(range(1, CALLS + 1))
     assert not any(r.reused for r in rows)
     run = run_row(seeded, run_id)
-    assert run.llm_calls == 7
+    assert run.llm_calls == CALLS
     assert sum(r.input_tokens for r in rows) == run.input_tokens
     assert sum(r.output_tokens for r in rows) == run.output_tokens
     for row, request in zip(rows, provider.calls, strict=True):
@@ -167,7 +169,7 @@ def test_a_failed_run_keeps_the_calls_it_made(seeded: Engine) -> None:
 
 
 # Scenario 3
-@pytest.mark.parametrize("stop_at", [2, 3, 5, 7])
+@pytest.mark.parametrize("stop_at", [2, 3, 5, 7, 11])
 def test_resume_only_calls_the_provider_for_the_rest(seeded: Engine, stop_at: int) -> None:
     reference = fake_provider()
     reference_id = queue(seeded, reference)
@@ -179,15 +181,15 @@ def test_resume_only_calls_the_provider_for_the_rest(seeded: Engine, stop_at: in
     outcome = execute_run(seeded, resumed_id, provider)
 
     assert outcome.status is PipelineRunStatus.PASSED
-    assert len(provider.calls) == 7 - (stop_at - 1)
+    assert len(provider.calls) == CALLS - (stop_at - 1)
     assert [c.task for c in provider.calls] == DEFAULT_TASKS[stop_at - 1 :]
     rows = calls(seeded, resumed_id)
     assert [r.task for r in rows] == DEFAULT_TASKS
-    assert [r.reused for r in rows] == [True] * (stop_at - 1) + [False] * (8 - stop_at)
+    assert [r.reused for r in rows] == [True] * (stop_at - 1) + [False] * (CALLS + 1 - stop_at)
     assert all(r.input_tokens == r.output_tokens == 0 for r in rows if r.reused)
     run = run_row(seeded, resumed_id)
     assert run.resumed_from_run_id == stopped_id
-    assert run.llm_calls == 7
+    assert run.llm_calls == CALLS
     assert run.input_tokens == sum(r.input_tokens for r in rows if not r.reused)
     assert statements(seeded, resumed_id) == statements(seeded, reference_id)
 
@@ -212,7 +214,7 @@ def test_without_resume_from_nothing_is_reused(seeded: Engine) -> None:
 
     execute_run(seeded, run_id, provider)
 
-    assert len(provider.calls) == 7
+    assert len(provider.calls) == CALLS
     assert not any(r.reused for r in calls(seeded, run_id))
 
 
@@ -231,7 +233,7 @@ def test_a_stored_output_that_no_longer_validates_is_a_miss(seeded: Engine) -> N
     execute_run(seeded, resumed_id, provider)
 
     assert [c.task for c in provider.calls][0] == "statement_candidates"
-    assert len(provider.calls) == 7 - 2
+    assert len(provider.calls) == CALLS - 2
     assert [r.reused for r in calls(seeded, resumed_id)][:3] == [False, True, True]
 
 
@@ -283,7 +285,7 @@ def test_a_run_killed_while_running_can_be_resumed(seeded: Engine) -> None:
     resumed_id = queue(seeded, provider, resume_from=killed_id)
 
     assert execute_run(seeded, resumed_id, provider).status is PipelineRunStatus.PASSED
-    assert len(provider.calls) == 3
+    assert len(provider.calls) == CALLS - 4
 
 
 # Scenario 7 (CLI)
@@ -316,11 +318,11 @@ def test_cli_resume_from_and_report(cli_db, monkeypatch: pytest.MonkeyPatch) -> 
 
     assert second.exit_code == 0, second.output
     assert "Pipeline run 2: resuming from run 1 (3 recorded calls)" in second.output
-    assert len(provider.calls) == 4
+    assert len(provider.calls) == CALLS - 3
     report = invoke(db_url, "pipeline", "report", "--run", "2")
     assert "resumed_from: 1\n" in report.output
     assert "reused_calls: 3\n" in report.output
-    assert "llm_calls: 7\n" in report.output
+    assert f"llm_calls: {CALLS}\n" in report.output
     first_report = invoke(db_url, "pipeline", "report", "--run", "1")
     assert "resumed_from: none\n" in first_report.output
     assert "reused_calls: 0\n" in first_report.output
@@ -413,8 +415,8 @@ def _reused_by_task(rows: list[PipelineRunCall]) -> dict[str, list[bool]]:
 
 
 def test_resume_on_the_same_settings_reuses_every_task(seeded: Engine) -> None:
-    # Stopped on the last call: the six recorded calls cover all four tasks.
-    stopped_id = stop_run(seeded, stop_at=7)
+    # Stopped on the last call: the twelve recorded calls cover all four tasks.
+    stopped_id = stop_run(seeded, stop_at=CALLS)
     provider = fake_provider()
     resumed_id = queue(seeded, provider, resume_from=stopped_id)
 
@@ -425,20 +427,20 @@ def test_resume_on_the_same_settings_reuses_every_task(seeded: Engine) -> None:
     assert _reused_by_task(calls(seeded, resumed_id)) == {
         "statement_candidates": [True, True],
         "generate_statements": [True],
-        "position_findings": [True, True],
+        "position_findings": [True] * 8,
         "party_positions": [True, False],
     }
 
 
 def test_resume_of_a_run_recorded_with_a_wider_range(seeded: Engine) -> None:
-    # Stands for a run recorded with other pool bounds: a 70-Statement pool.
+    # Stands for a run recorded with other pool bounds: a 90-Statement pool.
     wide = Stopping(
-        fake_provider(generate_statements=statements_payload(70)),
+        fake_provider(generate_statements=statements_payload(90)),
         5,
         LLMProviderError("usage limit beyond max wait"),
     )
     stopped_id = queue(seeded, wide)
-    stopped = execute_run(seeded, stopped_id, wide, ValidationSettings(max_statements=70))
+    stopped = execute_run(seeded, stopped_id, wide, ValidationSettings(max_statements=90))
     assert stopped.status is PipelineRunStatus.FAILED
     assert [r.task for r in calls(seeded, stopped_id)] == DEFAULT_TASKS[:4]
 
@@ -454,7 +456,7 @@ def test_resume_of_a_run_recorded_with_a_wider_range(seeded: Engine) -> None:
     assert _reused_by_task(calls(seeded, resumed_id)) == {
         "statement_candidates": [True, True],
         "generate_statements": [False],
-        "position_findings": [False, False],
+        "position_findings": [False] * 8,
         "party_positions": [False, False],
     }
 
@@ -488,7 +490,7 @@ def test_reuse_from_a_run_with_a_dataset_version(seeded: Engine, source: str) ->
     assert _reused_by_task(rows) == {
         "statement_candidates": [True, True],
         "generate_statements": [True],
-        "position_findings": [True, True],
+        "position_findings": [True] * 8,
         "party_positions": [True, True],
     }
     assert provider.calls == []
@@ -506,13 +508,13 @@ def test_reuse_from_calls_the_provider_for_changed_requests(seeded: Engine) -> N
     # Another pool bound changes the generate_statements request, so it goes to
     # the provider; it returns the same pool, so the position calls are reused.
     outcome = execute_run(
-        seeded, reused_id, provider, ValidationSettings(min_statements=25, max_statements=50)
+        seeded, reused_id, provider, ValidationSettings(min_statements=25, max_statements=65)
     )
     assert outcome.status is PipelineRunStatus.PASSED
     assert _reused_by_task(calls(seeded, reused_id)) == {
         "statement_candidates": [True, True],
         "generate_statements": [False],
-        "position_findings": [True, True],
+        "position_findings": [True] * 8,
         "party_positions": [True, True],
     }
     assert [c.task for c in provider.calls] == ["generate_statements"]

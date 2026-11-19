@@ -1,0 +1,87 @@
+# Source Text Bundle of the 29 November 2026 Spanish general election (e2e-real-2026-election).
+# Import with: ideology data import data/elections/es-general-2026-11-29
+# Every .md file is written by "ideology source extract" and never edited.
+# Parties: those with a seat in the 40dB/EL PAÍS projection of 19 Nov 2026 and an
+# official 2026 manifesto, plus Podemos and SALF (user decision 2026-11-19).
+# CC and EAJ-PNV are excluded (user decision 2026-11-19, after run 5 failed party_coverage):
+# in the 58-Statement pool their manifestos gave stances on only about 5 (CC) and
+# 9-12 (EAJ-PNV) Statements, so neither can reach the 50% coverage minimum.
+# salf.md: the PDF was downloaded by the user in a browser (seacabolafiesta.com blocks
+# scripted downloads); its SHA-256 equals the file the official URL serves.
+# Junts is excluded: no 2026 manifesto published as of 2026-11-19.
+# Logos: the six Parties that ran in 2023 reuse their 2023 logo; the user supplied the
+# Frente Amplio, Podemos, Compromís, Adelante Andalucía and SALF logos (rasters resized to
+# 256x256 PNG, SVGs as given).
+format = 1
+
+[election]
+country = "ES"
+type = "general"
+date = 2026-11-29
+name = "Elecciones generales 2026"
+
+[[parties]]
+short_name = "PP"
+name = "Partido Popular"
+file = "pp.md"
+logo = "logos/pp.png"
+
+[[parties]]
+short_name = "PSOE"
+name = "Partido Socialista Obrero Español"
+file = "psoe.md"
+logo = "logos/psoe.png"
+
+[[parties]]
+short_name = "VOX"
+name = "Vox"
+file = "vox.md"
+logo = "logos/vox.png"
+
+[[parties]]
+short_name = "Frente Amplio"
+name = "Frente Amplio"
+file = "frente-amplio.md"
+logo = "logos/frente-amplio.svg"
+
+[[parties]]
+short_name = "Podemos"
+name = "Podemos"
+file = "podemos.md"
+logo = "logos/podemos.png"
+
+[[parties]]
+short_name = "ERC"
+name = "Esquerra Republicana de Catalunya"
+file = "erc.md"
+logo = "logos/erc.png"
+
+[[parties]]
+short_name = "EH Bildu"
+name = "Euskal Herria Bildu"
+file = "eh-bildu.md"
+logo = "logos/eh-bildu.png"
+
+[[parties]]
+short_name = "BNG"
+name = "Bloque Nacionalista Galego"
+file = "bng.md"
+logo = "logos/bng.png"
+
+[[parties]]
+short_name = "Compromís"
+name = "Compromís"
+file = "compromis.md"
+logo = "logos/compromis.svg"
+
+[[parties]]
+short_name = "Adelante Andalucía"
+name = "Adelante Andalucía"
+file = "adelante-andalucia.md"
+logo = "logos/adelante-andalucia.png"
+
+[[parties]]
+short_name = "SALF"
+name = "Se Acabó La Fiesta"
+file = "salf.md"
+logo = "logos/salf.png"

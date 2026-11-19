@@ -4,7 +4,7 @@ validation-evidence-quotes Scenarios 1, 2 and 6; validation-party-coverage
 Scenario 4; validation-statement-separation Scenario 4;
 validation-questionnaire-shape Scenario 5; pipeline-run-report (recorded
 Validation thresholds). Since pipeline-coverage-selection the default fake's
-50-Statement pool gives a 35-Statement Dataset Version, and the selection
+70-Statement pool gives a 35-Statement Dataset Version, and the selection
 leaves out duplicates, non-separating Statements (beyond min_statements) and
 topics over the cap, so tests that need such a failure at Validation either
 use one the selection cannot fix or replace the selection with an unfiltered
@@ -409,7 +409,7 @@ def test_a_check_raising_inside_execute_run_is_recorded_once(
     run = read_run(seeded, run_id)
     assert run.status is PipelineRunStatus.FAILED
     assert run.failure_reason == "unexpected error: KeyError"
-    assert run.llm_calls == 7
+    assert run.llm_calls == 13
     assert table_counts(seeded)["dataset_versions"] == 1
 
 
@@ -712,21 +712,21 @@ EQUAL_ON_2 = "statement 2 does not separate parties: all 2 parties with a stance
 
 
 # The selection drops a non-separating Statement while separating ones are
-# left, so these runs use min_statements = max_statements = 50 (the whole
-# 50-Statement pool): Statement 2 must then be kept and Validation names it.
-WHOLE_POOL = ValidationSettings(min_statements=50, max_statements=50)
+# left, so these runs use min_statements = max_statements = 70 (the whole
+# 70-Statement pool): Statement 2 must then be kept and Validation names it.
+WHOLE_POOL = ValidationSettings(min_statements=70, max_statements=70)
 
 
 def _whole_pool_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "50")
-    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "50")
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "70")
+    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "70")
 
 
 def _party2_agrees_on_statement2(request: LLMRequest[Any]) -> dict[str, Any]:
     """Party 2's page-2 finding (Statement 2) takes value 1, equal to Party 1's.
 
     Its page-1 finding (value -1) stays first, so the filling fake copies -1
-    to Statements 3..50, which keep separating.
+    to Statements 3..70, which keep separating.
     """
     real = findings_response()(request)
     if dict(chunk_pages(request)).get(1) != PAGES[2][0]:
@@ -751,7 +751,7 @@ def _assert_statement2_fails_alone(engine: Engine, run_id: int, outcome: Any) ->
     ]
     counts = table_counts(engine)
     assert (counts["dataset_versions"], counts["statements"], counts["party_positions"]) == (
-        1, 50, 100
+        1, 70, 140
     )
     with Session(engine) as s:
         version = s.get(DatasetVersion, 1)
@@ -760,7 +760,7 @@ def _assert_statement2_fails_alone(engine: Engine, run_id: int, outcome: Any) ->
             (p.statement.position, p.party_id): p.value for p in s.scalars(select(PartyPosition))
         }
     assert (values[(2, 1)], values[(2, 2)]) == (1, 1)
-    assert all(values[(n, 1)] == 1 and values[(n, 2)] == -1 for n in range(3, 51))
+    assert all(values[(n, 1)] == 1 and values[(n, 2)] == -1 for n in range(3, 71))
 
 
 def test_default_fake_separates_every_statement(seeded: Engine) -> None:
@@ -791,7 +791,7 @@ def test_selection_leaves_out_a_non_separating_statement(seeded: Engine) -> None
 
     outcome = execute_run(seeded, run_id, provider)
 
-    # With the defaults 49 separating Statements are left, so Statement 2 is
+    # With the defaults 69 separating Statements are left, so Statement 2 is
     # not selected and the run passes (pipeline-coverage-selection).
     assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
     report = read_run(seeded, run_id).statement_selection
@@ -946,7 +946,7 @@ def test_selection_fixes_duplicates_and_topic_share(seeded: Engine) -> None:
 
 
 def test_valid_statement_set_passes_all_six_checks(seeded: Engine) -> None:
-    provider = fake_provider(generate_statements=statements_payload(45))
+    provider = fake_provider(generate_statements=statements_payload(60))
     run_id = queue(seeded, provider)
 
     outcome = execute_run(seeded, run_id, provider)

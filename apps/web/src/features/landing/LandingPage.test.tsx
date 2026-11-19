@@ -128,28 +128,18 @@ describe("LandingPage", () => {
     ).toEqual(["/elecciones/1/cuestionario"]);
   });
 
-  test("the upcoming card follows the Elections and is not a link", async () => {
+  test("the grid lists only the API's Elections (no fixed upcoming card)", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
     await screen.findByRole("link", { name: /Generales 2023/ });
     const items = within(screen.getByRole("region", { name: "Elecciones disponibles" })).getAllByRole(
       "listitem",
     );
-    expect(items).toHaveLength(2);
+    expect(items).toHaveLength(1);
     // No Disponible / Próximamente chips (user decision 2026-11-03).
     expect(document.querySelector(".status-badge")).toBeNull();
     expect(within(items[0]!).queryByText("Disponible")).toBeNull();
-    expect(within(items[1]!).getByRole("heading", { level: 3 }).textContent).toBe(
-      "Elecciones generales 2026",
-    );
-    expect(within(items[1]!).getByText(/^Pronto añadiremos/).textContent).toBe(
-      "Pronto añadiremos el cuestionario para el 29N en cuanto los partidos publiquen sus programas.",
-    );
-    expect(within(items[1]!).queryByRole("link")).toBeNull();
-    expect(within(items[1]!).queryByRole("button")).toBeNull();
-    // The amber disabled-looking bar is the only Próximamente, and it is read.
-    const soon = within(items[1]!).getByText("Próximamente");
-    expect(soon.className).toBe("election-card__soon");
-    expect(soon.getAttribute("aria-hidden")).toBeNull();
+    expect(screen.queryByText("Próximamente")).toBeNull();
+    expect(screen.queryByText(/^Pronto añadiremos/)).toBeNull();
   });
 
   test("an Election without a published Dataset Version is marked En preparación", async () => {
@@ -198,9 +188,9 @@ describe("LandingPage", () => {
       ),
     ).toBeTruthy();
     expect(electionLinks()).toHaveLength(0);
-    // Only the fixed upcoming card is left in the grid.
+    // The grid is empty: no fixed upcoming card any more.
     const elections = screen.getByRole("region", { name: "Elecciones disponibles" });
-    expect(within(elections).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(elections).queryAllByRole("listitem")).toHaveLength(0);
     expectDisclosureAndMethodology();
   });
 

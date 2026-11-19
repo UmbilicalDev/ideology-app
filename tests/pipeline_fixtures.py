@@ -147,7 +147,7 @@ def candidates_response(count: int = 3) -> Callable[[LLMRequest[Any]], dict[str,
 
 
 def statements_payload(
-    count: int = 50,
+    count: int = 70,
     *,
     topic: tuple[str, int] | None = None,
     duplicate: tuple[int, int] | None = None,
@@ -214,6 +214,17 @@ def statement_numbers(request: LLMRequest[Any]) -> list[int]:
     return [int(n) for n in _STATEMENT.findall(listed)]
 
 
+_FINDINGS_STATEMENTS_START = "con su número entre corchetes):\n\n"
+_FINDINGS_STATEMENTS_END = "\n\nFragmento de programa electoral"
+
+
+def findings_statement_numbers(request: LLMRequest[Any]) -> list[int]:
+    """The Statement numbers listed in a ``position_findings`` request (its batch)."""
+    listed = request.prompt.split(_FINDINGS_STATEMENTS_START, 1)[1]
+    listed = listed.split(_FINDINGS_STATEMENTS_END, 1)[0]
+    return [int(n) for n in _STATEMENT.findall(listed)]
+
+
 def _page_value(text: str) -> int:
     """``PARTY_VALUES`` of the Party whose seeded page this is, else 1."""
     for party_id, pages in PAGES.items():
@@ -223,7 +234,8 @@ def _page_value(text: str) -> int:
 
 
 def findings_response(value: int | None = None) -> Callable[[LLMRequest[Any]], dict[str, Any]]:
-    """One finding per page of the chunk: Statement n = page n, quote = page text.
+    """One finding per page of the chunk: Statement n = page n, quote = page text,
+    for the pages whose number is a Statement listed in the request's batch.
 
     With ``value`` None each finding takes its Party's ``PARTY_VALUES`` value
     (looked up by page text, so prompts never need a Party name); an explicit
@@ -231,6 +243,7 @@ def findings_response(value: int | None = None) -> Callable[[LLMRequest[Any]], d
     """
 
     def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
+        listed = set(findings_statement_numbers(request))
         return {
             "findings": [
                 {
@@ -240,6 +253,7 @@ def findings_response(value: int | None = None) -> Callable[[LLMRequest[Any]], d
                     "page": page,
                 }
                 for page, text in chunk_pages(request)
+                if page in listed
             ]
         }
 

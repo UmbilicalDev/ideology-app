@@ -26,6 +26,22 @@ def normalize_for_match(text: str) -> str:
     return "".join(ch for ch in folded if ch.isalnum() and not unicodedata.combining(ch))
 
 
+def normalize_with_offsets(text: str) -> tuple[str, list[int]]:
+    """``normalize_for_match(text)`` and, per output character, its index in ``text``.
+
+    Character by character, so the string equals ``normalize_for_match(text)``
+    (NFKD and casefold map each character on its own, and combining marks are
+    dropped). Used only to map a normalised span back to the source text.
+    """
+    chars: list[str] = []
+    offsets: list[int] = []
+    for index, ch in enumerate(text):
+        for out in normalize_for_match(ch):
+            chars.append(out)
+            offsets.append(index)
+    return "".join(chars), offsets
+
+
 def quote_starts_on(norm_quote: str, norm_pages: Mapping[int, str], page: int) -> bool:
     """True when ``norm_quote`` starts on ``page`` (it may run onto ``page + 1``)."""
     own = norm_pages[page]

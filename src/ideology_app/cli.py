@@ -1202,9 +1202,12 @@ def _findings_line(selection: dict[str, Any] | None) -> str:
         f"{findings['version']}, checked {findings['checked']}, "
         f"discarded {findings['discarded']}, cleared {findings['cleared']}"
     )
+    if "repaired" in findings:  # findings check v2 (e2e-real-2026-election)
+        summary += f", repaired {findings['repaired']}"
     parties = "; ".join(
         f"party {p['party_id']} {p['discarded']}/{p['findings']}"
         + (f" cleared {p['cleared']}" if p["cleared"] else "")
+        + (f" repaired {p['repaired']}" if p.get("repaired") else "")
         for p in findings["parties"]
     )
     return f"{summary}; {parties}" if parties else summary
@@ -1234,6 +1237,28 @@ def _findings_rows(selection: dict[str, Any]) -> list[list[object]]:
             ]
         )
     return rows
+
+
+REPAIRED_HEADER = ["party", "document", "statement", "value", "repair", "page", "quote", "new_quote"]
+
+
+def _repaired_rows(selection: dict[str, Any]) -> list[list[object]]:
+    """One row per repaired finding (findings check v2): what the model cited, what is kept."""
+    findings = _findings(selection)
+    assert findings is not None
+    return [
+        [
+            item["party_id"],
+            item["document_id"],
+            item["statement"],
+            item["value"],
+            item["kind"],
+            f"{item['page']}->{item['new_page']}",
+            _one_line(item["quote"]),
+            _one_line(item["new_quote"]),
+        ]
+        for item in findings.get("repaired_items", [])
+    ]
 
 
 def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object]]:
@@ -1358,6 +1383,10 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
             click.echo("")
             click.echo("discarded findings:")
             _print_rows(FINDINGS_HEADER, _findings_rows(report.statement_selection))
+        if findings is not None and findings.get("repaired"):
+            click.echo("")
+            click.echo("repaired findings:")
+            _print_rows(REPAIRED_HEADER, _repaired_rows(report.statement_selection))
 
 
 @main.group()

@@ -5,18 +5,26 @@ provider), the prompts and the chunking in ``generation``. Party names never
 enter a prompt: the input holds only ids, Statement texts and page text.
 
 For each Party (in id order) every chunk of its parsed documents (main document
-first) gets one ``position_findings`` call. The findings become numbered
+first) gets one ``position_findings`` call per batch of at most
+``FINDINGS_STATEMENTS_PER_CALL`` Statements (consecutive, numbered as in the
+whole list; e2e-real-2026-election: one call over the whole pool of up to 60
+Statements returned as few as half of the stances a repeat of the same call
+found). A finding for a Statement outside its call's batch is ignored. The findings become numbered
 candidates, and one ``party_positions`` call picks a stance per Statement and
 the candidate that supports it. A Party with no candidate gets no reduce call
 and ``no stance`` everywhere.
 
 Every finding is checked against its cited page as soon as its call returns,
 with the ``evidence_quotes`` matcher (``validation.find_quote_miss``, the same
-code Validation runs) and only on pages of its own chunk. Quotes are never
-edited. The ``party_positions`` request still lists every finding, verified or
-not, so recorded calls stay reusable (``--resume-from`` / ``--reuse-from``);
+code Validation runs) and only on pages of its own chunk. A finding that
+misses is repaired when it can be (``pipeline.quote_repair``, e2e-real-2026-
+election): a verbatim quote cited on the wrong page of its chunk gets that
+page, and a near-identical slipped copy is replaced by the source's own text.
+Statement and value never change. The ``party_positions`` request lists every
+finding (repaired ones with their repaired quote and page), verified or not;
 a reduce choice that cites an unverifiable finding becomes ``no stance``
-instead. ``FindingCheck`` records the counts and every discarded finding.
+instead. ``FindingCheck`` records the counts, every repair and every
+discarded finding.
 Validation's ``evidence_quotes`` check stays the final guard.
 """
 
@@ -38,6 +46,7 @@ from ideology_app.pipeline.prompts import (
     ADDITIONAL_LABEL,
     MAIN_LABEL,
     PARTY_POSITIONS,
+    POOL_MAX_STATEMENTS,
     POSITION_FINDINGS,
     FindingList,
     PositionList,
@@ -45,10 +54,12 @@ from ideology_app.pipeline.prompts import (
     finding_list_schema,
     position_list_schema,
 )
+from ideology_app.pipeline.quote_repair import Repair, repair_finding
 from ideology_app.validation.evidence_quotes import find_quote_miss, normalize_pages
 
 MAX_POSITION_CALLS_PER_RUN = 300
-FINDINGS_CHECK_VERSION = "v1"
+FINDINGS_STATEMENTS_PER_CALL = 20
+FINDINGS_CHECK_VERSION = "v2"
 PAGE_NOT_IN_CHUNK = "page_not_in_chunk"
 
 
@@ -96,6 +107,25 @@ class DiscardedFinding:
     cleared: tuple[int, ...] = ()
 
 
+@dataclass(frozen=True)
+class RepairedFinding:
+    """A finding whose Evidence was repaired (``pipeline.quote_repair``).
+
+    ``page`` and ``quote`` are the model's, verbatim; ``kind``, ``new_page``
+    and ``new_quote`` the repair. Statement and value are unchanged.
+    """
+
+    party_id: int
+    document_id: int
+    statement: int
+    value: int
+    page: int
+    quote: str
+    kind: str
+    new_page: int
+    new_quote: str
+
+
 @dataclass
 class FindingCheck:
     """What extraction checked and discarded, updated after each Party's reduce.
@@ -106,10 +136,18 @@ class FindingCheck:
 
     checked: dict[int, int] = field(default_factory=dict)
     discarded: list[DiscardedFinding] = field(default_factory=list)
+    repaired: list[RepairedFinding] = field(default_factory=list)
 
-    def record(self, party_id: int, findings: int, discarded: Sequence[DiscardedFinding]) -> None:
+    def record(
+        self,
+        party_id: int,
+        findings: int,
+        discarded: Sequence[DiscardedFinding],
+        repaired: Sequence[RepairedFinding] = (),
+    ) -> None:
         self.checked[party_id] = findings
         self.discarded.extend(discarded)
+        self.repaired.extend(repaired)
 
     def report(self) -> dict[str, Any]:
         """The JSON-ready summary stored in ``statement_selection["findings"]``."""
@@ -122,6 +160,7 @@ class FindingCheck:
                     "findings": self.checked[party_id],
                     "discarded": len(own),
                     "cleared": sum(len(d.cleared) for d in own),
+                    "repaired": sum(r.party_id == party_id for r in self.repaired),
                 }
             )
         return {
@@ -129,6 +168,7 @@ class FindingCheck:
             "checked": sum(self.checked.values()),
             "discarded": len(self.discarded),
             "cleared": sum(len(d.cleared) for d in self.discarded),
+            "repaired": len(self.repaired),
             "parties": parties,
             "items": [
                 {
@@ -143,6 +183,20 @@ class FindingCheck:
                     "quote": d.quote,
                 }
                 for d in self.discarded
+            ],
+            "repaired_items": [
+                {
+                    "party_id": r.party_id,
+                    "document_id": r.document_id,
+                    "page": r.page,
+                    "statement": r.statement,
+                    "value": r.value,
+                    "kind": r.kind,
+                    "new_page": r.new_page,
+                    "quote": r.quote,
+                    "new_quote": r.new_quote,
+                }
+                for r in self.repaired
             ],
         }
 
@@ -165,12 +219,25 @@ def _party_chunks(
     return result
 
 
+def statement_batches(count: int) -> list[range]:
+    """1-based Statement numbers in consecutive batches of at most ``FINDINGS_STATEMENTS_PER_CALL``."""
+    size = FINDINGS_STATEMENTS_PER_CALL
+    return [range(start, min(start + size, count + 1)) for start in range(1, count + 1, size)]
+
+
 def plan_position_calls(
-    documents: Iterable[DocumentPages], max_chars: int = CHUNK_MAX_CHARS
+    documents: Iterable[DocumentPages],
+    max_chars: int = CHUNK_MAX_CHARS,
+    statement_count: int = POOL_MAX_STATEMENTS,
 ) -> int:
-    """The most LLM calls extraction can make: every chunk plus one reduce per Party."""
+    """The most LLM calls extraction can make for ``statement_count`` Statements.
+
+    One ``position_findings`` call per chunk and Statement batch, plus one
+    reduce per Party with chunks. The default is the largest possible pool.
+    """
     chunks = _party_chunks(documents, max_chars)
-    return sum(len(c) for c in chunks.values()) + len(chunks)
+    batches = len(statement_batches(statement_count))
+    return sum(len(c) for c in chunks.values()) * batches + len(chunks)
 
 
 def check_position_budget(documents: Iterable[DocumentPages]) -> None:
@@ -183,9 +250,14 @@ def check_position_budget(documents: Iterable[DocumentPages]) -> None:
         )
 
 
-def statement_lines(statements: Sequence[str]) -> str:
-    """The Statements as ``[n] <text>`` lines, n = 1-based Statement position."""
-    return "\n".join(f"[{n}] {text}" for n, text in enumerate(statements, start=1))
+def statement_lines(statements: Sequence[str], numbers: Iterable[int] | None = None) -> str:
+    """The Statements as ``[n] <text>`` lines, n = 1-based Statement position.
+
+    With ``numbers`` only those Statements are listed, keeping their numbers.
+    """
+    if numbers is None:
+        numbers = range(1, len(statements) + 1)
+    return "\n".join(f"[{n}] {statements[n - 1]}" for n in numbers)
 
 
 def _request(spec: PromptSpec, schema: type[Any], **fields: object) -> LLMRequest[Any]:
@@ -289,6 +361,16 @@ def _check(
     return (None, None) if miss is None else (miss.reason, miss.found_on)
 
 
+def _repair(
+    finding_page: int, quote: str, miss: str, found_on: int | None,
+    chunk: Chunk, pages: Mapping[int, str],
+) -> Repair | None:
+    """``quote_repair.repair_finding`` for a missed finding, on its chunk's pages."""
+    if miss == PAGE_NOT_IN_CHUNK:
+        return None
+    return repair_finding(quote, finding_page, miss, found_on, chunk.pages, pages)
+
+
 def extract_positions(
     provider: LLMProvider,
     statements: Sequence[str],
@@ -313,32 +395,57 @@ def extract_positions(
     """
     count = len(statements)
     listed = statement_lines(statements)
+    batches = [(set(b), statement_lines(statements, b)) for b in statement_batches(count)]
     chunks = _party_chunks(documents)
     normalised: dict[int, dict[int, str]] = {}
+    raw_pages: dict[int, dict[int, str]] = {}
     positions: dict[int, list[PositionResult]] = {}
     for party_id in sorted(set(party_ids)):
         candidates: list[_Candidate] = []
+        repaired: list[RepairedFinding] = []
         for document, chunk in chunks.get(party_id, []):
-            result = provider.generate(findings_request(listed, chunk.text, count))
-            usage.record(result)
-            output: FindingList = result.output
-            if document.document_id not in normalised:
-                normalised[document.document_id] = normalize_pages(document.pages)
-            for finding in output.findings:
-                miss, found_on = _check(
-                    finding.page, finding.quote, chunk, normalised[document.document_id]
-                )
-                candidates.append(
-                    _Candidate(
-                        finding.statement,
-                        finding.value,
-                        finding.quote,
-                        finding.page,
-                        document,
-                        miss,
-                        found_on,
+            for numbers, batch_lines in batches:
+                result = provider.generate(findings_request(batch_lines, chunk.text, count))
+                usage.record(result)
+                output: FindingList = result.output
+                if document.document_id not in normalised:
+                    normalised[document.document_id] = normalize_pages(document.pages)
+                    raw_pages[document.document_id] = dict(document.pages)
+                for finding in output.findings:
+                    if finding.statement not in numbers:
+                        continue
+                    quote, page = finding.quote, finding.page
+                    miss, found_on = _check(page, quote, chunk, normalised[document.document_id])
+                    if miss is not None:
+                        fix = _repair(
+                            page, quote, miss, found_on, chunk, raw_pages[document.document_id]
+                        )
+                        if fix is not None:
+                            repaired.append(
+                                RepairedFinding(
+                                    party_id=party_id,
+                                    document_id=document.document_id,
+                                    statement=finding.statement,
+                                    value=finding.value,
+                                    page=page,
+                                    quote=quote,
+                                    kind=fix.kind,
+                                    new_page=fix.page,
+                                    new_quote=fix.quote,
+                                )
+                            )
+                            quote, page, miss, found_on = fix.quote, fix.page, None, None
+                    candidates.append(
+                        _Candidate(
+                            finding.statement,
+                            finding.value,
+                            quote,
+                            page,
+                            document,
+                            miss,
+                            found_on,
+                        )
                     )
-                )
         chosen: Mapping[int, PositionResult] = {}
         cleared: Mapping[int, list[int]] = {}
         if candidates:
@@ -362,6 +469,7 @@ def extract_positions(
                     for index, c in enumerate(candidates)
                     if c.miss is not None
                 ],
+                repaired,
             )
         positions[party_id] = [
             chosen.get(n) or PositionResult(statement_number=n, value=None)
@@ -372,15 +480,18 @@ def extract_positions(
 
 __all__ = [
     "FINDINGS_CHECK_VERSION",
+    "FINDINGS_STATEMENTS_PER_CALL",
     "MAX_POSITION_CALLS_PER_RUN",
     "PAGE_NOT_IN_CHUNK",
     "DiscardedFinding",
     "FindingCheck",
     "PositionResult",
+    "RepairedFinding",
     "check_position_budget",
     "extract_positions",
     "findings_request",
     "plan_position_calls",
     "positions_request",
+    "statement_batches",
     "statement_lines",
 ]

@@ -108,19 +108,23 @@ def run_pipeline(engine: Engine, provider: FakeProvider, **kwargs: Any) -> int:
 
 
 def gamma_positions() -> Callable[[LLMRequest[Any]], dict[str, Any]]:
-    """``positions_response(fill=True)``, but Party 3 has ``no stance`` on even Statements.
+    """``positions_response(fill=True)``, but Party 3 has a stance only on odd Statements below 50.
 
     The selection (pipeline-coverage-selection) serves Party 3 first, so it
-    takes the 25 odd pool Statements and then the lowest even ones (2, 4 ... 20)
+    takes those 25 odd pool Statements and then the lowest even ones (2, 4 ... 20)
     up to 35; Party 3 covers 25 of 35 (71 %) and Dataset Version Statement
-    ``GAMMA_NO_STANCE`` (pool Statement 2) is ``no stance``.
+    ``GAMMA_NO_STANCE`` (pool Statement 2) is ``no stance``. (The default pool
+    has 70 Statements since e2e-real-2026-election; the bound keeps Party 3's
+    coverage as it was with the 50-Statement pool.)
     """
     base = positions_response(fill=True)
 
     def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
         result = base(request)
         if any(c["quote"] == GAMMA_PAGE for c in candidate_lines(request)):
-            result["positions"] = [p for p in result["positions"] if p["statement"] % 2]
+            result["positions"] = [
+                p for p in result["positions"] if p["statement"] % 2 and p["statement"] < 50
+            ]
         return result
 
     return _respond
