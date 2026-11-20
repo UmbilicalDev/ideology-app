@@ -1206,3 +1206,12 @@
 - Verification run: `CI=true ./init.sh` exit 0 (pytest 1897, Vitest 939, `vite build` ok); browser walk at 375, 1024 and 1280, light and dark: one 2026 card on the Landing, `Saltar`, equal logo-only matrix columns (spread under 0.1px), 2023 reachable by URL and Share Link, console empty, no request carries answers. Details in `feature_list.json`.
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (newer unpublished Election would hide the current one; 12-Party matrix scrolls sideways in the shared result; Landing recordings show the old label).
 - Next best step: commit on `feature/ui-changes` and open a PR when the user decides.
+
+### Session 098 (landing-card-results-notes)
+
+- Date: 2026-11-20
+- Goal: user-requested UI changes on top of `main` (`aacc08e`): a wide one-row Election card on desktop, and a note on the results about EAJ-PNV not being included.
+- Completed: `apps/web/src/ui/{tokens,components}.css` (single-column Elections grid, one-row card from 1024px, 2rem name, 60px button; `.excluded-parties` note), new `apps/web/src/features/results/ExcludedPartiesNotice.tsx` (+ test), wired into `QuestionnaireFlow`/`QuestionnairePage` and `SharedResultsPage`; `DESIGN.md` (Election card, Excluded Parties note).
+- Verification run: typecheck ok, Vitest 946 passed, vite build ok; browser walk recorded in `feature_list.json` (`landing-card-results-notes`).
+- Known risk or unresolved issue: the excluded-Party copy is hard-coded per Election (type + date) in the web client; a future Election with exclusions needs a new entry there (or the reason could move into the API).
+- Next best step: independent validation of `landing-card-results-notes`, then merge to `main` (deploys to production).

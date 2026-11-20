@@ -152,7 +152,6 @@
 @media (min-width: 640px) {
   :root {
     --page-gutter: 1.5rem;
-    --election-columns: 2;
     --steps-columns: 3;
     --card-padding: 1.5rem;
     --party-logo-size-ranking: 48px;
@@ -176,7 +175,8 @@
        controls above and below the recording on a desktop screen. Never
        below 18rem, so a short window scrolls instead of shrinking it. */
     --how-media-max-height: max(18rem, calc(100svh - 38rem));
-    --election-title-font: var(--type-headline);
+    /* The lone Election card is one wide row here (components.css). */
+    --election-title-font: 700 2rem/2.5rem var(--font-sans);
   }
 }
 

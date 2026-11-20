@@ -672,7 +672,7 @@ a.button-secondary {
   margin-bottom: var(--space-lg);
 }
 
-/* Elections grid: 1 column at compact, 2 from 640px (tokens.css). */
+/* Elections grid: one column; the Landing shows only the current Election. */
 .election-list {
   list-style: none;
   margin: 0;
@@ -787,6 +787,50 @@ a.button-secondary {
 
 .election-card:hover .election-link__cta .icon {
   transform: translateX(2px);
+}
+
+/* Expanded (1024px and up): the card is one row, name and date on the left
+   and a larger `Realizar cuestionario` button on the right, so it is shorter
+   and the carousel fits on more screens. Compact keeps the stacked card. */
+@media (min-width: 1024px) {
+  .election-card {
+    padding: var(--space-lg) var(--space-xl);
+  }
+
+  .election-link {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name cta"
+      "date cta";
+    align-items: center;
+    column-gap: var(--space-xl);
+    row-gap: var(--space-xs);
+  }
+
+  .election-link__name {
+    grid-area: name;
+  }
+
+  .election-link__date {
+    grid-area: date;
+    padding-bottom: 0;
+    border-bottom: 0;
+    font: var(--type-body);
+  }
+
+  .election-link__cta {
+    grid-area: cta;
+    min-height: 60px;
+    margin-top: 0;
+    padding: 0 var(--space-xl);
+    font: var(--type-title-lg);
+  }
+
+  .election-link__cta .icon {
+    width: 22px;
+    height: 22px;
+  }
 }
 
 .election-card--upcoming {
@@ -2106,6 +2150,28 @@ a.button-secondary {
   border-radius: var(--radius-sm);
   color: var(--color-on-highlight-soft);
   font: var(--type-body-sm);
+}
+
+/* Parties left out of the Election (ExcludedPartiesNotice): a neutral note
+   above the ranking, the same for every Party it names. */
+.excluded-parties {
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
+}
+
+.excluded-parties p {
+  margin: 0;
+}
+
+.excluded-parties__title {
+  margin-bottom: var(--space-xs);
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 .results-dashboard__ranking:focus-visible {
