@@ -6,6 +6,7 @@ no documents), 5 (party-blind, deterministic prompts), 6 (invalid output) and
 pipeline-verified-findings Scenarios 1-3 (unit) are at the end.
 """
 
+import dataclasses
 import inspect
 from typing import Any
 
@@ -209,7 +210,8 @@ def test_findings_prompt_lists_statements_then_one_chunk() -> None:
     request = fake.calls[0]
     listed = "\n".join(f"[{n}] {text}" for n, text in enumerate(STATEMENTS, start=1))
     assert request.prompt == (
-        "Afirmaciones del cuestionario (una por línea, con su número entre corchetes):\n\n"
+        "Afirmaciones del cuestionario que revisar en este fragmento (una parte del "
+        "cuestionario; una por línea, con su número entre corchetes):\n\n"
         f"{listed}\n\n"
         "Fragmento de programa electoral (cada página va precedida de su marcador):\n\n"
         f"{build_chunks(documents)[0]}\n\n"
@@ -359,17 +361,28 @@ def test_plan_counts_chunks_plus_one_reduce_per_party_with_chunks() -> None:
         doc(2, 3, "Cuatro."),
         doc(3, 4, "  "),
     ]
-    assert plan_position_calls(documents) == 3 + 2
+    # e2e-real-2026-election: one findings call per chunk and Statement batch;
+    # the default plans for the largest pool (80 Statements = 4 batches).
+    assert plan_position_calls(documents, statement_count=len(STATEMENTS)) == 3 + 2
+    assert plan_position_calls(documents) == 3 * 4 + 2
+    assert plan_position_calls(documents, statement_count=61) == 3 * 4 + 2
+    assert plan_position_calls(documents, statement_count=60) == 3 * 3 + 2
+    assert plan_position_calls(documents, statement_count=41) == 3 * 3 + 2
+    assert plan_position_calls(documents, statement_count=40) == 3 * 2 + 2
     assert plan_position_calls([]) == 0
     big = doc(1, 9, *(["x" * 30_000] * 3))
-    assert plan_position_calls([big]) == 3 + 1
+    assert plan_position_calls([big], statement_count=len(STATEMENTS)) == 3 + 1
 
 
 def test_plan_matches_the_calls_made_when_every_party_has_findings() -> None:
     documents = [doc(1, 1, "Uno.", "Dos."), doc(1, 2, "Tres.", role=ADDITIONAL), doc(2, 3, "C.")]
     fake = provider()
     extract(fake, documents)
-    assert len(fake.calls) == plan_position_calls(documents)
+    assert len(fake.calls) == plan_position_calls(documents, statement_count=len(STATEMENTS))
+    pool = [f"Afirmación {n}." for n in range(1, 46)]
+    fake = provider()
+    extract(fake, documents, statements=pool)
+    assert len(fake.calls) == plan_position_calls(documents, statement_count=len(pool))
 
 
 def test_cap_constant() -> None:
@@ -385,12 +398,16 @@ def test_requests_bound_to_pool_size() -> None:
     results = extract(fake, [doc(1, 1, "Uno.")], statements=pool)
 
     assert [len(r) for r in results.values()] == [60]
+    assert results[1][0].value is not None
     assert results[1][59].value is not None
-    findings, reduce = fake.calls
+    *batches, reduce = fake.calls
+    assert len(batches) == 3
     listed = "\n".join(f"[{n}] {text}" for n, text in enumerate(pool, start=1))
-    assert listed in findings.prompt and listed in reduce.prompt
-    finding = findings.schema.model_json_schema()["$defs"]["Finding"]["properties"]
-    assert finding["statement"]["maximum"] == 60
+    assert listed in reduce.prompt
+    for findings in batches:
+        # Each batch call is bounded by the whole pool, not by its batch.
+        finding = findings.schema.model_json_schema()["$defs"]["Finding"]["properties"]
+        assert finding["statement"]["maximum"] == 60
     positions = reduce.schema.model_json_schema()
     assert positions["$defs"]["PositionChoice"]["properties"]["statement"]["maximum"] == 60
     assert positions["properties"]["positions"]["maxItems"] == 60
@@ -425,13 +442,14 @@ def test_slipped_quote_is_no_stance_and_the_verified_one_is_kept() -> None:
     reduce = [c for c in fake.calls if c.task == "party_positions"][0]
     assert [c["quote"] for c in candidate_lines(reduce)] == ["las sustituiremos", "Ley de Vivienda"]
     assert check.report() == {
-        "version": "v1",
+        "version": "v2",
         "checked": 2,
         "discarded": 1,
         "cleared": 1,
+        "repaired": 0,
         "parties": [
-            {"party_id": 1, "findings": 2, "discarded": 1, "cleared": 1},
-            {"party_id": 2, "findings": 0, "discarded": 0, "cleared": 0},
+            {"party_id": 1, "findings": 2, "discarded": 1, "cleared": 1, "repaired": 0},
+            {"party_id": 2, "findings": 0, "discarded": 0, "cleared": 0, "repaired": 0},
         ],
         "items": [
             {
@@ -446,6 +464,7 @@ def test_slipped_quote_is_no_stance_and_the_verified_one_is_kept() -> None:
                 "quote": "las sustituiremos",
             }
         ],
+        "repaired_items": [],
     }
 
 
@@ -477,7 +496,7 @@ def test_party_with_only_unverifiable_findings_still_gets_its_reduce_call() -> N
     fake = provider(position_findings=_findings(_finding(quote="Inventada.")))
     result = extract(fake, documents)
     assert tasks(fake) == ["position_findings", "party_positions"]
-    assert len(fake.calls) == plan_position_calls(documents)
+    assert len(fake.calls) == plan_position_calls(documents, statement_count=len(STATEMENTS))
     assert all(p.value is None for p in result[1])
 
 
@@ -511,13 +530,50 @@ def test_cited_page_outside_the_chunk_is_discarded_even_if_the_quote_is_there() 
 
 
 def test_other_page_records_where_the_quote_starts() -> None:
+    # e2e-real-2026-election: a page of the same chunk would be repaired, so the
+    # quote is on page 2 in a second chunk (each page is near the size limit).
+    first, second = "Uno. " + "a" * 39_000, "Texto de la página dos. " + "b" * 39_000
+
+    def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
+        if chunk_pages(request)[0][0] != 1:
+            return _findings()
+        return _findings(_finding(quote="Texto de la página dos."))
+
+    fake = provider(position_findings=_respond)
+    check = FindingCheck()
+    extract_positions(fake, STATEMENTS, [doc(1, 1, first, second)], [1], Usage(), check)
+    report = check.report()
+    assert report["repaired_items"] == []
+    item = report["items"][0]
+    assert (item["reason"], item["found_on"], item["cleared"]) == ("other_page", 2, [1])
+
+
+def test_other_page_in_the_same_chunk_is_repaired_and_kept() -> None:
+    # e2e-real-2026-election (findings check v2): the quote is verbatim on
+    # another page of the finding's own chunk, so the page is corrected.
     fake = provider(position_findings=_findings(_finding(quote="Texto de la página dos.")))
     check = FindingCheck()
-    extract_positions(
+    result = extract_positions(
         fake, STATEMENTS, [doc(1, 1, "Uno.", "Texto de la página dos.")], [1], Usage(), check
     )
-    item = check.report()["items"][0]
-    assert (item["reason"], item["found_on"], item["cleared"]) == ("other_page", 2, [1])
+    assert result[1][0] == PositionResult(1, 1, 1, "Texto de la página dos.", 2, None)
+    report = check.report()
+    assert (report["discarded"], report["cleared"], report["repaired"]) == (0, 0, 1)
+    assert report["items"] == []
+    assert report["parties"][0]["repaired"] == 1
+    assert report["repaired_items"] == [
+        {
+            "party_id": 1,
+            "document_id": 1,
+            "page": 1,
+            "statement": 1,
+            "value": 1,
+            "kind": "page_corrected",
+            "new_page": 2,
+            "quote": "Texto de la página dos.",
+            "new_quote": "Texto de la página dos.",
+        }
+    ]
 
 
 def test_extraction_uses_the_evidence_quotes_matcher() -> None:
@@ -552,11 +608,23 @@ def test_extraction_and_validation_give_the_same_verdict(
     )
     check = FindingCheck()
     result = extract_positions(fake, STATEMENTS, [doc(1, 1, *pages)], [1], Usage(), check)
-    extraction_kept = result[1][0].value is not None
-    assert extraction_kept is kept
-    assert [i["reason"] for i in check.report()["items"]] == ([] if kept else [reason])
-    if kept:
-        assert result[1][0].quote == quote
+    report = check.report()
+    if reason == "other_page":
+        # e2e-real-2026-election (findings check v2): the matcher's raw verdict is
+        # still other_page (it is the repair's input), but these quotes are verbatim
+        # on another page of the finding's own chunk, so extraction corrects the
+        # page instead of discarding. Validation below gets the raw verdict.
+        assert report["items"] == []
+        assert [(i["kind"], i["page"], i["new_page"], i["new_quote"])
+                for i in report["repaired_items"]] == [("page_corrected", page, 2, quote)]
+        assert (result[1][0].value, result[1][0].quote, result[1][0].page) == (1, quote, 2)
+    else:
+        assert report["repaired_items"] == []
+        extraction_kept = result[1][0].value is not None
+        assert extraction_kept is kept
+        assert [i["reason"] for i in report["items"]] == ([] if kept else [reason])
+        if kept:
+            assert result[1][0].quote == quote
 
     data = ValidationInput(
         statements=(StatementRow(id=1, position=1, text="Afirmación 1.", topic="economy"),),
@@ -567,3 +635,74 @@ def test_extraction_and_validation_give_the_same_verdict(
         },
     )
     assert (check_evidence_quotes(data) == []) is kept
+    if reason == "other_page":
+        # The repaired Evidence (the page extraction stores) passes Validation.
+        repaired = dataclasses.replace(
+            data, positions=(PositionRow(1, 1, 1, 1, 1, quote, 2, None),)
+        )
+        assert check_evidence_quotes(repaired) == []
+
+
+# e2e-real-2026-election: Statement batches in position_findings
+
+
+def test_statement_batches_split_the_pool_in_consecutive_batches_of_20() -> None:
+    assert positions_module.FINDINGS_STATEMENTS_PER_CALL == 20
+    batches = positions_module.statement_batches
+    assert [list(b) for b in batches(58)] == [
+        list(range(1, 21)),
+        list(range(21, 41)),
+        list(range(41, 59)),
+    ]
+    assert [list(b) for b in batches(20)] == [list(range(1, 21))]
+    assert [list(b) for b in batches(21)] == [list(range(1, 21)), [21]]
+    assert batches(0) == []
+
+
+def test_each_findings_request_lists_only_its_batch_with_global_numbers() -> None:
+    pool = [f"Afirmación {n} del conjunto." for n in range(1, 46)]
+    fake = provider()
+    extract(fake, [doc(1, 1, "Uno.")], statements=pool)
+
+    findings = [c for c in fake.calls if c.task == "position_findings"]
+    reduce = [c for c in fake.calls if c.task == "party_positions"]
+    assert len(findings) == 3 and len(reduce) == 1
+    for request, numbers in zip(
+        findings, (range(1, 21), range(21, 41), range(41, 46)), strict=True
+    ):
+        listed = "\n".join(f"[{n}] {pool[n - 1]}" for n in numbers)
+        assert f"corchetes):\n\n{listed}\n\nFragmento de programa electoral" in request.prompt
+        others = set(range(1, 46)) - set(numbers)
+        assert all(f"[{n}] " not in request.prompt for n in others)
+    # The reduce still lists the whole pool.
+    assert "\n".join(f"[{n}] {t}" for n, t in enumerate(pool, start=1)) in reduce[0].prompt
+
+
+def test_a_finding_for_a_statement_outside_its_batch_is_ignored() -> None:
+    pool = [f"Afirmación {n}." for n in range(1, 31)]
+
+    def _respond(request: LLMRequest[Any]) -> dict[str, Any]:
+        # Every batch answers Statement 25 (in batch 2 only) and Statement 2
+        # (in batch 1 only); each must count once, from its own batch.
+        return _findings(_finding(statement=2), _finding(statement=25, value=-1))
+
+    fake = provider(position_findings=_respond)
+    check = FindingCheck()
+    results = extract_positions(fake, pool, [doc(1, 1, "Uno.")], [1], Usage(), check)
+
+    assert check.checked == {1: 2}
+    reduce = next(c for c in fake.calls if c.task == "party_positions")
+    assert [(c["statement"], c["value"]) for c in candidate_lines(reduce)] == [(2, 1), (25, -1)]
+    assert results[1][1].value == 1 and results[1][24].value == -1
+
+
+def test_plan_position_calls_multiplies_chunks_by_the_batches_of_the_pool() -> None:
+    documents = [doc(1, 1, "Uno."), doc(2, 2, "Dos."), doc(2, 3, "Tres.", role=ADDITIONAL)]
+    assert plan_position_calls(documents, statement_count=20) == 3 * 1 + 2
+    assert plan_position_calls(documents, statement_count=21) == 3 * 2 + 2
+    assert plan_position_calls(documents, statement_count=60) == 3 * 3 + 2
+    assert plan_position_calls(documents, statement_count=80) == 3 * 4 + 2
+    assert plan_position_calls(documents) == plan_position_calls(documents, statement_count=80)
+    fake = provider()
+    extract(fake, documents, statements=[f"A{n}." for n in range(1, 26)])
+    assert len(fake.calls) == plan_position_calls(documents, statement_count=25)

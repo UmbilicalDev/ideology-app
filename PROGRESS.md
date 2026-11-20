@@ -8,7 +8,7 @@
 - Manual start (from the repo root, after `./init.sh`; full guide in `README.md`): `DATABASE_URL=sqlite:///data/ideology.db .venv/bin/uvicorn ideology_app.main:app` for the committed shared database (without `DATABASE_URL` the default `./ideology.db` is created empty and the API answers 500) (web client at `http://127.0.0.1:8000/`, served from `WEB_DIST_DIR`, default `apps/web/dist`; `GET /health` → 200 `{"status": "ok"}`; public read-only API under `/api/v1/`, OpenAPI at `/api/openapi.json`; reads `DATABASE_URL`, migrate first with `ideology db upgrade`)
 - Operator CLI: `.venv/bin/ideology --help` (`db upgrade`, `election create|list`, `party add|list`, `source add --file|--url` (in `GENERATION_MODE=live` it also queues a Pipeline Run), `source refetch [--election N]` (re-downloads due URL documents, interval `SOURCE_REFETCH_INTERVAL_HOURS`, default 6; changed bytes register a replacement document and, in `live`, queue a run), `source list|text`, `source extract PDF --party S --out F.md [--url U] [--force]` (no database; writes a Source Text file), `data import DIR` (imports a Source Text Bundle, idempotent; in `live` queues a run for added or replaced documents), `data check DIR` (read-only DB-vs-bundle check), `db check` (read-only safe-to-commit gate for a SQLite file: sidecars, journal mode, integrity, head, bundles; lists unfinished runs), `pipeline run [--resume-from R | --fresh] [--yes]|run-queued [--yes]|list|statements|positions|validate|checks|report`; the shared database committed at `data/ideology.db` is selected with `DATABASE_URL=sqlite:///data/ideology.db` from the repo root (runbook in `docs/technical-discovery.md`, "Shared database"): on it run commands ask for confirmation (`--yes` skips it, non-interactive stdin refuses) and an Election's unfinished run is refused (`--fresh` overrides); Source Text Bundles live in `ELECTIONS_DATA_DIR`, default `data/elections/<slug>/`; `DATABASE_URL` or `--database-url`, default `sqlite:///ideology.db` in the current directory; uploaded and downloaded PDFs go to `SOURCE_FILES_DIR`, default `./source_files`)
 - Current next ready features: see `feature_list.json` (`llm-provider-claude-code` accepted 2026-10-21 on `feature/llm-provider-claude-code`; `share-link-open` accepted 2026-10-20; `results-ranking`, `questionnaire-important-flag`, `live-mode-url-refetch`, `questionnaire-answer-flow`, `methodology-page`, `results-breakdown-evidence` and `share-link-create` accepted 2026-10-20)
-- Current blocker: none. `e2e-real-2023-election` is `accepted` (independent validator accept, 2026-10-22; the MVP success criterion is met) on branch `feature/e2e-real-2023-election-main`: run 3 (`--reuse-from 2` replay, 0 LLM calls) passed and published Dataset Version 3 for Election 1 (`Elecciones generales 2023`, 26 Statements, 9 Parties) in the committed `data/ideology.db` (commit `9c13392`). Runs 1 and 2 (the two fresh attempts) failed Validation and stay as history in the DB. Details in Session 060
+- Current blocker: none. `e2e-real-2026-election` is `accepted` (independent validator, 2026-11-20) on branch `feature/e2e-real-2026-election-junts`, PR #107: run 5 passed and published Dataset Version 5 for Election 2 (`Elecciones generales 2026`, 32 Statements, 12 Parties with Junts) in the committed `data/ideology.db`; the browser walk is done (Session 094). It supersedes the 11-Party Dataset Version of Session 093. Independent validation is still to do. Merging to `main` deploys to production. Earlier: `e2e-real-2023-election` is `accepted` (independent validator accept, 2026-10-22; the MVP success criterion is met) on branch `feature/e2e-real-2023-election-main`: run 3 (`--reuse-from 2` replay, 0 LLM calls) passed and published Dataset Version 3 for Election 1 (`Elecciones generales 2023`, 26 Statements, 9 Parties) in the committed `data/ideology.db` (commit `9c13392`). Runs 1 and 2 (the two fresh attempts) failed Validation and stay as history in the DB. Details in Session 060
 - Last verified at: 2026-11-18 (`CI=true ./init.sh` on `feature/donate-buymeacoffee`: pytest 1879 passed, Vitest 931 passed, `vite build` ok; implementer browser walk at 1280, ~700 and 375, dark and light, with a fictitious `DONATION_URL`, unset and invalid). Previous: 2026-11-18 (`CI=true ./init.sh` on `feature/legal-privacy-page`: pytest 1833 passed, Vitest 769 passed, `vite build` ok; implementer browser walk of `/legal` at 1280 and 375, dark and light, configured and unconfigured). Previous: 2026-11-08 (`CI=true ./init.sh` on `feature/deploy-container`: pytest 1794 passed, Vitest 661 passed, `vite build` ok; production image built and run with Docker, browser walk against the container at 1280 and 375). Previous: 2026-11-06 (`CI=true ./init.sh` on `feature/landing-upcoming-copy`: pytest 1789 passed, Vitest 661 passed, `vite build` ok; Landing checked in Google Chrome at 1280 dark and 375 light). Previous: 2026-11-06 (`CI=true ./init.sh` on `feature/page-toc-scrollspy`: pytest 1789 passed, Vitest 661 passed, `vite build` ok; methodology index checked in Google Chrome at 1280 dark and 375 light). Previous: 2026-11-06 (`CI=true ./init.sh` on `feature/landing-carousel-scale-order`: pytest 1789 passed, Vitest 656 passed, `vite build` ok; Landing carousel checked at 1280 dark and 375 light). Previous: 2026-11-06 (`CI=true ./init.sh` on `feature/questionnaire-scale-order`: pytest 1789 passed, Vitest 656 passed, `vite build` ok; browser check at 375 and 1280, dark and light). Previous: 2026-11-03 (`CI=true ./init.sh` on `feature/landing-how-it-works-carousel`: pytest 1789 passed, Vitest 656 passed, `vite build` ok; implementer browser walk at 1280/800/375, dark and light, reduced motion). Previous: 2026-11-03 (`CI=true ./init.sh` on `feature/visual-tweaks-questionnaire-results`: pytest 1789 passed, Vitest 636 passed, `vite build` ok; implementer browser walk at 375/1280, dark and light). Previous: 2026-10-30 (`CI=true ./init.sh` on `feature/web-redesign`: pytest 1789 passed, Vitest 615 passed, `vite build` ok; implementer browser walk at 375/1280, dark and light). Previous: 2026-10-29 (`CI=true ./init.sh` on `feature/feedback-admin` merged with `main` after `feedback-dialog`: pytest 1789 passed, Vitest 599 passed, `vite build` ok; independent validator accepted `feedback-admin`, with its own browser walk at 375/1280, light and dark). Previous: 2026-10-29 (`CI=true ./init.sh` on `feature/feedback-dialog`: pytest 1661 passed, Vitest 502 passed, `vite build` ok; implementer browser walk at 375/700/1280, light and dark, Landing and end screen, keyboard and pointer; independent validator accepted `feedback-dialog`, with its own browser walk at 375/700/1280, light and dark). Previous: 2026-10-28 (`CI=true ./init.sh` on `feature/share-ideologiapp` merged with `main` after `feedback-api`: pytest 1661 passed, Vitest 457 passed, `vite build` ok). Previous: 2026-10-28 (`CI=true ./init.sh` on `feature/share-ideologiapp`: pytest 1560 passed, Vitest 424 passed, `vite build` ok; implementer browser walk at 375/700/1280, light and dark; independent validator accepted `share-ideologiapp`, with its own browser walk in Google Chrome (chrome-devtools) at 375/700/1280, light and dark, plus the built-in browser at 375). Previous: 2026-10-26 (`CI=true ./init.sh` on `feature/brand-favicon`: pytest 1560 passed, Vitest 400 passed, `vite build` ok; browser check of tab icon and titles; independent validator accepted `brand-favicon`, with its own browser walk at 375 and 1280, light and dark). Previous: 2026-10-26 (`CI=true ./init.sh` on `feature/party-logos-display`: pytest 1560 passed, Vitest 396 passed, `vite build` ok; implementer browser walk at 375/700/1280, light and dark, setups A, B and a blocked logo; independent validator accepted `party-logos-display`, with its own browser walk). Previous: 2026-10-26 (`CI=true ./init.sh` on `feature/party-logos-data` after importing the logos into `data/ideology.db`: pytest 1560 passed, Vitest 373 passed, `vite build` ok; independent validator accepted `party-logos-data`). Previous: 2026-10-25 (`CI=true ./init.sh` on `feature/material3-civic-horizon-theme` with `brand-and-results-polish`: pytest 1454 passed, Vitest 362 passed, `vite build` ok; browser walk at 1280/700/375, light and dark; independent validator accepted `brand-and-results-polish` after one repair). Previous: 2026-10-25 (`CI=true ./init.sh` on `feature/material3-civic-horizon-theme`: pytest 1454 passed, Vitest 360 passed, `vite build` ok; browser walks at 375/700/1280 in light and dark by implementer and validator; independent validator accepted `material3-civic-horizon-theme`). Previous: 2026-10-22 (`CI=true ./init.sh` on `feature/e2e-real-2023-election-main` at `9c13392` plus doc edits: pytest 1454 passed, Vitest 350 passed, `vite build` ok; browser walks of Dataset Version 3 at 375px and 1280px by implementer and validator; independent validator accepted `e2e-real-2023-election`). Previous: 2026-10-22 (`CI=true ./init.sh` on `feature/pipeline-verified-findings`: pytest 1454 passed, Vitest 350 passed, `vite build` ok; independent validator accepted `pipeline-verified-findings`; browser check of `/metodologia` at 375px and desktop). Previous: 2026-10-22 (`CI=true ./init.sh` on `feature/pipeline-balanced-statements`: pytest 1418 passed, Vitest 350 passed, `vite build` ok; independent validator accepted `pipeline-balanced-statements`; browser check of `/metodologia` at 375px and desktop). Previous: 2026-10-22 (`CI=true ./init.sh` on `feature/pipeline-output-bounds`: pytest 1341 passed, Vitest 347 passed, `vite build` ok; independent validator accepted `pipeline-output-bounds`; no browser check needed, pipeline feature). Previous: 2026-10-21 (`CI=true ./init.sh` on `feature/shared-database`: pytest 1292 passed, Vitest 347 passed, `vite build` ok; independent validator accepted `shared-database`; committed `data/ideology.db` passes `ideology db check`; no browser check needed, CLI/data feature). Previous: 2026-10-21 (`CI=true ./init.sh` on `feature/source-text-bundle`: pytest 1240 passed, Vitest 347 passed, `vite build` ok; independent validator accepted `source-text-bundle`; bundle text equals the read-only e2e DB for 9 Parties; no browser check needed, CLI/data feature). Previous: 2026-10-21 (`CI=true ./init.sh` on `feature/llm-provider-claude-code`: pytest 1067 passed, Vitest 347 passed, `vite build` ok; independent validator accepted `llm-provider-claude-code`, no browser check needed). Previous: 2026-10-20 (`CI=true ./init.sh` on `feature/share-link-open`: pytest 966 passed, Vitest 347 passed)
 
 ## Session Log
@@ -1083,3 +1083,99 @@
 - Known risk or unresolved issue: the real profile and the manual party-donation review are the user's (see `docs/risks-and-open-questions.md`, Donations and "Electoral and legal exposure"). In the Browser pane the new tab is blocked for automated clicks, so the new tab's own load was not observed (out of scope per the spec).
 - Validation: 2026-11-18 independent validator (subagent) accept with 2 Low findings (60s API cache can show the previous donation state just after a restart, not mentioned in README/runbook; stale invalid example at spec line 224). Validator reran CI=true ./init.sh (pytest 1879, Vitest 931) and walked the feature in the Claude desktop Browser pane at 1280, ~700 and 375, light and dark, with www, no-www, unset and invalid DONATION_URL: placement, copy, attributes, disclosure by keyboard and pointer, no block on Shared Results, /legal copy only when configured, console clean, same-origin requests only, nothing from buymeacoffee.com, no Answers in any request. Main session fixed both Lows in docs; status accepted.
 - Next best step: commit, PR and merge `feature/donate-buymeacoffee`; after merge the user sets `DONATION_URL` in Coolify, restarts and checks the sidebar, the end of the results and `/legal` on `https://ideologiapp.es`.
+
+### Session 092 (e2e-real-2026-election, hand-off to Kike)
+
+- Date: 2026-11-19
+- Goal: Publish a Dataset Version for the 29 November 2026 general election (Election 2), per `docs/specs/e2e-real-2026-election.md`.
+- Completed so far (branch `feature/e2e-real-2026-election`):
+  - Bundle `data/elections/es-general-2026-11-29/`: 11 Parties (PP, PSOE, VOX, Frente Amplio, Podemos, ERC, EH Bildu, BNG, Compromís, Adelante Andalucía, SALF), from the official PDFs via `ideology source extract`, with logos. It is imported into `data/ideology.db` as Election 2, party ids 10–20.
+  - `position_findings` v4 batches: at most 20 Statements per call.
+  - Statement Pool widened to 60..80 (target 70).
+  - `generate_statements` v5: self-contained Statements that name the law or policy they would change.
+  - Quote repair (`pipeline/quote_repair.py`, findings check v2): a wrong page inside the chunk is corrected, and a near-identical slipped copy becomes the source's own text. The stance never changes.
+  - `pipeline report` shows repaired findings.
+  - `/metodologia` copy updated.
+  - The Landing no longer shows the fixed `Próximamente` 2026 card.
+- Runs:
+  - Run 4 in the committed DB failed `party_coverage`: PP, PSOE, VOX and SALF 48%, ERC 44%. It stays as history, and its calls are reused below. Details in `feature_list.json`.
+  - Runs from before the re-import are kept outside the repo.
+- Verification run: see `feature_list.json` → `e2e-real-2026-election.evidence`. The real run, the quote sample and the browser walk are still to do.
+- **Next steps for Kike:**
+  1. Check out the branch and run the baseline:
+     ```bash
+     git fetch && git checkout feature/e2e-real-2026-election
+     CI=true ./init.sh
+     ```
+  2. Log in to Claude Code yourself if needed: `claude auth login`. The run uses your Claude Code subscription.
+  3. Run the pipeline from the repo root. Have no `VALIDATION_*` variables set, so the defaults apply (coverage 50%, 25..35 Statements). Run it under `caffeinate -is` on macOS so the machine does not sleep.
+     ```bash
+     DATABASE_URL=sqlite:///data/ideology.db LLM_PROVIDER=claude_code LLM_MODEL=claude-sonnet-5-5 GENERATION_MODE=precomputed .venv/bin/ideology pipeline run --election 2 --reuse-from 4 --yes
+     ```
+     - `--reuse-from 4` replays run 4's 59 `statement_candidates` calls without calling the LLM. The rest, about 248 calls, is new.
+     - Expect 1–3 h. On a usage limit the CLI waits and retries by itself.
+     - If the run stops, continue with `--resume-from <new run id>` instead of starting again.
+  4. Read the result:
+     ```bash
+     DATABASE_URL=sqlite:///data/ideology.db .venv/bin/ideology pipeline report --run <R>
+     ```
+     It should say `status: passed` and `publication: published: live for election 2`. Check the `repaired findings` table: each new quote must be the manifesto's own words for the same stance.
+  5. If it passes:
+     - read about 10 positions against their Evidence (include some repaired ones) and check that the Statements read as self-contained;
+     - walk the app in a browser at 375px and desktop: Landing with both Elections and no `Próximamente`, the 2026 Questionnaire → results → Share Link, console clean, no request carries answers;
+     - run `DATABASE_URL=sqlite:///data/ideology.db .venv/bin/ideology db check` (it must say `Safe to commit: yes`);
+     - record the evidence in `feature_list.json` and here, commit `data/ideology.db`, and open the PR. Merging deploys to production.
+  6. If it fails: the report names the failed checks. Do not change thresholds or drop Parties without the user's decision. The open levers are in `docs/risks-and-open-questions.md` under "Pool too narrow for 11 Parties" and "`position_findings` variance".
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (Parties left out of 2026, `position_findings` variance, pool too narrow, quote repair).
+
+### Session 093 (e2e-real-2026-election, real run)
+
+- Date: 2026-11-19
+- Goal: Kike could not run it yet, so the main session ran the next real run itself, following the steps in Session 092.
+- Completed: run 5 (`--reuse-from 4`) passed and published Dataset Version 5 for Election 2. It has 30 Statements from an 80-Statement pool.
+  - Coverage: the worst Parties are PP, PSOE, VOX and EH Bildu at 15/30 (50%).
+  - 3 findings were repaired and none discarded.
+- Verification run:
+  - `CI=true ./init.sh` exit 0.
+  - Report and checks of run 5 read; the 3 repaired quotes read; the 30 Statements and a 14-position quote sample read.
+  - Browser walk at 375 and 1024: Landing, the 2026 Questionnaire to the results, Share Link, console, requests. Details in `feature_list.json`.
+  - `ideology db check`: Safe to commit: yes.
+- Evidence captured: `feature_list.json` → `e2e-real-2026-election.evidence` (status `passing`).
+- Known risk or unresolved issue:
+  - Zero coverage margin for PP, PSOE, VOX and EH Bildu: a future re-run may fail.
+  - 3 of the 30 Statements combine two linked measures (2, 6 and 25), against the one-proposition rule.
+  - Both are in `docs/risks-and-open-questions.md`.
+- Next best step: independent validation (`validator`), then PR and merge. The merge deploys the 2026 Questionnaire to production.
+
+### Session 094 (e2e-real-2026-election, 12 Parties with Junts)
+
+- Date: 2026-11-20
+- Goal: publish the 2026 Election with Junts, whose manifesto appeared on tualcentre.cat on 18 Nov (user decision). Run on Kike's machine, on `feature/e2e-real-2026-election-junts`, rebased on Session 093's commit.
+- Completed:
+  - Junts added to the bundle (`junts.md` by `ideology source extract`, 90 pages; logo reused from 2023).
+  - A 13-Party run that also had EAJ-PNV's official 2026 manifesto failed `party_coverage`: EAJ-PNV reached 3/25 and pulled PP, VOX and ERC below 50%. User decision: EAJ-PNV stays out.
+  - `data/ideology.db` reset to the hand-off state, Junts imported, and run 5 (`--reuse-from 4`) passed. It published Dataset Version 5: 32 Statements from a 77-Statement pool, 12 Parties, worst coverage 50% (VOX, ERC, SALF), 2 findings repaired, none discarded.
+  - Session 093's 11-Party database is superseded and kept outside the repo, with the 13-Party one, in `~/ideology-e2e-2026-logs/`.
+- Verification run:
+  - `CI=true ./init.sh` exit 0 (pytest 1897, Vitest 932, `vite build` ok).
+  - Report of run 5 read; the 2 repaired quotes read; the 32 Statements and an 11-position quote sample read.
+  - Browser walk at 375 and 1280: Landing, the 2026 Questionnaire to the results (12 Parties, Junts Evidence), Share Link, console, requests. Details in `feature_list.json`.
+  - `ideology db check`: Safe to commit: yes.
+- Evidence captured: `feature_list.json` → `e2e-real-2026-election.evidence` (status `passing`).
+- Known risk or unresolved issue: zero coverage margin for VOX, ERC and SALF, EAJ-PNV and CC left out, 2 two-measure Statements. All are in `docs/risks-and-open-questions.md`.
+- Next best step: independent validation (`validator`), then PR and merge. The merge deploys the 2026 Questionnaire to production.
+
+### Session 095 (e2e-real-2026-election, independent validation)
+
+- Date: 2026-11-20
+- Goal: independent validation of `e2e-real-2026-election` on `feature/e2e-real-2026-election-junts` (PR #107).
+- Completed: the validator accepted. `feature_list.json` status `accepted`.
+- Verification run:
+  - `CI=true ./init.sh` exit 0; `ideology db check`: Safe to commit: yes (on a scratch copy; the committed DB was unchanged).
+  - Run 5 report matches the evidence; all 232 stored quotes re-matched on their cited page with an independent matcher; about 12 positions read against their quotes.
+  - 2023 Dataset Versions 1–3 identical to `main`.
+  - Browser walk (Claude desktop Browser pane, Chromium) at 375x812 and 1280x800: Landing, 2026 Questionnaire to the results (12 Parties, Junts Evidence p.16), Share Link, Anterior and Back, console empty, only same-origin 200 requests, no answers in any request.
+- Findings (Low):
+  - `user_visible_behavior` and the spec still said 11 Parties: fixed in this change.
+  - Some short fragment quotes: recorded in `docs/risks-and-open-questions.md`.
+- Next best step: merge PR #107 when the user decides (it deploys to production) and close PR #106 unmerged.

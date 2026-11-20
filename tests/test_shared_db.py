@@ -479,7 +479,7 @@ def test_fresh_starts_from_zero(engine: Engine, use_provider: Callable[[Any], An
     result = ok(invoke("pipeline", "run", "--election", "1", "--fresh", "--yes"))
 
     assert "Pipeline run 2: passed" in result.output
-    assert len(provider.calls) == 7
+    assert len(provider.calls) == 13
     with Session(engine) as s:
         assert s.get(PipelineRun, 2).resumed_from_run_id is None  # type: ignore[union-attr]
 
@@ -516,7 +516,7 @@ def test_reuse_from_is_still_guarded(
     fresh = ok(
         invoke("pipeline", "run", "--election", "1", "--reuse-from", "1", "--fresh", "--yes")
     )
-    assert "Pipeline run 3: reusing identical calls of run 1 (7 recorded calls)" in fresh.output
+    assert "Pipeline run 3: reusing identical calls of run 1 (13 recorded calls)" in fresh.output
     assert provider.calls == []
 
 
@@ -696,8 +696,8 @@ def test_resume_on_another_machine(
     assert "Pipeline run 2: resuming from run 1 (3 recorded calls)" in result.output
     assert "Pipeline run 2: passed" in result.output
     db_a, db_b = machine_a / "data" / "ideology.db", machine_b / "data" / "ideology.db"
-    assert len(provider.calls) == 4
-    assert [c[3] for c in calls_of(db_b, 2)] == [True] * 3 + [False] * 4
+    assert len(provider.calls) == 10
+    assert [c[3] for c in calls_of(db_b, 2)] == [True] * 3 + [False] * 10
     assert calls_of(db_b, 1) == calls_of(db_a, 1)
     assert [c[2] for c in calls_of(db_b, 2)][:3] == [c[2] for c in calls_of(db_a, 1)]
     assert run_count(db_a) == 1 and run_count(db_b) == 2

@@ -21,6 +21,7 @@ from pipeline_fixtures import (
     candidate_lines,
     chunk_pages,
     fake_provider,
+    findings_statement_numbers,
     offline_guard,
     positions_response,
     seed_election,
@@ -135,7 +136,7 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
     outcome = execute_run(seeded, run_id, provider)
 
     assert outcome.status is PipelineRunStatus.PASSED
-    # pipeline-coverage-selection: a 50-Statement pool where every Statement ties,
+    # pipeline-coverage-selection: a 70-Statement pool where every Statement ties,
     # so the selection is pool Statements 1..35 (max_statements).
     assert outcome.statement_count == 35
     assert outcome.failure_reason is None
@@ -146,11 +147,12 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
     assert run.generation_mode is GenerationMode.PRECOMPUTED
     assert run.prompt_versions == {
         "statement_candidates": "v1",
-        "generate_statements": "v4",
-        "position_findings": "v3",
+        "generate_statements": "v5",
+        "position_findings": "v5",
         "party_positions": "v2",
     }
-    assert run.llm_calls == 7
+    # e2e-real-2026-election: 70 pool Statements = 4 findings batches per chunk.
+    assert run.llm_calls == 13
     in_tokens = sum(len(f"{c.system} {c.prompt}".split()) for c in provider.calls)
     assert run.input_tokens == in_tokens
     assert run.output_tokens > 0
@@ -266,9 +268,9 @@ def test_two_runs_on_the_same_input_send_identical_requests(seeded: Engine) -> N
         "statement_candidates",
         "statement_candidates",
         "generate_statements",
-        "position_findings",
+        *["position_findings"] * 4,
         "party_positions",
-        "position_findings",
+        *["position_findings"] * 4,
         "party_positions",
     ]
     # Exact duplicate candidates (same 3 per chunk) appear once in the reduce prompt.
@@ -351,7 +353,11 @@ def test_no_candidates_fails_the_run(seeded: Engine) -> None:
     assert run.input_tokens > 0
 
 
-def test_too_many_chunks_fails_before_any_call(seeded: Engine) -> None:
+def test_too_many_chunks_fails_before_any_call(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The position budget (4 findings batches per chunk) would refuse first.
+    monkeypatch.setattr(positions_module, "MAX_POSITION_CALLS_PER_RUN", 10_000)
     with session_scope(seeded) as s:
         add_parsed_document(
             s, party_id=1, document_id=10, pages=["x" * 39_000] * (MAX_LLM_CALLS_PER_RUN - 2)
@@ -524,20 +530,20 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
     run = read_run(seeded, run_id)
     assert run.prompt_versions == {
         "statement_candidates": "v1",
-        "generate_statements": "v4",
-        "position_findings": "v3",
+        "generate_statements": "v5",
+        "position_findings": "v5",
         "party_positions": "v2",
     }
     assert [c.task for c in provider.calls] == [
         "statement_candidates",
         "statement_candidates",
         "generate_statements",
-        "position_findings",
+        *["position_findings"] * 4,
         "party_positions",
-        "position_findings",
+        *["position_findings"] * 4,
         "party_positions",
     ]
-    assert run.llm_calls == 3 + 2 + 2
+    assert run.llm_calls == 3 + 2 * 4 + 2
     assert run.input_tokens == sum(len(f"{c.system} {c.prompt}".split()) for c in provider.calls)
     assert run_documents(seeded, run_id) == {
         1: SourceDocumentRole.MAIN,
@@ -578,6 +584,8 @@ def test_quotes_are_stored_exactly_as_returned(seeded: Engine) -> None:
     odd: dict[int, str] = {}
 
     def _findings(request: LLMRequest[Any]) -> dict[str, Any]:
+        if 3 not in findings_statement_numbers(request):
+            return {"findings": []}
         text = dict(chunk_pages(request))[2]
         quote = "  " + text.upper().replace(" ", "\t ", 1).replace(" ", "\n  ", 2) + "  "
         odd[len(odd) + 1] = quote
@@ -655,15 +663,17 @@ def test_slipped_finding_is_discarded_recorded_and_never_stored(seeded: Engine) 
     assert outcome.status is PipelineRunStatus.PASSED
     selection = read_run(seeded, run_id).statement_selection
     assert selection["findings"] == {
-        "version": "v1",
+        "version": "v2",
         "checked": 4,
         "discarded": 1,
         "cleared": 1,
+        "repaired": 0,
         "parties": [
-            {"party_id": 1, "findings": 2, "discarded": 1, "cleared": 1},
-            {"party_id": 2, "findings": 2, "discarded": 0, "cleared": 0},
+            {"party_id": 1, "findings": 2, "discarded": 1, "cleared": 1, "repaired": 0},
+            {"party_id": 2, "findings": 2, "discarded": 0, "cleared": 0, "repaired": 0},
         ],
         "items": [SLIP_ITEM],
+        "repaired_items": [],
     }
     assert all(r.evidence_quote != SLIP for r in position_rows(seeded))
     # The request is unchanged: the reduce still lists the slipped candidate.
@@ -759,8 +769,8 @@ def test_document_roles_are_recorded_and_additional_evidence_is_kept(
         4: SourceDocumentRole.ADDITIONAL,
     }
     findings = [c for c in provider.calls if c.task == "position_findings"]
-    assert len(findings) == 3
-    assert PAGES[1][0] in findings[0].prompt and "Anexo uno." in findings[1].prompt
+    assert len(findings) == 3 * 4
+    assert PAGES[1][0] in findings[0].prompt and "Anexo uno." in findings[4].prompt
     with Session(migrated_engine) as s:
         party1 = list_positions(s, outcome.dataset_version_id or 0, 1)
         evidence = {p.statement.position: (p.evidence_source_document_id, p.evidence_quote)
@@ -862,9 +872,9 @@ def test_party_without_findings_gets_no_stance_and_no_reduce(seeded: Engine) -> 
 
     _assert_party2_has_no_stance(seeded, outcome)
     tasks = [c.task for c in provider.calls]
-    assert tasks.count("position_findings") == 2
+    assert tasks.count("position_findings") == 2 * 4
     assert tasks.count("party_positions") == 1
-    assert read_run(seeded, outcome.run_id).llm_calls == 6
+    assert read_run(seeded, outcome.run_id).llm_calls == 12
 
 
 def test_party_without_documents_gets_no_stance_and_no_calls(seeded: Engine) -> None:
@@ -879,7 +889,7 @@ def test_party_without_documents_gets_no_stance_and_no_calls(seeded: Engine) -> 
 
     _assert_party2_has_no_stance(seeded, outcome)
     tasks = [c.task for c in provider.calls]
-    assert tasks.count("position_findings") == 1
+    assert tasks.count("position_findings") == 4
     assert tasks.count("party_positions") == 1
     assert run_documents(seeded, outcome.run_id) == {1: SourceDocumentRole.MAIN}
 
@@ -903,8 +913,12 @@ def test_position_prompts_are_party_blind_and_deterministic(seeded: Engine) -> N
                 assert value not in request.prompt
     statements = statements_payload()["statements"]
     listed = "\n".join(f"[{n}] {st['text']}" for n, st in enumerate(statements, start=1))
+    batches = [listed.split("\n")[i : i + 20] for i in range(0, len(statements), 20)]
+    findings = [c for c in first.calls if c.task == "position_findings"]
+    for k, request in enumerate(findings):
+        assert "\n".join(batches[k % len(batches)]) in request.prompt
     for request in first.calls:
-        if request.task in ("position_findings", "party_positions"):
+        if request.task == "party_positions":
             assert listed in request.prompt
 
 
@@ -938,7 +952,7 @@ def _raise(exc: Exception) -> Any:
         # Since pipeline-output-bounds the schema rejects unknown numbers, so the
         # call fails (and is not counted) instead of a GenerationError after it.
         (
-            {"position_findings": _findings_with(statement=51)},
+            {"position_findings": _findings_with(statement=71)},
             "FakeProvider response for task 'position_findings' does not match "
             "FindingList: 1 validation error(s)",
             3,
@@ -950,27 +964,27 @@ def _raise(exc: Exception) -> Any:
             3,
         ),
         (
-            {"party_positions": _positions((51, 1, 1))},
+            {"party_positions": _positions((71, 1, 1))},
             "FakeProvider response for task 'party_positions' does not match "
             "PositionList: 1 validation error(s)",
-            4,
+            7,
         ),
         (
             {"party_positions": _positions((4, 1, 1), (4, -1, 2))},
             "party_positions repeated statement 4",
-            5,
+            8,
         ),
         (
             {"party_positions": _positions((1, 1, 3))},
             "FakeProvider response for task 'party_positions' does not match "
             "PositionList: 1 validation error(s)",
-            4,
+            7,
         ),
         (
             {"party_positions": _positions((1, 3, 1))},
             "FakeProvider response for task 'party_positions' does not match "
             "PositionList: 1 validation error(s)",
-            4,
+            7,
         ),
         (
             {"position_findings": _findings_with(value=3)},
@@ -1004,7 +1018,7 @@ def _raise(exc: Exception) -> Any:
         (
             {"party_positions": _raise(LLMProviderError("APIConnectionError"))},
             "APIConnectionError",
-            4,
+            7,
         ),
     ],
     ids=[
@@ -1042,7 +1056,7 @@ def test_invalid_position_output_fails_the_run(
 def test_long_position_failure_reason_is_cut(seeded: Engine) -> None:
     provider = fake_provider(party_positions=_raise(LLMProviderError("x" * 600)))
     outcome = execute_run(seeded, queue(seeded, provider), provider)
-    _assert_failed(seeded, outcome, "x" * 500, 4)
+    _assert_failed(seeded, outcome, "x" * 500, 7)
 
 
 # Scenario 7: the call budget is checked before any LLM call
@@ -1056,27 +1070,28 @@ def test_position_call_budget_is_checked_before_any_call(
     provider = fake_provider()
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    # 2 chunks plus one reduce per Party with documents = 4 calls.
-    _assert_failed(seeded, outcome, "too many position extraction calls: 4 (limit 3)", 0)
+    # 2 chunks x 4 Statement batches (planned for the largest pool, 80) plus
+    # one reduce per Party with documents = 10 calls.
+    _assert_failed(seeded, outcome, "too many position extraction calls: 10 (limit 3)", 0)
     assert provider.calls == []
 
 
 def test_position_call_budget_uses_the_real_limit(seeded: Engine) -> None:
     with session_scope(seeded) as s:
         # Pages over half the chunk limit: one chunk each.
-        add_parsed_document(s, party_id=1, document_id=10, pages=["x" * 20_001] * 297)
+        add_parsed_document(s, party_id=1, document_id=10, pages=["x" * 20_001] * 73)
     provider = fake_provider()
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    # 297 + 2 chunks, plus 2 reduces = 301 calls.
-    _assert_failed(seeded, outcome, "too many position extraction calls: 301 (limit 300)", 0)
+    # (73 + 2 chunks) x 4 Statement batches, plus 2 reduces = 302 calls.
+    _assert_failed(seeded, outcome, "too many position extraction calls: 302 (limit 300)", 0)
     assert provider.calls == []
 
 
 def test_position_call_budget_at_the_limit_is_allowed(
     seeded: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(positions_module, "MAX_POSITION_CALLS_PER_RUN", 4)
+    monkeypatch.setattr(positions_module, "MAX_POSITION_CALLS_PER_RUN", 10)
     provider = fake_provider()
     outcome = execute_run(seeded, queue(seeded, provider), provider)
     assert outcome.status is PipelineRunStatus.PASSED
@@ -1138,7 +1153,7 @@ def test_unexpected_error_in_positions_fails_the_run_and_is_reraised(seeded: Eng
     run = read_run(seeded, run_id)
     assert run.status is PipelineRunStatus.FAILED
     assert run.failure_reason == "unexpected error: KeyError"
-    assert run.llm_calls == 4
+    assert run.llm_calls == 7
     assert position_rows(seeded) == []
 
 
@@ -1228,7 +1243,7 @@ def test_replaced_documents_are_not_read_and_the_main_role_survives(
         assert text not in prompts
     # Party 1's chunks: the replacement (main) first, then the additional document.
     assert "Programa nuevo sobre vivienda." in findings[0].prompt
-    assert "Anexo uno." in findings[1].prompt
+    assert "Anexo uno." in findings[4].prompt
 
 
 def test_queue_run_finds_parsed_input_after_a_replacement(migrated_engine: Engine) -> None:
@@ -1246,7 +1261,7 @@ def test_queue_run_finds_parsed_input_after_a_replacement(migrated_engine: Engin
 # bounded at generation (pool_bounds of the run's ValidationSettings).
 
 
-@pytest.mark.parametrize("count", [20, 44, 61])
+@pytest.mark.parametrize("count", [20, 59, 81])
 def test_out_of_range_statement_count_fails_before_any_position_call(
     seeded: Engine, count: int
 ) -> None:
@@ -1274,12 +1289,12 @@ def test_env_statement_range_drives_generation_and_validation(
     outcome = execute_run(seeded, queue(seeded, provider), provider, None)
 
     assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
-    # The selection keeps max_statements of the 50-Statement pool.
+    # The selection keeps max_statements of the 70-Statement pool.
     assert outcome.statement_count == 40
     reduce = next(c for c in provider.calls if c.task == "generate_statements")
     bounds = reduce.schema.model_json_schema()["properties"]["statements"]
-    assert (bounds["minItems"], bounds["maxItems"]) == (45, 60)
-    assert "(como mínimo 45 y como máximo 60)" in reduce.prompt
+    assert (bounds["minItems"], bounds["maxItems"]) == (60, 80)
+    assert "(como mínimo 60 y como máximo 80)" in reduce.prompt
     run = read_run(seeded, outcome.run_id)
     assert run.validation_settings["min_statements"] == 36
     assert run.validation_settings["max_statements"] == 40
@@ -1288,8 +1303,10 @@ def test_env_statement_range_drives_generation_and_validation(
         checks = {r.check_name: r.passed for r in list_validation_results(s, outcome.run_id)}
     assert checks["statement_count"] is True
 
-    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "50")
-    narrow = fake_provider(generate_statements=statements_payload(48))
+    # A larger max_statements raises the pool minimum: 62 fits the default
+    # pool bounds (60..80) but not 65..80.
+    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "65")
+    narrow = fake_provider(generate_statements=statements_payload(62))
     failed = execute_run(seeded, queue(seeded, narrow), narrow, None)
     assert failed.status is PipelineRunStatus.FAILED
     assert failed.failure_reason == (
@@ -1353,9 +1370,9 @@ def test_dataset_version_holds_only_selected_statements(seeded: Engine) -> None:
         range(1, len(selected) + 1)
     )
     # Only separating Statements (odd, not a multiple of 3) are tier 1.
-    tier1 = [n for n in range(1, 51) if n % 2 and n % 3]
+    tier1 = [n for n in range(1, 71) if n % 2 and n % 3]
     assert [e["pool"] for e in report["pool"] if e["tier"] == 1] == tier1
-    # 17 separate; 8 non-separating ones fill up to min_statements.
+    # 23 separate; 2 non-separating ones fill up to min_statements.
     assert len(selected) == 25 and set(tier1) <= set(selected)
     assert outcome.statement_count == 25
     assert outcome.position_count == 50
@@ -1399,15 +1416,24 @@ def test_llm_call_count_unchanged(migrated_engine: Engine) -> None:
     tasks = [c.task for c in provider.calls]
     assert tasks.count("statement_candidates") == chunks
     assert tasks.count("generate_statements") == 1
-    assert tasks.count("position_findings") == chunks
+    batches = 4  # 70 pool Statements in batches of 20
+    assert tasks.count("position_findings") == chunks * batches
     assert tasks.count("party_positions") == parties
-    assert read_run(migrated_engine, outcome.run_id).llm_calls == chunks + 1 + chunks + parties
-    # Every position request lists the whole pool, not the selection.
+    assert read_run(migrated_engine, outcome.run_id).llm_calls == (
+        chunks + 1 + chunks * batches + parties
+    )
+    # Every position request covers the whole pool, not the selection: each
+    # reduce lists it all, and the findings batches of a chunk list it together.
     pool = statements_payload()["statements"]
-    listed = "\n".join(f"[{n}] {st['text']}" for n, st in enumerate(pool, start=1))
+    lines = [f"[{n}] {st['text']}" for n, st in enumerate(pool, start=1)]
+    listed = "\n".join(lines)
     for request in provider.calls:
-        if request.task in ("position_findings", "party_positions"):
+        if request.task == "party_positions":
             assert listed + "\n\n" in request.prompt
+    findings = [c for c in provider.calls if c.task == "position_findings"]
+    for k, request in enumerate(findings):
+        start = (k % batches) * 20
+        assert "\n".join(lines[start : start + 20]) + "\n\n" in request.prompt
 
 
 def test_selection_stored_in_finish_commit(seeded: Engine) -> None:
@@ -1423,7 +1449,7 @@ def test_selection_stored_in_finish_commit(seeded: Engine) -> None:
     report = run.statement_selection
     assert report is not None
     assert report["version"] == "v1"
-    assert report["pool_size"] == 50 and report["selected_count"] == 35
+    assert report["pool_size"] == 70 and report["selected_count"] == 35
     assert report["count_rule"] == "coverage_met"
     assert report["projected_failures"] == []
     assert report["party_ids"] == [1, 2]
@@ -1435,7 +1461,7 @@ def test_selection_stored_in_finish_commit(seeded: Engine) -> None:
     assert read_run(seeded, run_id).statement_selection == report
 
 
-@pytest.mark.parametrize("count", [44, 61])
+@pytest.mark.parametrize("count", [59, 81])
 def test_failed_generation_stores_no_selection(seeded: Engine, count: int) -> None:
     provider = fake_provider(generate_statements=statements_payload(count))
     outcome = execute_run(seeded, queue(seeded, provider), provider)

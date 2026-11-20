@@ -188,7 +188,7 @@ def test_topic_cap_follows_settings() -> None:
 )
 def test_count_within_settings_range(settings: ValidationSettings, low: int, high: int) -> None:
     pool_low, pool_high, _ = pool_bounds(settings)
-    assert (pool_low, pool_high) == (45, 60)
+    assert (pool_low, pool_high) == (60, 80)
     for size, values in ((pool_low, _mixed_values(pool_low)), (pool_high, separating(pool_high))):
         parties = sorted(values)
         selection = select_statements(pool(size), positions(values), parties, settings)

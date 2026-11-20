@@ -170,8 +170,8 @@ def test_reduce_request_dedupes_and_sorts_candidates() -> None:
         request.prompt
     )
     assert request.prompt.count("Zeta.") == 2
-    assert "55 afirmaciones" in request.prompt
-    assert "(como mínimo 45 y como máximo 60)" in request.prompt
+    assert "70 afirmaciones" in request.prompt
+    assert "(como mínimo 60 y como máximo 80)" in request.prompt
 
 
 def test_generation_returns_statements_as_given_and_counts_usage() -> None:
@@ -260,7 +260,7 @@ def test_schema_mismatch_is_an_output_error() -> None:
 # bounds the Statement Pool size (pool_bounds of the run's ValidationSettings).
 
 
-@pytest.mark.parametrize("count", [20, 35, 44, 61])
+@pytest.mark.parametrize("count", [20, 35, 59, 81])
 def test_out_of_range_pool_fails_the_call(count: int) -> None:
     provider = fake_provider(generate_statements=statements_payload(count))
     usage = Usage()
@@ -272,7 +272,7 @@ def test_out_of_range_pool_fails_the_call(count: int) -> None:
     assert usage.calls == 1  # only the candidates call succeeded
 
 
-@pytest.mark.parametrize("count", [45, 55, 60])
+@pytest.mark.parametrize("count", [60, 70, 80])
 def test_pool_size_at_the_default_limits_passes(count: int) -> None:
     provider = fake_provider(generate_statements=statements_payload(count))
     assert len(generate_statements(provider, chunks_of("a"), Usage()).statements) == count
@@ -281,12 +281,12 @@ def test_pool_size_at_the_default_limits_passes(count: int) -> None:
 @pytest.mark.parametrize(
     ("low", "high", "bounds"),
     [
-        (25, 35, (45, 60, 55)),
-        (10, 12, (45, 60, 55)),
-        (36, 50, (50, 60, 55)),
-        (40, 58, (58, 60, 58)),
-        (60, 60, (60, 60, 60)),
-        (1, 70, (70, 70, 70)),
+        (25, 35, (60, 80, 70)),
+        (10, 12, (60, 80, 70)),
+        (36, 65, (65, 80, 70)),
+        (40, 75, (75, 80, 75)),
+        (80, 80, (80, 80, 80)),
+        (1, 90, (90, 90, 90)),
     ],
 )
 def test_pool_schema_bounds_follow_settings(
@@ -303,16 +303,16 @@ def test_pool_schema_bounds_follow_settings(
 
 
 def test_configured_range_drives_the_pool_schema() -> None:
-    settings = ValidationSettings(min_statements=1, max_statements=70)
-    provider = fake_provider(generate_statements=statements_payload(70))
+    settings = ValidationSettings(min_statements=1, max_statements=90)
+    provider = fake_provider(generate_statements=statements_payload(90))
     pool = generate_statements(provider, chunks_of("a"), Usage(), settings=settings)
-    assert len(pool.statements) == 70
+    assert len(pool.statements) == 90
     request = provider.calls[-1]
     bounds = request.schema.model_json_schema()["properties"]["statements"]
-    assert (bounds["minItems"], bounds["maxItems"]) == (70, 70)
-    assert "70 afirmaciones (como mínimo 70 y como máximo 70)" in request.prompt
+    assert (bounds["minItems"], bounds["maxItems"]) == (90, 90)
+    assert "90 afirmaciones (como mínimo 90 y como máximo 90)" in request.prompt
 
-    narrow = fake_provider(generate_statements=statements_payload(60))
+    narrow = fake_provider(generate_statements=statements_payload(80))
     with pytest.raises(LLMOutputError, match="does not match StatementSet"):
         generate_statements(narrow, chunks_of("a"), Usage(), settings=settings)
 
@@ -321,18 +321,18 @@ def test_default_settings_bound_the_reduce_request() -> None:
     drafts = [StatementDraft(text="Alfa.", topic="housing")]
     request = reduce_request(drafts)
     assert request.schema is reduce_request(drafts, ValidationSettings()).schema
-    assert pool_bounds() == pool_bounds(ValidationSettings()) == (45, 60, 55)
+    assert pool_bounds() == pool_bounds(ValidationSettings()) == (60, 80, 70)
     bounds = request.schema.model_json_schema()["properties"]["statements"]
-    assert (bounds["minItems"], bounds["maxItems"]) == (45, 60)
-    assert request.schema is not StatementSet  # the 1..60 base type is never sent
+    assert (bounds["minItems"], bounds["maxItems"]) == (60, 80)
+    assert request.schema is not StatementSet  # the 1..80 base type is never sent
 
 
 @pytest.mark.parametrize(
     ("low", "high", "line"),
     [
-        (25, 35, "55 afirmaciones (como mínimo 45 y como máximo 60)"),
-        (40, 58, "58 afirmaciones (como mínimo 58 y como máximo 60)"),
-        (1, 70, "70 afirmaciones (como mínimo 70 y como máximo 70)"),
+        (25, 35, "70 afirmaciones (como mínimo 60 y como máximo 80)"),
+        (40, 75, "75 afirmaciones (como mínimo 75 y como máximo 80)"),
+        (1, 90, "90 afirmaciones (como mínimo 90 y como máximo 90)"),
     ],
 )
 def test_pool_prompt_asks_for_target(low: int, high: int, line: str) -> None:

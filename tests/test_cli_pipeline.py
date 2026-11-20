@@ -101,7 +101,7 @@ def test_run_list_and_statements(run, seeded, use_fake) -> None:
         "Pipeline run 1: passed (dataset version 1, 35 statements, 70 party positions)\n"
         "Published dataset version 1 for election 1\n"
     )
-    assert len(provider.calls) == 7
+    assert len(provider.calls) == 13  # 4 findings batches per chunk
 
     listed = run("pipeline", "list", "--election", "1")
     assert listed.exit_code == 0, listed.output
@@ -111,7 +111,7 @@ def test_run_list_and_statements(run, seeded, use_fake) -> None:
     row = lines[1].split("\t")
     in_tokens = sum(len(f"{c.system} {c.prompt}".split()) for c in provider.calls)
     assert row[:9] == [
-        "1", "passed", "fake", "fake-model", "precomputed", "1", "35", "7", str(in_tokens)
+        "1", "passed", "fake", "fake-model", "precomputed", "1", "35", "13", str(in_tokens)
     ]
     assert int(row[9]) > 0
     assert row[10] == ""
@@ -120,7 +120,7 @@ def test_run_list_and_statements(run, seeded, use_fake) -> None:
     assert statements.exit_code == 0, statements.output
     lines = statements.output.splitlines()
     assert lines[0] == "position\ttopic\ttext"
-    # The selection keeps pool Statements 1..35 of the 50-Statement pool.
+    # The selection keeps pool Statements 1..35 of the 70-Statement pool.
     expected = statements_payload()["statements"][:35]
     assert lines[1:] == [f"{i}\t{e['topic']}\t{e['text']}" for i, e in enumerate(expected, 1)]
 
@@ -832,13 +832,13 @@ EQUAL_ON_2_ROW = (
 
 
 # The selection drops a non-separating Statement while separating ones are
-# left, so these runs keep the whole 50-Statement pool (min = max = 50).
-WHOLE_POOL = ValidationSettings(min_statements=50, max_statements=50)
+# left, so these runs keep the whole 70-Statement pool (min = max = 70).
+WHOLE_POOL = ValidationSettings(min_statements=70, max_statements=70)
 
 
 def _whole_pool_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "50")
-    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "50")
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "70")
+    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "70")
 
 
 def _party2_agrees_on_statement2(request: LLMRequest[Any]) -> dict[str, Any]:
@@ -866,7 +866,7 @@ def test_separation_failure_is_committed_and_reported(
     assert result.stderr == SEPARATION_FAILED_RUN_1
     row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
     assert (row[1], row[5], row[6], row[10]) == (
-        "failed", "1", "50", "validation failed: statement_separation"
+        "failed", "1", "70", "validation failed: statement_separation"
     )
     checks = run("pipeline", "checks", "--run", "1")
     assert checks.exit_code == 0, checks.output
@@ -879,7 +879,7 @@ def test_separation_failure_is_committed_and_reported(
     ]
     # The failed run keeps its candidate Dataset Version and every Party Position.
     positions = run("pipeline", "positions", "--dataset-version", "1").output.splitlines()
-    assert len(positions) == 101
+    assert len(positions) == 141
     assert positions[3:5] == [
         f"2\t1\t1\t1\t2\t\t{PAGES[1][1]}",
         f"2\t2\t1\t2\t2\t\t{PAGES[2][1]}",
@@ -1217,12 +1217,12 @@ def test_cli_reuse_from_prints_and_reuses(run, seeded, db_url, use_fake) -> None
 
     assert result.exit_code == 0, result.output
     assert result.output.startswith(
-        "Pipeline run 2: reusing identical calls of run 1 (7 recorded calls)\n"
+        "Pipeline run 2: reusing identical calls of run 1 (13 recorded calls)\n"
     )
     assert provider.calls == []
     report = run("pipeline", "report", "--run", "2").output
     assert "resumed_from: 1\n" in report
-    assert "reused_calls: 7\n" in report
+    assert "reused_calls: 13\n" in report
 
 
 def test_reuse_from_refuses_an_unknown_run(run, seeded, db_url, use_fake) -> None:

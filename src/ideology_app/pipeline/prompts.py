@@ -45,9 +45,12 @@ TOPICS: tuple[str, ...] = get_args(Topic)
 # Questionnaire (``ValidationSettings.min_statements``..``max_statements``) is
 # chosen from it by ``pipeline.selection``; ``generation.pool_bounds`` widens
 # these bounds when the configured maximum is larger.
-POOL_MIN_STATEMENTS = 45
-POOL_MAX_STATEMENTS = 60
-POOL_TARGET_STATEMENTS = 55
+# e2e-real-2026-election: 60..80 (was 45..60). With 11 Parties a 53-Statement
+# pool held stances for some Parties on only 16 Statements, too few for any
+# selection to reach the coverage minimum.
+POOL_MIN_STATEMENTS = 60
+POOL_MAX_STATEMENTS = 80
+POOL_TARGET_STATEMENTS = 70
 
 StatementText = Annotated[
     str, StringConstraints(min_length=1, max_length=300, pattern=r"\S")
@@ -71,7 +74,7 @@ class StatementSet(BaseModel):
     """The final ordered list of Statements for a Questionnaire."""
 
     # Base type only: requests use ``statement_set_schema`` (the pool bounds).
-    statements: list[StatementDraft] = Field(min_length=1, max_length=60)
+    statements: list[StatementDraft] = Field(min_length=1, max_length=POOL_MAX_STATEMENTS)
 
 
 def _check_bound(name: str, value: object) -> int:
@@ -157,7 +160,7 @@ STATEMENT_CANDIDATES = PromptSpec(
 
 GENERATE_STATEMENTS = PromptSpec(
     task="generate_statements",
-    version="v4",
+    version="v5",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Recibes afirmaciones candidatas "
@@ -170,8 +173,14 @@ GENERATE_STATEMENTS = PromptSpec(
         "- Cada afirmación expresa una orientación política con una dirección clara "
         "(por ejemplo, subir o bajar un impuesto, ampliar o reducir un servicio "
         "público, más o menos peso de una fuente de energía), no una medida de "
-        "detalle: sin cifras, porcentajes, plazos ni nombres de leyes o planes "
-        "concretos.\n"
+        "detalle: sin cifras, porcentajes ni plazos salvo que sean el núcleo de la "
+        "propuesta.\n"
+        "- Cada afirmación se entiende por sí sola, sin conocer la legislación ni "
+        "la política vigentes: di en qué consiste lo que se propone. Nunca hables "
+        "de \"la política actual\", \"el modelo vigente\" o \"la ley actual\" sin "
+        "decir cuál es ni qué establece; si la orientación consiste en derogar, "
+        "mantener o cambiar una ley o reforma concreta, nómbrala (por ejemplo, "
+        "\"la reforma laboral de 2012\") o describe su contenido.\n"
         "- Agrupa en una misma orientación las candidatas de programas distintos que "
         "van en esa dirección o en la contraria, para que el mayor número posible de "
         "programas se pueda situar en ella.\n"
@@ -193,7 +202,7 @@ GENERATE_STATEMENTS = PromptSpec(
         "máximo {max_count}), en el orden en que deben presentarse."
     ),
     schema=StatementSet,
-    # 60 Statements of up to 300 characters are about 6-7k output tokens.
+    # 80 Statements of up to 300 characters are about 8-9k output tokens.
     max_tokens=16384,
 )
 
@@ -218,7 +227,7 @@ class Finding(BaseModel):
 class FindingList(BaseModel):
     """The findings of one chunk; empty when it addresses no Statement."""
 
-    findings: list[Finding] = Field(max_length=60)
+    findings: list[Finding] = Field(max_length=POOL_MAX_STATEMENTS)
 
 
 class PositionChoice(BaseModel):
@@ -232,7 +241,7 @@ class PositionChoice(BaseModel):
 class PositionList(BaseModel):
     """A Party's stances; an omitted Statement means ``no stance``."""
 
-    positions: list[PositionChoice] = Field(max_length=60)
+    positions: list[PositionChoice] = Field(max_length=POOL_MAX_STATEMENTS)
 
 
 # The static FindingList and PositionList above are base types only: requests
@@ -242,7 +251,7 @@ class PositionList(BaseModel):
 @cache
 def _finding_list_schema(statement_count: int) -> type[FindingList]:
     finding = _subclass(Finding, statement=(int, Field(ge=1, le=statement_count)))
-    return _subclass(FindingList, findings=(list[finding], Field(max_length=60)))
+    return _subclass(FindingList, findings=(list[finding], Field(max_length=POOL_MAX_STATEMENTS)))
 
 
 def finding_list_schema(statement_count: int) -> type[FindingList]:
@@ -285,7 +294,7 @@ _SCALE = (
 
 POSITION_FINDINGS = PromptSpec(
     task="position_findings",
-    version="v3",
+    version="v5",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Lees un fragmento de un programa "
@@ -308,7 +317,8 @@ POSITION_FINDINGS = PromptSpec(
         "- Si el fragmento no trata ninguna afirmación, devuelve una lista vacía."
     ),
     template=(
-        "Afirmaciones del cuestionario (una por línea, con su número entre corchetes):\n\n"
+        "Afirmaciones del cuestionario que revisar en este fragmento (una parte del "
+        "cuestionario; una por línea, con su número entre corchetes):\n\n"
         "{statements}\n\n"
         "Fragmento de programa electoral (cada página va precedida de su marcador):\n\n"
         "{chunk}\n\n"

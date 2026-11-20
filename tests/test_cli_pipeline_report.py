@@ -15,6 +15,7 @@ from pipeline_fixtures import (
     chunk_pages,
     fake_provider,
     findings_response,
+    findings_statement_numbers,
     invent_quote_after_extraction,
     offline_guard,
     seed_election,
@@ -211,8 +212,12 @@ def _two_discards(request: LLMRequest[Any]) -> dict[str, Any]:
 
     The real findings come first, so the default (filling) fake cites them on
     every Statement except the one whose own first candidate is discarded.
+    Since findings check v2 (e2e-real-2026-election) Party 1's finding is
+    repaired (page 2 is in its chunk) and only Party 2's is discarded.
     """
     real = findings_response()(request)
+    if 1 not in findings_statement_numbers(request):
+        return real  # only the first Statement batch carries the discards
     pages = dict(chunk_pages(request))
     if pages.get(1) == PAGES[1][0]:
         return {
@@ -276,7 +281,7 @@ def test_report_of_a_passed_and_published_run(run, report, seeded, use_fake, db_
 
     assert result.exit_code == 0, result.output
     stored = read_run(db_url, 1)
-    assert stored.llm_calls == 7
+    assert stored.llm_calls == 13
     assert stored.input_tokens > 0 and stored.output_tokens > 0
     assert stored.started_at is not None and stored.generation_finished_at is not None
     seconds = (stored.generation_finished_at - stored.started_at).total_seconds()
@@ -296,7 +301,7 @@ def test_report_of_a_passed_and_published_run(run, report, seeded, use_fake, db_
         f"generation_finished_at: {iso(stored.generation_finished_at)}",
         f"validated_at: {iso(checked)}",
         f"duration: {seconds:.1f} s (generation)",
-        "llm_calls: 7",
+        "llm_calls: 13",
         f"input_tokens: {stored.input_tokens}",
         f"output_tokens: {stored.output_tokens}",
         "resumed_from: none",
@@ -306,12 +311,13 @@ def test_report_of_a_passed_and_published_run(run, report, seeded, use_fake, db_
         "dataset_version: 1",
         "dataset_version_status: published",
         "statements: 35",
-        "statement_agenda: v1, quota 30, lines 3; party 1 3/3 (1 chunks); "
+        "statement_agenda: v1, quota 40, lines 3; party 1 3/3 (1 chunks); "
         "party 2 3/3 (1 chunks)",
-        "statement_selection: v1, pool 50, selected 35, rule coverage_met, topic_cap 7, "
+        "statement_selection: v1, pool 70, selected 35, rule coverage_met, topic_cap 7, "
         "projected_failures none",
-        "selection_coverage: party 1 35/35 (pool 50/50); party 2 35/35 (pool 50/50)",
-        "findings_check: v1, checked 4, discarded 0, cleared 0; party 1 0/2; party 2 0/2",
+        "selection_coverage: party 1 35/35 (pool 70/70); party 2 35/35 (pool 70/70)",
+        "findings_check: v2, checked 4, discarded 0, cleared 0, repaired 0; "
+        "party 1 0/2; party 2 0/2",
         "publication: published: live for election 1",
         "",
         "validation report:",
@@ -364,7 +370,7 @@ def test_report_of_a_run_that_failed_validation(run, report, seeded, use_fake) -
     assert got["dataset_version_status"] == "candidate"
     assert got["statements"] == "25"
     assert got["statement_selection"] == (
-        "v1, pool 50, selected 25, rule short, topic_cap 7, "
+        "v1, pool 70, selected 25, rule short, topic_cap 7, "
         "projected_failures statement_separation"
     )
     assert got["publication"] == "not published: the run failed; live for election 1: none"
@@ -582,7 +588,7 @@ def test_report_of_a_validating_run(report, seeded, db_url) -> None:
         'not published: awaiting Validation (run "ideology pipeline validate --run 1")'
     )
     assert got["validated_at"] == "not recorded"
-    assert got["llm_calls"] == "7"
+    assert got["llm_calls"] == "13"
 
 
 def test_report_of_a_queued_run(report, seeded, db_url) -> None:
@@ -690,13 +696,13 @@ def test_report_shows_statement_selection_and_pool_table(
     got = fields(result)
     assert got["statements"] == "35"
     assert got["statement_selection"] == (
-        "v1, pool 50, selected 35, rule coverage_met, topic_cap 7, projected_failures none"
+        "v1, pool 70, selected 35, rule coverage_met, topic_cap 7, projected_failures none"
     )
     assert got["selection_coverage"] == (
-        "party 1 35/35 (pool 50/50); party 2 35/35 (pool 50/50)"
+        "party 1 35/35 (pool 70/70); party 2 35/35 (pool 70/70)"
     )
     rows = [row.split("\t") for row in pool_table(result) or []]
-    assert len(rows) == 50
+    assert len(rows) == 70
     texts = payload["statements"]
     # 2 (both 1) does not separate (tier 2); 4 repeats 3 (no tier).
     assert rows[1][:8] == ["2", "", texts[1]["topic"], "2", "1", "0", "2", "not_picked"]
@@ -747,10 +753,10 @@ def test_report_shows_the_statement_agenda(run, report, seeded, use_fake, db_url
         engine.dispose()
     assert stored["agenda"] == {
         "version": "v1",
-        "pool_max": 60,
-        "floor": 30,
+        "pool_max": 80,
+        "floor": 40,
         "quota_max": 24,
-        "quota": 30,
+        "quota": 40,
         "lines": 3,
         "parties": [
             {"party_id": 1, "chunks": 1, "candidates": 3, "unique": 3, "picked": 3},
@@ -760,7 +766,7 @@ def test_report_shows_the_statement_agenda(run, report, seeded, use_fake, db_url
 
     got = fields(report(1))
     assert got["statement_agenda"] == (
-        "v1, quota 30, lines 3; party 1 3/3 (1 chunks); party 2 3/3 (1 chunks)"
+        "v1, quota 40, lines 3; party 1 3/3 (1 chunks); party 2 3/3 (1 chunks)"
     )
 
 
@@ -785,12 +791,13 @@ def test_report_selection_without_agenda_shows_not_recorded(
 
     got = fields(report(1))
     assert got["statement_agenda"] == "not recorded"
-    assert got["statement_selection"].startswith("v1, pool 50, selected 35")
+    assert got["statement_selection"].startswith("v1, pool 70, selected 35")
 
 
 # pipeline-verified-findings Scenario 8: discarded findings in the report
 
 FINDINGS_HEADER = "party\tdocument\tpage\tstatement\tposition\tvalue\treason\tcleared\tquote"
+REPAIRED_HEADER = "party\tdocument\tstatement\tvalue\trepair\tpage\tquote\tnew_quote"
 
 
 def test_report_lists_the_discarded_findings(run, report, seeded, use_fake, db_url) -> None:
@@ -801,10 +808,66 @@ def test_report_lists_the_discarded_findings(run, report, seeded, use_fake, db_u
 
     assert result.exit_code == 0, result.output
     assert fields(result)["findings_check"] == (
-        "v1, checked 4, discarded 2, cleared 2; party 1 1/2 cleared 1; party 2 1/2 cleared 1"
+        "v2, checked 4, discarded 1, cleared 1, repaired 1; "
+        "party 1 0/2 repaired 1; party 2 1/2 cleared 1"
     )
     pool = read_run(db_url, 1).statement_selection["pool"]
     # The questionnaire position of each pool Statement, empty when not selected.
+    position = {e["pool"]: "" if e["position"] is None else e["position"] for e in pool}
+    parts = result.output.split("\n\n")
+    assert len(parts) == 5
+    assert parts[3].splitlines() == [
+        "discarded findings:",
+        FINDINGS_HEADER,
+        f"2\t2\t1\t1\t{position[1]}\t-1\tnot_found\t1\t{INVENTED}",
+    ]
+    assert parts[4].splitlines() == [
+        "repaired findings:",
+        REPAIRED_HEADER,
+        f"1\t1\t2\t1\tpage_corrected\t1->2\t{PAGES[1][1]}\t{PAGES[1][1]}",
+    ]
+
+
+def test_report_lists_an_other_page_discard_with_its_page(
+    run, report, seeded, use_fake, db_url
+) -> None:
+    # A quote found on a page outside the finding's chunk is still discarded as
+    # other_page (pipeline-verified-findings Scenario 8). The seeded documents
+    # have one chunk each, so the stored record stands for such a run.
+    use_fake(fake_provider(position_findings=_two_discards))
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    engine = _engine(db_url)
+    try:
+        with session_scope(engine) as session:
+            stored = session.get(PipelineRun, 1)
+            assert stored is not None and stored.statement_selection is not None
+            selection = dict(stored.statement_selection)
+            findings = dict(selection["findings"])
+            item = findings["repaired_items"][0]
+            findings["items"] = [
+                {
+                    "party_id": item["party_id"],
+                    "document_id": item["document_id"],
+                    "page": item["page"],
+                    "statement": item["statement"],
+                    "value": item["value"],
+                    "reason": "other_page",
+                    "found_on": 2,
+                    "cleared": [2],
+                    "quote": item["quote"],
+                },
+                *findings["items"],
+            ]
+            findings["repaired_items"] = []
+            findings["repaired"] = 0
+            selection["findings"] = findings
+            stored.statement_selection = selection
+    finally:
+        engine.dispose()
+
+    result = report(1)
+
+    pool = read_run(db_url, 1).statement_selection["pool"]
     position = {e["pool"]: "" if e["position"] is None else e["position"] for e in pool}
     parts = result.output.split("\n\n")
     assert len(parts) == 4

@@ -47,8 +47,8 @@ from ideology_app.pipeline.prompts import _COMMON_RULES
 # (task, version) and the fingerprint printed by the failing test.
 FINGERPRINTS = {
     ("statement_candidates", "v1"): "a2073f8c4dcc630a08056db3bef2f59f3e412532693fd2b364af902bbfbe1177",
-    ("generate_statements", "v4"): "37c758121e4e71c1fc73630dd619e12d08c448fb9f1786cb3613d92b18a42aac",
-    ("position_findings", "v3"): "823b5984643e6724fee0d9764f27cd56a8639af0c5759790c17abeec2fe22efa",
+    ("generate_statements", "v5"): "71799833e95bbe6a6c087f6a267169e643201b4b17834937a7eb839b8c92b7e1",
+    ("position_findings", "v5"): "988fb77e0034909faa79574b65c49889d496a4790c54e65a43e580d921f03690",
     ("party_positions", "v2"): "cd473fcb60cd0ad4c7cbbd0e30c4d5c1d2bfeb37340bcd4aa7801277f1eee9e3",
 }
 
@@ -56,7 +56,7 @@ FINGERPRINTS = {
 # schema: a builder change then fails the pin too.
 REFERENCE_SCHEMAS = {
     "statement_candidates": lambda: CandidateList,
-    "generate_statements": lambda: statement_set_schema(45, 60),
+    "generate_statements": lambda: statement_set_schema(60, 80),
     "position_findings": lambda: finding_list_schema(30),
     "party_positions": lambda: position_list_schema(30, 10),
 }
@@ -66,11 +66,13 @@ REFERENCE_SCHEMAS = {
 # request must stay byte-identical so recorded calls stay reusable.
 CANDIDATE_REQUEST_HASH = "2936c24068bdc5d815241addb8324d71f4032fc878e880cd953fb36feccf9dab"
 
-# request_hash("fake", "fake-model", ...) of the position requests below, computed
-# on main cf062e4, before pipeline-verified-findings changed extraction: the
-# position_findings and party_positions requests must stay byte-identical so
-# recorded calls stay reusable (--resume-from / --reuse-from).
-FINDINGS_REQUEST_HASH = "b8a610c8de1b1baf6b9bbd4365e32959718c8a1222e5cfc09cec56841291f2ff"
+# request_hash("fake", "fake-model", ...) of the position requests below. The
+# party_positions hash was computed on main cf062e4, before pipeline-verified-findings
+# changed extraction; the position_findings hash was re-pinned when its template
+# changed to v4 (e2e-real-2026-election, Statement batches; and its schema to at most
+# 80 findings). Both requests must stay
+# byte-identical so recorded calls stay reusable (--resume-from / --reuse-from).
+FINDINGS_REQUEST_HASH = "5f2a99d75e0893205935fc45806f95239a76e95e8a84266a5d5289dd76f9ab08"
 POSITIONS_REQUEST_HASH = "7bebf386e9b4167ad9d1c972a2be8055b9c6c944d57c572a0f689f30b66bdea0"
 
 
@@ -124,7 +126,7 @@ def test_fingerprint_detects_a_change() -> None:
     positions = (PARTY_POSITIONS.task, PARTY_POSITIONS.version)
     assert fingerprint(PARTY_POSITIONS, position_list_schema(30, 11)) != FINGERPRINTS[positions]
     generate = (GENERATE_STATEMENTS.task, GENERATE_STATEMENTS.version)
-    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(45, 61)) != FINGERPRINTS[generate]
+    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(60, 81)) != FINGERPRINTS[generate]
 
 
 def test_statement_candidates_request_is_byte_identical() -> None:
@@ -160,8 +162,8 @@ def test_position_requests_are_byte_identical() -> None:
     # pipeline-verified-findings changes no request: same versions, same hashes.
     assert PROMPT_VERSIONS == {
         "statement_candidates": "v1",
-        "generate_statements": "v4",
-        "position_findings": "v3",
+        "generate_statements": "v5",
+        "position_findings": "v5",
         "party_positions": "v2",
     }
     findings, positions = _pinned_position_requests()
@@ -185,8 +187,8 @@ def test_a_verification_verdict_does_not_change_the_positions_request() -> None:
 def test_prompt_versions_and_constants() -> None:
     assert PROMPT_VERSIONS == {
         "statement_candidates": "v1",
-        "generate_statements": "v4",
-        "position_findings": "v3",
+        "generate_statements": "v5",
+        "position_findings": "v5",
         "party_positions": "v2",
     }
     assert POSITION_FINDINGS.schema is FindingList
@@ -197,7 +199,7 @@ def test_prompt_versions_and_constants() -> None:
     assert STATEMENT_CANDIDATES.max_tokens == 4096
     assert GENERATE_STATEMENTS.schema is StatementSet
     assert GENERATE_STATEMENTS.max_tokens == 16384
-    assert (POOL_MIN_STATEMENTS, POOL_MAX_STATEMENTS, POOL_TARGET_STATEMENTS) == (45, 60, 55)
+    assert (POOL_MIN_STATEMENTS, POOL_MAX_STATEMENTS, POOL_TARGET_STATEMENTS) == (60, 80, 70)
     assert len(TOPICS) == 18 and len(set(TOPICS)) == 18
     assert TOPICS[0] == "economy" and TOPICS[-1] == "infrastructure_transport"
 
@@ -228,9 +230,9 @@ def test_reduce_prompt_adds_list_rules() -> None:
     assert "{chunk}" in STATEMENT_CANDIDATES.template
 
 
-# The exact v4 system text of the spec (pipeline-balanced-statements, Technical
-# Approach section 3); ``_COMMON_RULES`` is shared with statement_candidates.
-GENERATE_STATEMENTS_V4_SYSTEM = (
+# The exact v5 system text: v4 of the spec (pipeline-balanced-statements, Technical
+# Approach section 3) with e2e-real-2026-election's self-contained-Statement rule; ``_COMMON_RULES`` is shared with statement_candidates.
+GENERATE_STATEMENTS_V5_SYSTEM = (
     "Eres un analista político que prepara un cuestionario de orientación de voto para "
     "unas elecciones generales en España. Recibes afirmaciones candidatas extraídas, en "
     "igual número, de los programas electorales de varias candidaturas, y redactas a partir "
@@ -240,8 +242,14 @@ GENERATE_STATEMENTS_V4_SYSTEM = (
     "Reglas para la lista:\n"
     "- Cada afirmación expresa una orientación política con una dirección clara (por "
     "ejemplo, subir o bajar un impuesto, ampliar o reducir un servicio público, más o menos "
-    "peso de una fuente de energía), no una medida de detalle: sin cifras, porcentajes, "
-    "plazos ni nombres de leyes o planes concretos.\n"
+    "peso de una fuente de energía), no una medida de detalle: sin cifras, porcentajes ni "
+    "plazos salvo que sean el núcleo de la propuesta.\n"
+    "- Cada afirmación se entiende por sí sola, sin conocer la legislación ni la política "
+    "vigentes: di en qué consiste lo que se propone. Nunca hables de \"la política "
+    "actual\", \"el modelo vigente\" o \"la ley actual\" sin decir cuál es ni qué "
+    "establece; si la orientación consiste en derogar, mantener o cambiar una ley o "
+    "reforma concreta, nómbrala (por ejemplo, \"la reforma laboral de 2012\") o describe "
+    "su contenido.\n"
     "- Agrupa en una misma orientación las candidatas de programas distintos que van en esa "
     "dirección o en la contraria, para que el mayor número posible de programas se pueda "
     "situar en ella.\n"
@@ -266,8 +274,8 @@ FINDINGS_V3_NEW_RULES = (
 )
 
 
-def test_reduce_prompt_v4_asks_for_orientation_level_statements() -> None:
-    assert GENERATE_STATEMENTS.system == GENERATE_STATEMENTS_V4_SYSTEM
+def test_reduce_prompt_v5_asks_for_orientation_level_statements() -> None:
+    assert GENERATE_STATEMENTS.system == GENERATE_STATEMENTS_V5_SYSTEM
     assert GENERATE_STATEMENTS.max_tokens == 16384
     # The common rules are unchanged and still shared with statement_candidates.
     assert _COMMON_RULES in STATEMENT_CANDIDATES.system
@@ -322,9 +330,9 @@ def test_statement_set_limits() -> None:
     item = {"text": "Subir el salario mínimo.", "topic": "employment"}
     with pytest.raises(ValidationError):
         StatementSet.model_validate({"statements": []})
-    assert len(StatementSet.model_validate({"statements": [item] * 60}).statements) == 60
+    assert len(StatementSet.model_validate({"statements": [item] * 80}).statements) == 80
     with pytest.raises(ValidationError):
-        StatementSet.model_validate({"statements": [item] * 61})
+        StatementSet.model_validate({"statements": [item] * 81})
 
 
 # Party Position prompts and schemas.
@@ -390,9 +398,9 @@ def test_finding_keeps_the_quote_as_given_and_accepts_limits() -> None:
 
 def test_finding_list_limits() -> None:
     assert FindingList.model_validate({"findings": []}).findings == []
-    assert len(FindingList.model_validate({"findings": [_FINDING] * 60}).findings) == 60
+    assert len(FindingList.model_validate({"findings": [_FINDING] * 80}).findings) == 80
     with pytest.raises(ValidationError):
-        FindingList.model_validate({"findings": [_FINDING] * 61})
+        FindingList.model_validate({"findings": [_FINDING] * 81})
 
 
 _CHOICE = {"statement": 1, "value": 0, "evidence": 1}
@@ -410,9 +418,9 @@ def test_position_choice_rejects(change: dict[str, object]) -> None:
 
 def test_position_list_limits() -> None:
     assert PositionList.model_validate({"positions": []}).positions == []
-    assert len(PositionList.model_validate({"positions": [_CHOICE] * 60}).positions) == 60
+    assert len(PositionList.model_validate({"positions": [_CHOICE] * 80}).positions) == 80
     with pytest.raises(ValidationError):
-        PositionList.model_validate({"positions": [_CHOICE] * 61})
+        PositionList.model_validate({"positions": [_CHOICE] * 81})
 
 
 # Bounded schema builders (pipeline-output-bounds).
@@ -439,12 +447,12 @@ def test_finding_list_schema_bounds_the_statement() -> None:
         with pytest.raises(ValidationError):
             schema.model_validate({"findings": [_FINDING | {"statement": n}]})
     with pytest.raises(ValidationError):
-        schema.model_validate({"findings": [_FINDING] * 61})
+        schema.model_validate({"findings": [_FINDING] * 81})
     json_schema = schema.model_json_schema()
     assert json_schema["$defs"]["Finding"]["properties"]["statement"] == {
         "maximum": 30, "minimum": 1, "title": "Statement", "type": "integer"
     }
-    assert json_schema["properties"]["findings"]["maxItems"] == 60
+    assert json_schema["properties"]["findings"]["maxItems"] == 80
 
 
 def test_position_list_schema_bounds_statement_evidence_and_length() -> None:
