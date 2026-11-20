@@ -49,7 +49,7 @@ function expectDisclosureAndMethodology() {
 }
 
 function electionLinks() {
-  const elections = screen.getByRole("region", { name: "Elecciones disponibles" });
+  const elections = screen.getByRole("region", { name: "Elecciones" });
   return within(elections).queryAllByRole("link");
 }
 
@@ -103,14 +103,19 @@ describe("LandingPage", () => {
     const order = Array.from(main.querySelectorAll("h1, h2")).map((h) => h.textContent);
     // The carousel has no section title: its pages carry the h2s (the
     // hidden ones are aria-hidden, see HowItWorksCarousel.test.tsx).
+    // No Elections heading (ui-2026-focus-tweaks): the region has a name.
     expect(order).toEqual([
       "IdeologiApp",
-      "Elecciones disponibles",
       "Responde a las afirmaciones",
       "Revisa tus resultados",
       "Comprueba de dónde vienen los resultados",
     ]);
     expect(main.firstElementChild?.tagName).toBe("H1");
+    const elections = screen.getByRole("region", { name: "Elecciones" });
+    expect(elections.tagName).toBe("SECTION");
+    expect(elections.getAttribute("aria-label")).toBe("Elecciones");
+    expect(elections.querySelector("h2, .section-head")).toBeNull();
+    expect(screen.queryByText(/disponibles/)).toBeNull();
     expect(main.children[1]?.tagName).toBe("P");
     // The carousel ends the page: no checks/privacy sentence after it.
     expect(main.lastElementChild).toBe(screen.getByRole("region", { name: "Cómo funciona" }));
@@ -131,7 +136,7 @@ describe("LandingPage", () => {
   test("the grid lists only the API's Elections (no fixed upcoming card)", async () => {
     renderLanding(fetchResolving(jsonResponse({ elections: [electionJson()] })));
     await screen.findByRole("link", { name: /Generales 2023/ });
-    const items = within(screen.getByRole("region", { name: "Elecciones disponibles" })).getAllByRole(
+    const items = within(screen.getByRole("region", { name: "Elecciones" })).getAllByRole(
       "listitem",
     );
     expect(items).toHaveLength(1);
@@ -189,7 +194,7 @@ describe("LandingPage", () => {
     ).toBeTruthy();
     expect(electionLinks()).toHaveLength(0);
     // The grid is empty: no fixed upcoming card any more.
-    const elections = screen.getByRole("region", { name: "Elecciones disponibles" });
+    const elections = screen.getByRole("region", { name: "Elecciones" });
     expect(within(elections).queryAllByRole("listitem")).toHaveLength(0);
     expectDisclosureAndMethodology();
   });
@@ -236,13 +241,14 @@ describe("LandingPage", () => {
     expect(apiPaths(fetch)).toHaveLength(2);
   });
 
-  test("Scenario 6: several Elections keep the API order and identical styling", async () => {
+  test("ui-2026-focus-tweaks: only the most recent Election is listed, whatever the API order", async () => {
     renderLanding(
       fetchResolving(
         jsonResponse({
           elections: [
-            electionJson({ id: 3, date: "2027-07-01", name: "Generales 2027", published_dataset_version_id: 2 }),
             electionJson(),
+            electionJson({ id: 3, date: "2027-07-01", name: "Generales 2027", published_dataset_version_id: 4 }),
+            electionJson({ id: 2, date: "2026-11-29", name: "Generales 2026", published_dataset_version_id: 2 }),
           ],
         }),
       ),
@@ -251,14 +257,29 @@ describe("LandingPage", () => {
     const links = electionLinks();
     expect(links.map((link) => link.textContent)).toEqual([
       "Generales 2027 1 de julio de 2027 Realizar cuestionario",
-      "Generales 2023 23 de julio de 2023 Realizar cuestionario",
     ]);
-    expect(links.map((link) => link.getAttribute("href"))).toEqual([
-      "/elecciones/3/cuestionario",
-      "/elecciones/1/cuestionario",
-    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/elecciones/3/cuestionario"]);
     expect(links[0]?.className).toBe("election-link");
-    expect(links[1]?.className).toBe(links[0]?.className);
-    expect(links.every((link) => link.getAttribute("style") === null)).toBe(true);
+    expect(links[0]?.getAttribute("style")).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Elecciones" })).getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.queryByText(/Generales 2023|Generales 2026/)).toBeNull();
+    expect(screen.queryByText(/disponibles/)).toBeNull();
+  });
+
+  test("ui-2026-focus-tweaks: the most recent Election keeps En preparación when unpublished", async () => {
+    renderLanding(
+      fetchResolving(
+        jsonResponse({
+          elections: [
+            electionJson(),
+            electionJson({ id: 2, date: "2026-11-29", name: "Generales 2026", published_dataset_version_id: null }),
+          ],
+        }),
+      ),
+    );
+    const link = await screen.findByRole("link", { name: /Generales 2026/ });
+    expect(link.getAttribute("href")).toBe("/elecciones/2/cuestionario");
+    expect(screen.getByText("En preparación").className).toBe("status-badge status-badge--muted");
+    expect(electionLinks()).toHaveLength(1);
   });
 });

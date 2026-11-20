@@ -116,7 +116,7 @@ describe("QuestionnairePage", () => {
     expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["2", "1", "0", "-1", "-2"]);
     expect(checkedRadios()).toHaveLength(0);
     expect(button("Siguiente").disabled).toBe(true);
-    expect(button("Saltar esta afirmación").disabled).toBe(false);
+    expect(button("Saltar").disabled).toBe(false);
     expect(screen.queryByRole("button", { name: "Anterior" })).toBeNull();
     expect(screen.getByText(/Tus respuestas se quedan en este navegador/).className).toBe(
       "questionnaire__note",
@@ -143,7 +143,7 @@ describe("QuestionnairePage", () => {
     expect(document.activeElement).toBe(heading2());
 
     // Scenario 3: skip.
-    fireEvent.click(button("Saltar esta afirmación"));
+    fireEvent.click(button("Saltar"));
     expect(heading2().textContent).toBe("Afirmación de prueba 3");
     expect(screen.getByText("Afirmación 3 de 3")).toBeTruthy();
     expect(document.activeElement).toBe(heading2());
@@ -173,7 +173,7 @@ describe("QuestionnairePage", () => {
 
     // Scenario 5: leave the last Statement with Saltar and reach the end screen.
     expect(heading2().textContent).toBe("Afirmación de prueba 3");
-    fireEvent.click(button("Saltar esta afirmación"));
+    fireEvent.click(button("Saltar"));
     expect(heading2().textContent).toBe("Tus resultados");
     expect(document.activeElement).toBe(heading2());
     expect(screen.getByText("Muestra evaluada: 2/3 afirmaciones contestadas")).toBeTruthy();
@@ -190,7 +190,7 @@ describe("QuestionnairePage", () => {
 
     // Saltar on an answered Statement replaces the value with a skip.
     fireEvent.click(button("Anterior"));
-    fireEvent.click(button("Saltar esta afirmación"));
+    fireEvent.click(button("Saltar"));
     fireEvent.click(button("Anterior"));
     expect(screen.getByText("Has saltado esta afirmación.")).toBeTruthy();
     expect(checkedRadios()).toHaveLength(0);
@@ -220,14 +220,14 @@ describe("QuestionnairePage", () => {
       );
     // First Statement: no Anterior, so Saltar and Siguiente share the row.
     expect(controls()).toEqual([
-      ["Saltar esta afirmación", "button-secondary", "svg"],
+      ["Saltar", "button-secondary", "svg"],
       ["Siguiente", "button-primary", "span"],
     ]);
     expect(button("Siguiente").lastElementChild?.tagName.toLowerCase()).toBe("svg");
-    fireEvent.click(button("Saltar esta afirmación"));
+    fireEvent.click(button("Saltar"));
     expect(controls()).toEqual([
       ["Anterior", "button-secondary", "svg"],
-      ["Saltar esta afirmación", "button-secondary", "svg"],
+      ["Saltar", "button-secondary", "svg"],
       ["Siguiente", "button-primary", "span"],
     ]);
     for (const label of LABELS) {
@@ -242,7 +242,7 @@ describe("QuestionnairePage", () => {
     const progress = document.querySelector("progress");
     // No transition on the initial load.
     expect(step().hasAttribute("data-enter")).toBe(false);
-    fireEvent.click(button("Saltar esta afirmación"));
+    fireEvent.click(button("Saltar"));
     expect(step().getAttribute("data-enter")).toBe("forward");
     fireEvent.click(radio("De acuerdo"));
     fireEvent.click(button("Siguiente"));
@@ -296,7 +296,7 @@ describe("QuestionnairePage", () => {
     expect(group.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     for (let i = 0; i < 3; i += 1) {
-      fireEvent.click(button("Saltar esta afirmación"));
+      fireEvent.click(button("Saltar"));
     }
     expect(heading2().textContent).toBe("Tus resultados");
     expect(
@@ -363,7 +363,7 @@ describe("QuestionnairePage", () => {
       // Scenario 3.
       fireEvent.click(button("Siguiente"));
       fireEvent.click(toggle());
-      fireEvent.click(button("Saltar esta afirmación"));
+      fireEvent.click(button("Saltar"));
       expect(heading2().textContent).toBe("Afirmación de prueba 3");
       expect(pressed()).toBe("false");
       fireEvent.click(button("Anterior"));
@@ -397,7 +397,7 @@ describe("QuestionnairePage", () => {
       fireEvent.click(radio("En desacuerdo"));
       fireEvent.click(button("Siguiente"));
       fireEvent.click(toggle());
-      fireEvent.click(button("Saltar esta afirmación"));
+      fireEvent.click(button("Saltar"));
       const summary = screen.getByRole("region", { name: answered });
       expect(within(summary).getByText("Has saltado 1 afirmación.")).toBeTruthy();
       const sentence = within(summary).getByText("Has marcado 2 afirmaciones como importantes.");
@@ -598,7 +598,7 @@ describe("QuestionnairePage", () => {
     function walk(steps: readonly Step[]) {
       for (const step of steps) {
         if (step === "skip") {
-          fireEvent.click(button("Saltar esta afirmación"));
+          fireEvent.click(button("Saltar"));
           continue;
         }
         if (step.important === true) {

@@ -18,7 +18,7 @@ const NO_VALUE = "—";
 /**
  * The Statement matrix (DESIGN.md "Statement matrix", 1024px and up): one
  * row per Statement, one column per Party in ranking order, every column
- * built the same way. A cell shows the Party's stance as the scale icon and is
+ * built the same way and `--matrix-party-width` wide (logo-only headers). A cell shows the Party's stance as the scale icon and is
  * tinted by its coincidence with the Answer (one accent, never a colour per
  * side or per Party); its accessible name has the full stance and the
  * coincidence. A cell opens that Position in the inspector, a Statement opens
@@ -80,10 +80,9 @@ export function ResultsMatrix({
               </th>
               {parties.map((party) => (
                 <th key={party.partyId} scope="col" className="matrix__party-head">
+                  {/* Logo only (ui-2026-focus-tweaks): every Party column is
+                      the same width; the full name is the header's name. */}
                   <PartyLogo logoUrl={party.logoUrl} shortName={party.shortName} size="breakdown" />
-                  <span aria-hidden="true" className="matrix__party-short">
-                    {party.shortName}
-                  </span>
                   <span className="visually-hidden">{party.name}</span>
                 </th>
               ))}

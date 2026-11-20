@@ -2262,14 +2262,18 @@ a.button-secondary {
   text-align: left;
 }
 
-.matrix__party-head .party-logo {
-  display: flex;
-  margin: 0 auto var(--space-xs);
+/* Logo-only Party headers (ui-2026-focus-tweaks): every Party column has the
+   same declared width and content, so the columns render equally wide. */
+.matrix__party-head,
+.matrix__cell {
+  width: var(--matrix-party-width);
+  min-width: var(--matrix-party-width);
+  max-width: var(--matrix-party-width);
 }
 
-.matrix__party-short {
-  display: block;
-  white-space: nowrap;
+.matrix__party-head .party-logo {
+  display: flex;
+  margin: 0 auto;
 }
 
 .matrix tbody tr + tr > * {

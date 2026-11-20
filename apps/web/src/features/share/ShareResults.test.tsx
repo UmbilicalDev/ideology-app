@@ -66,7 +66,7 @@ async function finish(steps: readonly Step[], fetch: FetchLike = sixStatementFet
   for (const step of steps) {
     if (step.important) fireEvent.click(button("Importante para mí"));
     if (step.skip) {
-      fireEvent.click(button("Saltar esta afirmación"));
+      fireEvent.click(button("Saltar"));
     } else {
       fireEvent.click(screen.getByRole("radio", { name: step.rate ?? "De acuerdo" }));
       fireEvent.click(button("Siguiente"));

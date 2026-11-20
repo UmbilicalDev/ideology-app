@@ -61,7 +61,7 @@ async function finish({ skipAll = false } = {}) {
   await screen.findByRole("radiogroup");
   for (let i = 0; i < 6; i += 1) {
     if (skipAll) {
-      fireEvent.click(button("Saltar esta afirmación"));
+      fireEvent.click(button("Saltar"));
     } else {
       fireEvent.click(screen.getByRole("radio", { name: i === 5 ? "Muy en desacuerdo" : "De acuerdo" }));
       fireEvent.click(button("Siguiente"));

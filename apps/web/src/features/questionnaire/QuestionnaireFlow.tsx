@@ -210,7 +210,7 @@ function StatementStep({
           ) : null}
           <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
             <StepOverIcon />
-            <span>Saltar esta afirmación</span>
+            <span>Saltar</span>
           </button>
           <button
             type="button"
