@@ -90,7 +90,7 @@ function walk(steps: readonly Step[]) {
       if (step === "flag-skip") {
         fireEvent.click(button("Importante para mí"));
       }
-      fireEvent.click(button("Saltar esta afirmación"));
+      fireEvent.click(button("Saltar"));
       continue;
     }
     if (step.important === true) {

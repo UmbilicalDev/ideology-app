@@ -122,7 +122,21 @@ describe("ResultsMatrix (1024px and up)", () => {
     render(<ResultsBreakdown rows={ROWS} />);
     const table = screen.getByRole("table");
     const heads = within(table).getAllByRole("columnheader").map((th) => textWithoutLogos(th));
-    expect(heads).toEqual(["Afirmación", "Tú", "P1Partido Uno", "P2Partido Dos", "P3Partido Tres"]);
+    expect(heads).toEqual(["Afirmación", "Tú", "Partido Uno", "Partido Dos", "Partido Tres"]);
+    // ui-2026-focus-tweaks: a Party header is the logo tile and the hidden
+    // full name, nothing else, so every Party column is built (and sized) alike.
+    const partyHeads = within(table).getAllByRole("columnheader").slice(2);
+    expect(partyHeads.map((th) => th.className)).toEqual(Array(3).fill("matrix__party-head"));
+    for (const th of partyHeads) {
+      expect(th.querySelectorAll(".party-logo")).toHaveLength(1);
+      expect(Array.from(th.children).map((c) => c.className)).toEqual([
+        expect.stringContaining("party-logo"),
+        "visually-hidden",
+      ]);
+      expect(th.getAttribute("style")).toBeNull();
+    }
+    expect(table.querySelector("[class*='party-short']")).toBeNull();
+    expect(within(table).getByRole("columnheader", { name: "Partido Uno" })).toBe(partyHeads[0]);
     const first = within(table).getAllByRole("row")[1]!;
     const cells = within(first).getAllByRole("button").slice(1);
     // A stance is drawn as its scale icon (decorative); no stance is a dash.

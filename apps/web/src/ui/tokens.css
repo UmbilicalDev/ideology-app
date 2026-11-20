@@ -68,6 +68,11 @@
   --match-25: 12%;
   --matrix-statement-width: 18rem;
   --matrix-answer-width: 3.5rem;
+  /* Every Party column (header and cells): the 2.75rem cell button plus
+     2 x --space-xs padding (wider than the 32px logo tile plus padding).
+     3.25rem, not 3.5rem, keeps 9 Parties inside the shared result's matrix
+     box at 1280px without a sideways scroll (ui-2026-focus-tweaks). */
+  --matrix-party-width: 3.25rem;
   --matrix-header-height: 4.5rem;
 
   /* Shapes: moderate corners, never pill-heavy cards. */

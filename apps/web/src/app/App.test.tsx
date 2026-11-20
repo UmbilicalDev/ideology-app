@@ -32,7 +32,7 @@ describe("App routes", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Generales 2023");
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Saltar esta afirmación" }));
+    fireEvent.click(screen.getByRole("button", { name: "Saltar" }));
     expect(screen.getByText("Muestra evaluada: 0/1 afirmaciones contestadas")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: "IdeologiApp, ir al inicio" }));

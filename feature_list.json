@@ -1482,5 +1482,39 @@
       "2026-11-20 independent validator accept: CI=true ./init.sh exit 0; db check Safe to commit: yes; pipeline report run 5 passed/published (DV5, 32 of pool 77, 12 Parties, worst 50% VOX/ERC/SALF, 549 findings, 2 repaired, 0 discarded); all 232 stored quotes independently re-matched on their cited page, 152 no-stance positions without Evidence; reading sample of about 12 positions supported; 2023 DV1-3 identical to main; browser walk (Claude desktop Browser pane, Chromium) at 375x812 and 1280x800: Landing without Próximamente, 2026 Questionnaire to results (12 Parties, logos, Junts Evidence p.16), Share Link /resultados#v1-5-... same ranking, Anterior/Back ok, console empty, only same-origin 200 requests, no answers in any request. Low findings: user_visible_behavior still said 11 Parties (fixed in the same change, with the spec's Decision 1 and step order); some short fragment quotes (SALF S23, Adelante Andalucía S31 and S9; 9 of 232 quotes under 30 letters), recorded in docs/risks-and-open-questions.md."
     ],
     "notes": "Spec: docs/specs/e2e-real-2026-election.md. 12 Parties: Junts added 2026-11-20 (manifesto published 18 Nov); CC and EAJ-PNV excluded (coverage)."
+  },
+  {
+    "id": "ui-2026-focus-tweaks",
+    "area": "web",
+    "title": "Landing shows only the current Election, short Skip label, logo-only matrix columns",
+    "user_visible_behavior": "Three user-requested changes (2026-11-20). (1) In the Questionnaire the skip button reads 'Saltar' instead of 'Saltar esta afirmación'. (2) The Landing shows only the most recent Election (today 'Elecciones generales 2026'), without the 'Elecciones disponibles' heading; older Elections (2023) stay in the database and their Questionnaire, results and Share Links still open by URL. (3) In the results Statement matrix the Party column headers show only the Party logo (the short name text is gone, the full name stays as the accessible name), so every Party column has exactly the same width.",
+    "depends_on": [
+      "e2e-real-2026-election"
+    ],
+    "status": "accepted",
+    "verification": [
+      "QuestionnaireFlow test asserts the skip button's visible text 'Saltar' and that skipping still works",
+      "LandingPage tests: only the latest Election by date is listed, no 'Elecciones disponibles' heading, the section keeps an accessible name; loading, error and empty states unchanged",
+      "/elecciones/1/cuestionario and a 2023 Share Link still open",
+      "ResultsMatrix test: party headers render the logo and the accessible full name but no visible short name; all party columns share one fixed width",
+      "DESIGN.md updated where it describes the Landing elections list, the skip button or the Statement matrix headers",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and 1280px, light and dark: Landing, Questionnaire skip, results matrix (1024px and up) with equal-width columns; console clean, no request carries answers"
+    ],
+    "evidence": [
+      "2026-11-20 implementer: CI=true ./init.sh exit 0 on feature/ui-changes (pytest 1897 passed, Vitest 939 passed (40 files; new current-election.test.ts, updated LandingPage/ResultsMatrix/QuestionnairePage and skip-button tests), vite build ok).",
+      "rg -n 'Saltar esta afirmación|Elecciones disponibles|matrix__party-short' apps/web/src README.md DESIGN.md: no hits.",
+      "Deviation: --matrix-party-width ships as 3.25rem (52px = 2.75rem cell button + 2 x --space-xs, the spec's stated minimum), not 3.5rem. With 3.5rem the 2023 shared result at 1280 scrolled 16px sideways (table 944px in a 928px box; the old short-name layout fit at 928px) and the 2026 end screen at 1280 scrolled 41px (1112px in 1071px). Noted in the spec, step 3.",
+      "Browser (Claude desktop Browser pane, Chromium; web-shared-db server on http://localhost:8001 with the committed data/ideology.db and rebuilt apps/web/dist), 375x812 and 1280x800 (plus 1024), dark and light:",
+      "Landing (1280 dark, 375 light, 375 dark): one card 'Elecciones generales 2026' linking to /elecciones/2/cuestionario; no 'Elecciones disponibles' text; no h2 before the carousel; accessibility tree shows region 'Elecciones'; API still lists Elections 2 and 1 (both active); no horizontal scroll at 375.",
+      "2026 Questionnaire: the skip button reads 'Saltar' (52px tall at 1280); a real click skipped Statement 1, Anterior showed 'Has saltado esta afirmación.'; at 375 dark Anterior/Saltar/Siguiente sit on one row (same top, 95px wide each, single-line labels), and a real tap on Saltar moved 2 -> 3. Finished both runs to results.",
+      "Matrix column widths (all .matrix__party-head and td.matrix__cell; spread = max - min): 2026 end screen (focus shell, 12 Parties) 1280 dark: 52.34-52.41px, spread 0.08px, table 1071px = box 1071px, no sideways scroll; 1024: 52px, spread 0, table 968px in a 928px box (scrolls, sticky columns). 2026 shared result (app shell) 1280 light: 52px, spread 0, table 1064px in a 928px box; 1024: 52px, 968px in 672px. 2023 shared result (9 Parties) 1280 light: 53.14-53.20px, spread 0.06px, table 928px = box 928px. Cell buttons 45.1px wide. Earlier 3.5rem build: 56px spread 0 (12 Parties), 63.53-63.56px (9 Parties, end screen).",
+      "Party headers: no visible text besides the logo tile (visible text after removing .party-logo and .visually-hidden is empty); header children are exactly party-logo + visually-hidden; the th's accessible name is the full Party name (e.g. 'Bloque Nacionalista Galego'); cell names unchanged ('Partido Socialista Obrero Español: Muy en desacuerdo, coincidencia 75 %. Ver la cita'); a real click on that cell opened the inspector (Afirmación 2, PSOE, coincidencia contigo 75 %), and Escape closed it.",
+      "375 dark end screen: breakdown cards keep tile, name and short name (e.g. 'Partido Socialista Obrero Español | PSOE | De acuerdo'); no matrix below 1024; no horizontal scroll.",
+      "Share Links: the 2026 link from 'Copiar enlace' (/resultados#v1-5-...) opened with the same 12-Party ranking. /elecciones/1/cuestionario opened directly (26 Statements, skips used), reached results, and its link (/resultados#v1-3-...) opened with the same 9-Party ranking (EH Bildu first).",
+      "Console: no messages. Network: only same-origin GETs (200/206), none failed; no request carries answers (/resultados is requested without the fragment; no POSTs).",
+      "2026-11-20 independent validator accept: CI=true ./init.sh exit 0 (pytest 1897, Vitest 939 in 40 files, vite build ok); rg for the old strings in apps/web/src README.md DESIGN.md: no hits; browser walk (Claude desktop Browser pane, Chromium, web-shared-db with the committed data/ideology.db) at 375x812 and 1280x800 (plus 1024), light and dark: Landing shows one card 'Elecciones generales 2026' in region 'Elecciones', no 'Elecciones disponibles', API still lists Elections 2 and 1; skip button text and accessible name 'Saltar' (real clicks; at 375 Anterior/Saltar/Siguiente on one row); matrix Party headers logo plus hidden full name only, columns equal with every spread under 0.1px (2026 end screen 1280 52.34-52.41px, 1024 52px, 2026 shared 1280 52px, 2023 end screen 1280 61.33-61.40px, 2023 shared 1280 53.14-53.20px); inspector opens from a cell; 375 cards keep names; 2026 and 2023 (via /elecciones/1/cuestionario) Share Links reopen with the same rankings; console empty; only same-origin GETs 200/206, no POST, no answers in any request. The 3.25rem token deviation confirmed (3.5rem gives 944px in a 928px box on the 2023 shared result at 1280). Low findings fixed in the same change: DESIGN.md now says Party columns are at least 3.25rem and equal (they stretch with .matrix width 100%); stray comma in the Highlight bullet removed."
+    ],
+    "notes": "Spec: docs/specs/ui-2026-focus-tweaks.md. Requested by Kike on branch feature/ui-changes, on top of feature/e2e-real-2026-election-junts (PR #107)."
   }
 ]

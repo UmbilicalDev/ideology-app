@@ -1179,3 +1179,30 @@
   - `user_visible_behavior` and the spec still said 11 Parties: fixed in this change.
   - Some short fragment quotes: recorded in `docs/risks-and-open-questions.md`.
 - Next best step: merge PR #107 when the user decides (it deploys to production) and close PR #106 unmerged.
+
+### Session 096 (ui-2026-focus-tweaks, implementation)
+
+- Date: 2026-11-20
+- Goal: implement `ui-2026-focus-tweaks` (`docs/specs/ui-2026-focus-tweaks.md`) on `feature/ui-changes`: `Saltar` label, Landing shows only the most recent Election, logo-only equal-width matrix columns.
+- Completed:
+  - `QuestionnaireFlow.tsx`: the skip button reads `Saltar`; the five test files that click it updated.
+  - `landing/current-election.ts` (+ test): latest `date`, higher id on a tie, `null` when empty. `LandingPage.tsx` renders only that Election in `<section aria-label="Elecciones">` (no `Elecciones disponibles` h2); tests updated.
+  - `ResultsMatrix.tsx`: Party headers are the logo tile plus the hidden full name. New token `--matrix-party-width` on `.matrix__party-head` and `.matrix__cell` (`width`/`min-width`/`max-width`); `.matrix__party-short` rule removed.
+  - Docs: `DESIGN.md` (Buttons, Election card, Statement card, Statement matrix, Core Screens 1, grid note, stale upcoming-card text removed), `README.md` (Probarla steps 1–2), `docs/risks-and-open-questions.md` (`landing-election-picker` entry, new Open item on an unpublished newer Election, matrix widths, recordings Accepted Low).
+- Deviation from the spec: `--matrix-party-width` is `3.25rem` (52px = the 2.75rem cell button + 2 × `--space-xs`, the minimum the spec states), not `3.5rem`. Measured: with 3.5rem the 2023 shared result at 1280 gained a 16px sideways scroll (944px table in a 928px box; the old short-name layout fit at 928px) and the 2026 end screen at 1280 scrolled too (1112px in 1071px). With 3.25rem both fit. Recorded in the spec's Technical Approach step 3.
+- Verification run:
+  - `CI=true ./init.sh` exit 0 (pytest 1897 passed, Vitest 939 passed, `vite build` ok).
+  - `rg -n "Saltar esta afirmación|Elecciones disponibles|matrix__party-short" apps/web/src README.md DESIGN.md`: no hits.
+  - Browser walk (Claude desktop Browser pane, Chromium) against `web-shared-db` (`http://localhost:8001`, committed `data/ideology.db`, rebuilt `apps/web/dist`) at 375x812 and 1280x800 (plus 1024), dark and light. Details in `feature_list.json`.
+- Evidence captured: `feature_list.json` → `ui-2026-focus-tweaks.evidence` (status `passing`).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (Landing hides the current Election if a newer unpublished one is created; 12 Parties still scroll sideways in the app-shell shared result; Landing recordings show the old label).
+- Next best step: independent validation (`validator`) of `ui-2026-focus-tweaks`.
+
+### Session 097 (ui-2026-focus-tweaks, independent validation)
+
+- Date: 2026-11-20
+- Goal: independent validation of `ui-2026-focus-tweaks` on `feature/ui-changes`.
+- Completed: the validator accepted; status `accepted`. Its two Low findings are fixed in DESIGN.md (Party columns are at least 3.25rem and equal; stray comma).
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 1897, Vitest 939, `vite build` ok); browser walk at 375, 1024 and 1280, light and dark: one 2026 card on the Landing, `Saltar`, equal logo-only matrix columns (spread under 0.1px), 2023 reachable by URL and Share Link, console empty, no request carries answers. Details in `feature_list.json`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (newer unpublished Election would hide the current one; 12-Party matrix scrolls sideways in the shared result; Landing recordings show the old label).
+- Next best step: commit on `feature/ui-changes` and open a PR when the user decides.

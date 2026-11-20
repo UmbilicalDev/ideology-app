@@ -7,6 +7,7 @@ import { ArrowForwardIcon, CalendarIcon } from "../../ui/icons";
 import { BrandTitle } from "../common/BrandTitle";
 import { questionnairePath } from "../paths";
 import { APP_TAGLINE } from "../shell/AppShell";
+import { currentElection } from "./current-election";
 import { formatElectionDate } from "./format-date";
 import { HowItWorksCarousel } from "./HowItWorksCarousel";
 import { useElections, type ElectionsState } from "./useElections";
@@ -19,10 +20,11 @@ const LEAD_POINTS = [
   "Comprueba las citas sobre las afirmaciones en los programas.",
 ] as const;
 
-// Landing screen (DESIGN.md Core Screens 1): a compact hero, the Elections
-// grid (exactly what the API returns, in API order; the fixed 2026 upcoming
-// card was removed when the 2026 Election was published) and the full-width `Cómo funciona` carousel (no section title; the
-// methodology is in the sidebar). The AI
+// Landing screen (DESIGN.md Core Screens 1): a compact hero, the card of the
+// most recent Election the API returns (latest date, see current-election.ts;
+// no section heading, the region is named `Elecciones`; older Elections stay
+// reachable by URL and Share Links) and the full-width `Cómo funciona`
+// carousel (no section title; the methodology is in the sidebar). The AI
 // disclosure lives in the shell footer and on /transparencia. No party names
 // or colours in the page's own markup.
 export function LandingPage({ api }: { readonly api: PublicApi }) {
@@ -45,10 +47,7 @@ export function LandingPage({ api }: { readonly api: PublicApi }) {
         ))}
       </ul>
 
-      <section aria-labelledby="elections-title">
-        <div className="section-head">
-          <h2 id="elections-title">Elecciones disponibles</h2>
-        </div>
+      <section aria-label="Elecciones">
         <ElectionsList state={state} retry={retry} />
       </section>
 
@@ -76,19 +75,19 @@ function ElectionsList({
           </button>
         </div>
       );
-    case "loaded":
+    case "loaded": {
+      const current = currentElection(state.elections);
       return (
         <>
-          {state.elections.length === 0 ? (
+          {current === null ? (
             <p>Ahora mismo no hay elecciones disponibles. Vuelve a consultarlo más adelante.</p>
           ) : null}
           <ul className="election-list">
-            {state.elections.map((election) => (
-              <ElectionItem key={election.id} election={election} />
-            ))}
+            {current === null ? null : <ElectionItem election={current} />}
           </ul>
         </>
       );
+    }
   }
 }
 
