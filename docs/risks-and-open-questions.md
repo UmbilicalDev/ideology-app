@@ -111,6 +111,7 @@ None.
   - quotes with `…` or `[...]` elisions fail;
   - a quote that crosses a page boundary and copies the chunk's `[página N]` marker fails (one of run 2's BNG drops ends in `[página 41]`);
   - very short quotes (e.g. "no") can match by chance.
+  - fragment quotes read poorly for a Voter even when verbatim and correct: in the 2026 Dataset Version 5, 9 of 232 quotes are under 30 letters (e.g. SALF on Statement 23 "Internamiento hasta la ex‐", Adelante Andalucía on Statement 31 starting with an item number). The matcher has no minimum length. A future prompt version or check could ask for whole-sentence quotes (Low, independent validation of `e2e-real-2026-election`).
 
   If the drop rate is high, tune the prompts (a new prompt version, which re-runs the calls) or relax to document-level matching. Never edit the output.
 

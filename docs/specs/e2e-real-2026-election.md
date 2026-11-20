@@ -13,7 +13,7 @@ Publish a Dataset Version for the 29 November 2026 general election (Election 2 
 
 ## Decisions (user decisions of 2026-11-19 unless stated)
 
-1. **Parties.** The parties with a seat in the 40dB/EL PAÍS projection of 19 Nov 2026 and an official 2026 manifesto, plus Podemos and SALF: PP, PSOE, VOX, Frente Amplio, Podemos, ERC, EH Bildu, BNG, Compromís, Adelante Andalucía, SALF (11).
+1. **Parties.** The parties with a seat in the 40dB/EL PAÍS projection of 19 Nov 2026 and an official 2026 manifesto, plus Podemos and SALF: PP, PSOE, VOX, Frente Amplio, Podemos, ERC, EH Bildu, BNG, Compromís, Adelante Andalucía, SALF (11), and Junts since 2026-11-20 (12; step 10).
    - Junts was excluded at first: it had no 2026 manifesto. It was added on 2026-11-20 (step 10).
    - CC and EAJ-PNV were in run 5 and were then excluded. In the 58-Statement pool their manifestos gave stances on about 5 (CC) and 9–12 (EAJ-PNV) Statements, so neither can reach the 50% coverage minimum.
    - The 50% default is unchanged.
@@ -29,6 +29,7 @@ Publish a Dataset Version for the 29 November 2026 general election (Election 2 
    - Run 5: 13 Parties, `position_findings` v3; failed `party_coverage`.
    - Runs 4 and 5 lived only in the local DB, which was reset to the committed one before the 11-Party import. A copy is kept outside the repo at `~/ideology-e2e-2026-logs/ideology.db.pre-cc-pnv-removal`.
    - The next run is a fresh run on the rebuilt Election 2, with `claude_code` / `claude-sonnet-5-5` / `precomputed` and default thresholds.
+5. **Landing.** The fixed `Próximamente` card is removed. The grid shows exactly the API's Elections. The card CSS stays, unused, for a future upcoming Election.
 6. **Run 4 on the re-imported DB (run ids restarted).** 11 Parties, `position_findings` v4, pool 45..60. It failed `party_coverage` only: PP, PSOE, VOX and SALF 12/25 (48%), ERC 11/25 (44%).
    - The pool had 53 Statements, 34 of them separating. ERC had a stance on 16 of the 53 and on 11 of the 34, so no selection could reach 50% (local search over the stored pool).
    - Four stances were cleared by model copy slips. A dropped phrase (PP), a one-letter typo across a line-break hyphen (VOX) and two verbatim quotes cited on the wrong page of their chunk (PSOE, ERC). Without them, PP, PSOE and VOX would have had 13/25.
@@ -47,7 +48,6 @@ Publish a Dataset Version for the 29 November 2026 general election (Election 2 
 8. **Hand-off.** The next real run is left to Kike on this branch (`PROGRESS.md`, Session 092). `--reuse-from 4` replays the 59 `statement_candidates` calls (v1 is unchanged and the chunks are identical). Everything after them is called fresh: about 1 + 247 calls.
 9. **Run 5** (2026-11-19, `--reuse-from 4`, run by the main session because Kike could not yet). It passed and published Dataset Version 5: 30 Statements from an 80-Statement pool, worst coverage 50% (PP, PSOE, VOX, EH Bildu), 3 findings repaired, none discarded. Superseded by step 10: that database is not the committed one.
 10. **12 Parties with Junts** (2026-11-20, user decisions). Junts's manifesto appeared on tualcentre.cat on 18 Nov and was added to the bundle. A 13-Party run that also had EAJ-PNV's official 2026 manifesto failed `party_coverage`: EAJ-PNV reached 3/25. The committed database was then reset to the hand-off state (run 4 failed), Junts was imported, and run 5 (`--reuse-from 4`) passed. It published Dataset Version 5: 12 Parties, 32 Statements from a 77-Statement pool, worst coverage 50% (VOX, ERC, SALF), 2 findings repaired, none discarded. This is the committed database.
-5. **Landing.** The fixed `Próximamente` card is removed. The grid shows exactly the API's Elections. The card CSS stays, unused, for a future upcoming Election.
 
 ## Verification
 
