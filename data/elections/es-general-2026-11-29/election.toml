@@ -3,13 +3,17 @@
 # Every .md file is written by "ideology source extract" and never edited.
 # Parties: those with a seat in the 40dB/EL PAÍS projection of 19 Nov 2026 and an
 # official 2026 manifesto, plus Podemos and SALF (user decision 2026-11-19).
-# CC and EAJ-PNV are excluded (user decision 2026-11-19, after run 5 failed party_coverage):
-# in the 58-Statement pool their manifestos gave stances on only about 5 (CC) and
-# 9-12 (EAJ-PNV) Statements, so neither can reach the 50% coverage minimum.
+# CC is excluded (user decision 2026-11-19, after an earlier run failed party_coverage):
+# in a 58-Statement pool its manifesto gave stances on only about 5 Statements.
+# EAJ-PNV is excluded for the same reason (user decisions 2026-11-19 and 2026-11-20): a
+# 58-Statement pool gave it stances on 9-12 Statements, and a 13-Party run on 2026-11-20
+# with its official 2026 manifesto (43 pages) on only 5 of 70 (3 of 25 selected, 12%).
+# Junts is added (user decision 2026-11-20): its manifesto was published on its official
+# campaign site tualcentre.cat on 18 Nov 2026 (junts.cat refuses automated access).
+# junts.md was extracted with pypdf 6.21.1, the other 2026 files with 7.1.1.
 # salf.md: the PDF was downloaded by the user in a browser (seacabolafiesta.com blocks
 # scripted downloads); its SHA-256 equals the file the official URL serves.
-# Junts is excluded: no 2026 manifesto published as of 2026-11-19.
-# Logos: the six Parties that ran in 2023 reuse their 2023 logo; the user supplied the
+# Logos: the seven Parties that ran in 2023 reuse their 2023 logo; the user supplied the
 # Frente Amplio, Podemos, Compromís, Adelante Andalucía and SALF logos (rasters resized to
 # 256x256 PNG, SVGs as given).
 format = 1
@@ -85,3 +89,9 @@ short_name = "SALF"
 name = "Se Acabó La Fiesta"
 file = "salf.md"
 logo = "logos/salf.png"
+
+[[parties]]
+short_name = "Junts"
+name = "Junts per Catalunya"
+file = "junts.md"
+logo = "logos/junts.png"
