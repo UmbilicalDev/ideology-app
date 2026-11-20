@@ -1516,5 +1516,24 @@
       "2026-11-20 independent validator accept: CI=true ./init.sh exit 0 (pytest 1897, Vitest 939 in 40 files, vite build ok); rg for the old strings in apps/web/src README.md DESIGN.md: no hits; browser walk (Claude desktop Browser pane, Chromium, web-shared-db with the committed data/ideology.db) at 375x812 and 1280x800 (plus 1024), light and dark: Landing shows one card 'Elecciones generales 2026' in region 'Elecciones', no 'Elecciones disponibles', API still lists Elections 2 and 1; skip button text and accessible name 'Saltar' (real clicks; at 375 Anterior/Saltar/Siguiente on one row); matrix Party headers logo plus hidden full name only, columns equal with every spread under 0.1px (2026 end screen 1280 52.34-52.41px, 1024 52px, 2026 shared 1280 52px, 2023 end screen 1280 61.33-61.40px, 2023 shared 1280 53.14-53.20px); inspector opens from a cell; 375 cards keep names; 2026 and 2023 (via /elecciones/1/cuestionario) Share Links reopen with the same rankings; console empty; only same-origin GETs 200/206, no POST, no answers in any request. The 3.25rem token deviation confirmed (3.5rem gives 944px in a 928px box on the 2023 shared result at 1280). Low findings fixed in the same change: DESIGN.md now says Party columns are at least 3.25rem and equal (they stretch with .matrix width 100%); stray comma in the Highlight bullet removed."
     ],
     "notes": "Spec: docs/specs/ui-2026-focus-tweaks.md. Requested by Kike on branch feature/ui-changes, on top of feature/e2e-real-2026-election-junts (PR #107)."
+  },
+  {
+    "id": "landing-card-results-notes",
+    "area": "web",
+    "title": "Wide Election card on desktop and excluded-Party note on the results",
+    "user_visible_behavior": "Two user-requested changes (2026-11-20). (1) From 1024px the Landing's Election card is one row: a larger name (2rem) and the date on the left and a larger 'Realizar cuestionario' button on the right; below 1024px it stays stacked. The card is shorter, so the how-it-works carousel fits on more desktop screens. (2) On the end screen and the shared result of the 2026 general election, the ranking card shows a note 'Partidos no incluidos en el cálculo' explaining that EAJ-PNV is not included because its manifesto lacks enough concrete proposals. Other Elections show no note.",
+    "depends_on": [
+      "ui-2026-focus-tweaks"
+    ],
+    "status": "passing",
+    "verification": [
+      "ExcludedPartiesNotice tests: the 2026 general election gets the EAJ-PNV note, other Elections none; the note renders as a titled role=note and nothing without notes",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop widths: Landing card layout, end screen and shared result show the note; console clean; no request carries answers"
+    ],
+    "evidence": [
+      "2026-11-20 implementer: npm typecheck ok, Vitest 946 passed (41 files, new ExcludedPartiesNotice.test.tsx), vite build ok on feature/landing-card-results-disclaimer.",
+      "Browser (Claude desktop Browser pane, Chromium, dark theme, web-shared-db on data/ideology.db): Landing at 1440x900 shows the card as one row and the whole carousel above the fold; at 1024 the row holds (name wraps to two lines); at 375 the card is stacked as before. End screen of Elecciones generales 2026 (30 answers) at 1440 and 375 shows the note between the intro and the ranking; the shared result (/resultados#v1-5-...) at 375 shows it too. Console: no errors. Network: only GETs (pages, assets, /api/v1/elections/2, dataset-versions/5, logos, donation); the answers stay in the URL fragment."
+    ]
   }
 ]

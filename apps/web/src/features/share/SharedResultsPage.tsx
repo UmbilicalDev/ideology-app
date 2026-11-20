@@ -7,6 +7,7 @@ import { HomeButton } from "../common/HomeButton";
 import { METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { useMediaQuery } from "../common/useMediaQuery";
 import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
+import { excludedPartiesFor, ExcludedPartiesNotice } from "../results/ExcludedPartiesNotice";
 import { RankingHeader } from "../results/RankingHeader";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
@@ -146,6 +147,7 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
           tabIndex={wide ? 0 : undefined}
         >
           <RankingHeader text={results.hasScores ? RESULTS_INTRO : NO_SCORES} warning={DISCLAIMER} />
+          <ExcludedPartiesNotice notes={excludedPartiesFor(election)} />
           {results.hasScores ? <ResultsRanking ranking={results.ranking} /> : null}
         </div>
         <p>

@@ -27,6 +27,7 @@ import {
   StepOverIcon,
 } from "../../ui/icons";
 import { DonationBlock } from "../donate/DonationBlock";
+import { ExcludedPartiesNotice } from "../results/ExcludedPartiesNotice";
 import { FeedbackButton } from "../feedback/FeedbackButton";
 import { METHODOLOGY_PATH } from "../paths";
 import { useMediaQuery } from "../common/useMediaQuery";
@@ -76,8 +77,11 @@ const IMPORTANT_HINT = "Las afirmaciones importantes cuentan el doble al calcula
 export function QuestionnaireFlow({
   datasetVersion,
   feedbackApi,
+  excludedParties = [],
 }: {
   readonly datasetVersion: DatasetVersion;
+  /** Notes on Parties left out of this Election (ExcludedPartiesNotice). */
+  readonly excludedParties?: readonly string[];
   /** Only the feedback port: the dialog never receives Questionnaire state. */
   readonly feedbackApi: FeedbackApi;
 }) {
@@ -116,6 +120,7 @@ export function QuestionnaireFlow({
           results={results}
           headingRef={headingRef}
           feedbackApi={feedbackApi}
+          excludedParties={excludedParties}
           onFirst={() => move({ type: "first" })}
         />
       ) : (
@@ -282,6 +287,7 @@ function EndScreen({
   results,
   headingRef,
   feedbackApi,
+  excludedParties,
   onFirst,
 }: {
   readonly datasetVersionId: number;
@@ -289,6 +295,7 @@ function EndScreen({
   readonly results: Results;
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly feedbackApi: FeedbackApi;
+  readonly excludedParties: readonly string[];
   readonly onFirst: () => void;
 }) {
   const { answered, skipped, important, total } = summarize(state);
@@ -324,6 +331,7 @@ function EndScreen({
           tabIndex={wide ? 0 : undefined}
         >
           <RankingHeader text={hasScores ? RESULTS_INTRO : NO_RESULTS_PROMPT} warning={DISCLAIMER} />
+          <ExcludedPartiesNotice notes={excludedParties} />
           {hasScores ? <ResultsRanking ranking={ranking} /> : null}
         </div>
         <div className="share-card">

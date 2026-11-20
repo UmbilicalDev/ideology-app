@@ -6,6 +6,7 @@ import { HomeButton } from "../common/HomeButton";
 import { NotFoundPage } from "../not-found/NotFoundPage";
 import { parseElectionId } from "../paths";
 import { FocusShell } from "../shell/FocusShell";
+import { excludedPartiesFor } from "../results/ExcludedPartiesNotice";
 import { QuestionnaireFlow } from "./QuestionnaireFlow";
 import { useQuestionnaireData } from "./useQuestionnaireData";
 
@@ -77,6 +78,7 @@ function QuestionnaireLoader({
                 key={state.datasetVersion.id}
                 datasetVersion={state.datasetVersion}
                 feedbackApi={api}
+                excludedParties={excludedPartiesFor(state.election)}
               />
             );
         }

@@ -68,6 +68,7 @@ None.
 - Anonymous aggregate statistics.
 - OCR for scanned manifestos.
 - Showing parties' past parliamentary voting record alongside the manifesto.
+- Excluded-Party notes (`landing-card-results-notes`): the results note about Parties left out of an Election (today EAJ-PNV in 2026) is hard-coded in the web client by Election type and date (`ExcludedPartiesNotice.tsx`). A future Election with exclusions needs a new entry there; moving the reason into the Election data and the public API would remove that step.
 
 ## Assumptions
 
