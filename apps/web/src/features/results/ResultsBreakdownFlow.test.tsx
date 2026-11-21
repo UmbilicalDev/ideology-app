@@ -7,6 +7,7 @@ import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@i
 import { App } from "../../app/App";
 import { apiPaths, datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
 import { textWithoutLogos } from "../../test/text";
+import { answerButton, findAnswerButtons, restartQuestionnaire, type AnswerName } from "../../test/questionnaire";
 
 // The results breakdown through the whole App, with the 6-Statement fixture
 // (ids 101..106): Partido Uno +1 everywhere with Evidence from a URL document
@@ -21,8 +22,9 @@ const UPLOAD_SENTENCE = "Página 1 del programa electoral. Este documento no tie
 const NO_STANCE_SENTENCE =
   "El programa de este partido no trata esta afirmación, así que no cuenta para su afinidad.";
 const PROMPT =
-  "Todavía no se puede calcular tu afinidad: no has respondido ninguna afirmación en la que " +
-  "los partidos tengan posición. Responde al menos una para ver los resultados.";
+  "Todavía no se puede calcular tu afinidad: no has respondido con opinión ninguna afirmación " +
+  "en la que los partidos tengan posición. Pulsa «Repetir cuestionario» y responde al menos " +
+  "una con «De acuerdo» o «En desacuerdo».";
 
 type PartyJson = { positions: { evidence: Record<string, unknown> | null }[] };
 
@@ -75,14 +77,14 @@ function renderAt(path: string, fetch: FetchLike) {
 
 async function openSix(fetch: FetchLike = happyFetch()) {
   renderAt("/elecciones/1/cuestionario", fetch);
-  await screen.findByRole("radiogroup");
+  await findAnswerButtons();
 }
 
 function button(name: string) {
   return screen.getByRole("button", { name }) as HTMLButtonElement;
 }
 
-type Step = { readonly label: string; readonly important?: boolean } | "neutral" | "flag-neutral";
+type Step = { readonly label: AnswerName; readonly important?: boolean } | "neutral" | "flag-neutral";
 
 function walk(steps: readonly Step[]) {
   for (const step of steps) {
@@ -90,15 +92,13 @@ function walk(steps: readonly Step[]) {
       if (step === "flag-neutral") {
         fireEvent.click(button("Importante para mí"));
       }
-      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-      fireEvent.click(button("Siguiente"));
+      fireEvent.click(answerButton("Neutral / No lo sé"));
       continue;
     }
     if (step.important === true) {
       fireEvent.click(button("Importante para mí"));
     }
-    fireEvent.click(screen.getByRole("radio", { name: step.label }));
-    fireEvent.click(button("Siguiente"));
+    fireEvent.click(answerButton(step.label));
   }
 }
 
@@ -174,7 +174,7 @@ describe("results breakdown", () => {
       expect(partyNames(row)).toEqual(["Partido Uno", "Partido Dos"]);
     }
 
-    fireEvent.click(button("Revisar mis respuestas"));
+    restartQuestionnaire();
     walk(Array.from({ length: 6 }, () => ({ label: "En desacuerdo" })));
     expect(rankingNames()).toEqual(["Partido Dos", "Partido Uno"]);
     for (const row of breakdownRows()) {

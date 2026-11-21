@@ -24,7 +24,7 @@ The ordered set of Statements for one Election in one Dataset Version.
 The user's response to a Statement, one of three options: `De acuerdo` (agree, +1), `En desacuerdo` (disagree, −1) or `Neutral / No lo sé` (neutral). Neutral leaves the Statement without a value: it does not count toward the Match Score. There is no separate `skip` (removed 2026-11-21, `three-option-scale`). An Answer may be marked Important.
 
 ### Important
-A flag the user sets on an Answer; that Statement counts double in the Match Score.
+A flag the user sets on an Answer; that Statement counts double in the Match Score. The flag is set before answering, and at most a third of the questionnaire's Statements (rounded up) can be Important. A Neutral Answer drops the flag, because it would not count.
 
 ### Party Position
 The AI-extracted stance of a Party on a Statement, stored on a 5-point scale (−2..+2), or `no stance`. Every non-`no stance` Party Position carries Evidence. For matching it is read by side: −2/−1 against, +1/+2 in favour; 0 (neutral) is excluded like `no stance`.

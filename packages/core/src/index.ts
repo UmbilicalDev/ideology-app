@@ -28,7 +28,9 @@ export type {
 } from "./domain/dataset-version";
 export {
   currentStatementId,
+  importantLimit,
   isAtEnd,
+  isImportantCapReached,
   reduceQuestionnaire,
   startQuestionnaire,
   summarize,

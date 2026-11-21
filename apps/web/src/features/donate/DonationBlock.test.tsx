@@ -15,6 +15,7 @@ import {
   jsonResponse,
   textResponse,
 } from "../../test/fetch-mocks";
+import { answerButton, findAnswerButtons } from "../../test/questionnaire";
 
 const PROFILE = "https://www.buymeacoffee.com/perfil_de_prueba";
 const ELECTION_URL = "/api/v1/elections/1";
@@ -55,11 +56,10 @@ function renderAt(path: string, fetch: FetchLike) {
 
 async function reachResults(fetch: FetchLike) {
   renderAt("/elecciones/1/cuestionario", fetch);
-  await screen.findByRole("radiogroup");
+  await findAnswerButtons();
   for (let i = 0; i < 3; i += 1) {
-    fireEvent.click(screen.getByRole("radio", { name: "De acuerdo" }));
     if (i === 1) fireEvent.click(screen.getByRole("button", { name: "Importante para mí" }));
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(answerButton("De acuerdo"));
   }
   expect(screen.getByRole("heading", { level: 2, name: "Tus resultados" })).toBeTruthy();
 }
@@ -123,9 +123,9 @@ describe("donation block at the end of the results", () => {
       expect.arrayContaining([ELECTION_URL, VERSION_URL, DONATION_PATH]),
     );
     expect(fetch).toHaveBeenCalledTimes(3);
-    // The Answers survive: reviewing shows the first one still checked.
-    fireEvent.click(screen.getByRole("button", { name: "Revisar mis respuestas" }));
-    expect((screen.getByRole("radio", { name: "De acuerdo" }) as HTMLInputElement).checked).toBe(true);
+    // The Answers survive: the end screen is still there, with the same ranking.
+    expect(screen.getByRole("heading", { level: 2, name: "Tus resultados" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Repetir cuestionario" })).toBeTruthy();
   });
 
   test.each<[string, Donation]>([

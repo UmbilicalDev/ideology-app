@@ -7,6 +7,7 @@ import { createPublicApiClient, type FetchLike, type HttpResponseLike } from "@i
 import { App } from "../../app/App";
 import { datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
 import { appShareLinks, SHARE_TEXT } from "./app-share-links";
+import { answerButton, findAnswerButtons } from "../../test/questionnaire";
 
 const INTRO = "¿Te ha gustado IdeologiApp? Recomienda esta web a otras personas.";
 const COPIED = "Enlace de IdeologiApp copiado.";
@@ -58,14 +59,12 @@ function button(name: string) {
 async function finish({ allNeutral = false } = {}) {
   const fetch = sixStatementFetch();
   renderAt("/elecciones/1/cuestionario", fetch);
-  await screen.findByRole("radiogroup");
+  await findAnswerButtons();
   for (let i = 0; i < 6; i += 1) {
     if (allNeutral) {
-      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-      fireEvent.click(button("Siguiente"));
+      fireEvent.click(answerButton("Neutral / No lo sé"));
     } else {
-      fireEvent.click(screen.getByRole("radio", { name: i === 5 ? "En desacuerdo" : "De acuerdo" }));
-      fireEvent.click(button("Siguiente"));
+      fireEvent.click(answerButton(i === 5 ? "En desacuerdo" : "De acuerdo"));
     }
   }
   expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
@@ -259,9 +258,9 @@ describe("ShareApp on the end screen", () => {
     expect(clicks).toHaveLength(4);
     expect(fetch).toHaveBeenCalledTimes(calls);
     expect(added).toEqual([]);
-    // The answers stay in memory: Revisar mis respuestas still opens Statement 1, rated.
-    fireEvent.click(button("Revisar mis respuestas"));
-    expect((screen.getByRole("radio", { name: "De acuerdo" }) as HTMLInputElement).checked).toBe(true);
+    // The answers stay in memory: the end screen is still there.
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
+    expect(button("Repetir cuestionario")).toBeTruthy();
   });
 
   test("Scenario 4: Instagram with navigator.share resolving shares once; no copy, empty status", async () => {

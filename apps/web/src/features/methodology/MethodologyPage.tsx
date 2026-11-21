@@ -182,6 +182,11 @@ export function MethodologyPage() {
               importantes cuentan el doble.
             </p>
             <p>
+              Puedes marcar como importantes hasta un tercio de las afirmaciones, redondeando hacia
+              arriba. Si respondes «Neutral / No lo sé» a una afirmación marcada, la marca se quita,
+              porque no contaría.
+            </p>
+            <p>
               Cada partido muestra «N de M coincidencias»: M son las afirmaciones que se pueden
               comparar con ese partido y N aquellas en las que coincidís. La afinidad es el
               porcentaje de coincidencias; si marcas afirmaciones como importantes, el porcentaje

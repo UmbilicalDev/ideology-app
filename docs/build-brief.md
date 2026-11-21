@@ -39,7 +39,7 @@ One complete flow with real data:
 1. The Operator registers the latest Spanish general election, its parties with seats, and their manifestos (upload or URL).
 2. A Pipeline Run (through a configurable LLM provider) generates the Questionnaire and Party Positions with Evidence.
 3. Validation passes → the Dataset Version is published automatically.
-4. A Voter answers the Statements (three options: De acuerdo, Neutral / No lo sé, En desacuerdo; Important), sees the ranking by Match Score and a per-Statement breakdown with each Party's Position and Evidence.
+4. A Voter answers the Statements, one tap each (three options: En desacuerdo, Neutral / No lo sé, De acuerdo; Important, up to a third of the Statements), sees the ranking by Match Score and a per-Statement breakdown with each Party's Position and Evidence.
 5. The Voter copies a Share Link that reproduces the same result.
 
 ## Matching Rule (initial position)

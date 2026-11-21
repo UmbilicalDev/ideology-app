@@ -31,9 +31,9 @@ export const HOW_IT_WORKS_SLIDES: readonly HowItWorksSlide[] = [
   {
     title: "Responde a las afirmaciones",
     points: [
-      "Responde «De acuerdo», «En desacuerdo» o «Neutral / No lo sé».",
+      "Pulsa «En desacuerdo», «Neutral» o «De acuerdo» y pasarás a la siguiente.",
       "Si no lo tienes claro, elige «Neutral / No lo sé».",
-      "Marca como importantes las que más te importan.",
+      "Antes de responder, marca como importantes las que más te importan (hasta un tercio).",
     ],
     dark: { video: answerDarkVideo, poster: answerDarkPoster },
     light: { video: answerLightVideo, poster: answerLightPoster },

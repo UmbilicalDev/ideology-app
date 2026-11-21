@@ -12,6 +12,7 @@ import {
 import { App } from "../../app/App";
 import { apiPaths, datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
 import { COPIED_FLASH_MS } from "./useCopiedFlash";
+import { answerButton, findAnswerButtons, type AnswerName } from "../../test/questionnaire";
 
 const FALLBACK = "No se ha podido copiar el enlace automáticamente. Cópialo desde este campo:";
 const NOTE =
@@ -57,20 +58,18 @@ function button(name: string) {
   return screen.getByRole("button", { name }) as HTMLButtonElement;
 }
 
-type Step = { readonly rate?: string; readonly important?: boolean; readonly neutral?: boolean };
+type Step = { readonly rate?: AnswerName; readonly important?: boolean; readonly neutral?: boolean };
 
 /** Opens the six-Statement Questionnaire and answers it step by step. */
 async function finish(steps: readonly Step[], fetch: FetchLike = sixStatementFetch()) {
   renderAt("/elecciones/1/cuestionario", fetch);
-  await screen.findByRole("radiogroup");
+  await findAnswerButtons();
   for (const step of steps) {
     if (step.important) fireEvent.click(button("Importante para mí"));
     if (step.neutral) {
-      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-      fireEvent.click(button("Siguiente"));
+      fireEvent.click(answerButton("Neutral / No lo sé"));
     } else {
-      fireEvent.click(screen.getByRole("radio", { name: step.rate ?? "De acuerdo" }));
-      fireEvent.click(button("Siguiente"));
+      fireEvent.click(answerButton(step.rate ?? "De acuerdo"));
     }
   }
   expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
@@ -157,17 +156,18 @@ describe("ShareResults", () => {
     expect(warning.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  test("Scenario 2: a Neutral and a flagged Neutral Answer are encoded with their flags", async () => {
+  test("Scenario 2: Neutral Answers are encoded as n; a flag pressed before Neutral is dropped", async () => {
     const writeText = vi.fn(async (_text: string) => undefined);
     defineClipboard({ writeText });
     await finish([{}, { important: true, neutral: true }, {}, {}, {}, { neutral: true }]);
     fireEvent.click(button("Copiar enlace"));
     await screen.findByText("Enlace copiado.");
     const url = writeText.mock.calls[0]![0];
-    expect(url).toBe(`${window.location.origin}/resultados#v2-1-aNaaan`);
+    // questionnaire-quick-answer Decision 3: links from the flow never carry N.
+    expect(url).toBe(`${window.location.origin}/resultados#v2-1-anaaan`);
     expect(decodeShareLink(url.split("#")[1]!).entries).toEqual([
       { value: 1, important: false },
-      { value: "neutral", important: true },
+      { value: "neutral", important: false },
       { value: 1, important: false },
       { value: 1, important: false },
       { value: 1, important: false },
