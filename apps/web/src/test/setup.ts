@@ -4,10 +4,12 @@
 // `HTMLDialogElement.showModal`/`close`: minimal stand-ins are defined only
 // when missing (no top layer or inert page; tests check focus themselves).
 // jsdom does not implement media playback: `play`/`pause` on <video> are
-// silent stubs (play resolves) that tests can spy on.
+// silent stubs (play resolves) that tests can spy on. The Questionnaire's
+// double-tap lock is off (0 ms) unless a test sets it.
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
+import { ANSWER_LOCK } from "../features/questionnaire/answer-lock";
 import { forgetPreloadedPartyLogos } from "../features/results/party-logo-preload";
 
 if (typeof HTMLDialogElement.prototype.showModal !== "function") {
@@ -26,6 +28,7 @@ if (typeof HTMLDialogElement.prototype.close !== "function") {
 }
 
 beforeEach(() => {
+  ANSWER_LOCK.ms = 0;
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   vi.stubGlobal("fetch", () => {

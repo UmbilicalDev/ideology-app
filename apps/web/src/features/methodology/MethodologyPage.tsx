@@ -101,6 +101,10 @@ export function MethodologyPage() {
               lugar el texto exacto del programa y su página; la posición no cambia.
             </p>
             <p>
+              Para calcular la afinidad solo cuenta de qué lado está la posición: a favor o en
+              contra. La intensidad se ve en la cita.
+            </p>
+            <p>
               Si el programa no trata una afirmación, el partido queda sin posición en ella: sus
               instrucciones le prohíben deducir la posición de la ideología general del partido o de
               que el programa no mencione el asunto. Sí cuenta como tratarla una propuesta concreta
@@ -166,21 +170,32 @@ export function MethodologyPage() {
           <section aria-labelledby="methodology-matching-title">
             <h2 id="methodology-matching-title">Cómo se calcula la afinidad</h2>
             <p>
-              Tus respuestas y las posiciones de los partidos usan la misma escala de cinco puntos.
-              En cada afirmación, la coincidencia con un partido es del 100&nbsp;% si tu respuesta y
-              su posición son iguales, y baja 25 puntos por cada paso de diferencia en la escala: es
-              del 0&nbsp;% entre «totalmente de acuerdo» y «totalmente en desacuerdo».
+              Respondes cada afirmación con una de tres opciones: «De acuerdo», «En desacuerdo» o
+              «Neutral / No lo sé». La posición de cada partido se lee por su lado: a favor si está
+              de acuerdo o muy de acuerdo, en contra si está en desacuerdo o muy en desacuerdo.
             </p>
             <p>
-              La afinidad con cada partido es la media de esas coincidencias en las afirmaciones que
-              respondes y en las que el partido tiene posición. Las afirmaciones que te saltes y
-              aquellas en las que el partido no tiene posición no cuentan. Las que marques como
+              En cada afirmación, si tú y el partido estáis del mismo lado, cuenta como una
+              coincidencia (1); si estáis en lados opuestos, no coincide (0). No cuentan las
+              afirmaciones en las que respondes «Neutral / No lo sé», ni aquellas en las que el
+              partido no tiene posición o tiene una posición neutral. Las que marques como
               importantes cuentan el doble.
             </p>
             <p>
-              Si compartes menos de 5 afirmaciones con un partido, su afinidad se marca como de baja
-              cobertura, porque se basa en pocos datos. Los partidos se ordenan por afinidad y, en
-              caso de empate, alfabéticamente.
+              Puedes marcar como importantes hasta un tercio de las afirmaciones, redondeando hacia
+              arriba. Si respondes «Neutral / No lo sé» a una afirmación marcada, la marca se quita,
+              porque no contaría.
+            </p>
+            <p>
+              Cada partido muestra «N de M coincidencias»: M son las afirmaciones que se pueden
+              comparar con ese partido y N aquellas en las que coincidís. La afinidad es el
+              porcentaje de coincidencias; si marcas afirmaciones como importantes, el porcentaje
+              las pondera, así que puede diferir un poco de N entre M.
+            </p>
+            <p>
+              Si se pueden comparar menos de 5 afirmaciones con un partido, su afinidad se marca
+              como de baja cobertura, porque se basa en pocos datos. Los partidos se ordenan por
+              afinidad y, en caso de empate, alfabéticamente.
             </p>
           </section>
 
@@ -197,7 +212,8 @@ export function MethodologyPage() {
               servidor y el enlace no se guarda en ningún sitio: quien lo tenga puede ver tus
               respuestas. Al abrir el enlace se ve el mismo resultado, calculado de nuevo en el
               navegador con la misma versión del cuestionario; si después se ha publicado una más
-              reciente, se avisa.
+              reciente, se avisa. Los enlaces creados antes del cuestionario de tres opciones
+              muestran un aviso en lugar del resultado.
             </p>
             <p>
               Si nos envías tu opinión sobre la herramienta, se guarda solo el texto que escribas,

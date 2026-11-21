@@ -2,9 +2,11 @@ import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from
 import { Link } from "react-router";
 
 import {
-  SKIP,
+  NEUTRAL,
   buildResults,
   currentStatementId,
+  importantLimit,
+  isImportantCapReached,
   reduceQuestionnaire,
   startQuestionnaire,
   summarize,
@@ -14,18 +16,10 @@ import {
   type QuestionnaireAction,
   type QuestionnaireState,
   type Results,
-  type ScaleValue,
   type Statement,
 } from "@ideology-app/core";
 
-import {
-  ArrowBackIcon,
-  ArrowForwardIcon,
-  ExternalLinkIcon,
-  ShieldIcon,
-  StarIcon,
-  StepOverIcon,
-} from "../../ui/icons";
+import { ArrowBackIcon, ExternalLinkIcon, ShieldIcon, StarIcon } from "../../ui/icons";
 import { DonationBlock } from "../donate/DonationBlock";
 import { ExcludedPartiesNotice } from "../results/ExcludedPartiesNotice";
 import { FeedbackButton } from "../feedback/FeedbackButton";
@@ -35,16 +29,21 @@ import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
 import { RankingHeader } from "../results/RankingHeader";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
-import { ScaleIcon } from "../scale-icons";
-import { SCALE_LABELS } from "../scale-labels";
+import { SideIcon, answerSide } from "../scale-icons";
+import { answerLabel } from "../scale-labels";
 import { ShareApp } from "../share/ShareApp";
 import { ShareResults } from "../share/ShareResults";
+import { ANSWER_LOCK } from "./answer-lock";
+import { RestartButton } from "./RestartDialog";
 
-// The five options from most to least favourable (Muy de acuerdo first).
-// Meaning is carried by the text, never by colour alone (DESIGN.md).
-const SCALE_OPTIONS: readonly { readonly value: ScaleValue; readonly label: string }[] = (
-  [2, 1, 0, -1, -2] as const
-).map((value) => ({ value, label: SCALE_LABELS[value] }));
+// The three answer buttons, left to right and in Tab order: En desacuerdo,
+// Neutral / No lo sé, De acuerdo (user decision 2026-11-21). Neutral leaves
+// the Statement without a value (it does not count for the Match Score).
+// Meaning is carried by the text and icon, never by colour (DESIGN.md).
+const ANSWER_OPTIONS: readonly AnswerValue[] = [-1, NEUTRAL, 1];
+
+const STATUS_BACK = "Respuesta borrada. Vuelve a responder esta afirmación.";
+const STATUS_RESTART = "Cuestionario reiniciado.";
 
 const NOTE =
   "Las afirmaciones las ha generado una inteligencia artificial a partir de los programas " +
@@ -60,14 +59,22 @@ function init(datasetVersion: DatasetVersion): QuestionnaireState {
 const RESULTS_INTRO = "Afinidad entre tus respuestas y el programa de cada partido, de mayor a menor.";
 
 const NO_RESULTS_PROMPT =
-  "Todavía no se puede calcular tu afinidad: no has respondido ninguna afirmación en la que " +
-  "los partidos tengan posición. Responde al menos una para ver los resultados.";
+  "Todavía no se puede calcular tu afinidad: no has respondido con opinión ninguna afirmación " +
+  "en la que los partidos tengan posición. Pulsa «Repetir cuestionario» y responde al menos " +
+  "una con «De acuerdo» o «En desacuerdo».";
 
 const DISCLAIMER =
   "Esto no es una recomendación de voto: solo compara tus respuestas con lo que dicen los " +
   "programas, según una inteligencia artificial que puede equivocarse.";
 
-const IMPORTANT_HINT = "Las afirmaciones importantes cuentan el doble al calcular la afinidad.";
+function importantHint(limit: number): string {
+  return `Las afirmaciones importantes cuentan el doble al calcular la afinidad. Puedes marcar hasta ${limit}.`;
+}
+
+function importantCapText(limit: number): string {
+  const marked = limit === 1 ? "1 afirmación como importante" : `${limit} afirmaciones como importantes`;
+  return `Ya has marcado ${marked}, el máximo (un tercio del cuestionario).`;
+}
 
 /**
  * The Questionnaire itself (DESIGN.md Core Screens 2). Answers and Important
@@ -92,6 +99,12 @@ export function QuestionnaireFlow({
   // Which way the last move went, for the step transition; none on load.
   const [direction, setDirection] = useState<StepDirection | null>(null);
 
+  // The polite status line: what the last move did. `seq` remounts its text
+  // so a repeated message is announced again.
+  const [status, setStatus] = useState({ text: "", seq: 0 });
+  // Double-tap guard (answer-lock.ts): moves before this time are ignored.
+  const lockedUntil = useRef(0);
+
   useEffect(() => {
     if (focusPending.current) {
       focusPending.current = false;
@@ -100,9 +113,22 @@ export function QuestionnaireFlow({
   }, [state.currentIndex]);
 
   function move(action: QuestionnaireAction) {
+    const now = performance.now();
+    // `restart` comes from the confirmation dialog, never from a double tap.
+    if (action.type !== "restart" && now < lockedUntil.current) {
+      return;
+    }
+    lockedUntil.current = now + ANSWER_LOCK.ms;
     focusPending.current = true;
-    setDirection(action.type === "back" || action.type === "first" ? "back" : "forward");
+    setDirection(action.type === "back" ? "back" : action.type === "restart" ? null : "forward");
     dispatch(action);
+    const text =
+      action.type === "answer"
+        ? `Respuesta guardada: ${answerLabel(action.value)}.`
+        : action.type === "back"
+          ? STATUS_BACK
+          : STATUS_RESTART;
+    setStatus((previous) => ({ text, seq: previous.seq + 1 }));
   }
 
   const statementId = currentStatementId(state);
@@ -110,9 +136,13 @@ export function QuestionnaireFlow({
   // Recomputed from the in-memory state on every change; nothing is cached
   // or sent anywhere. The shared result (Share Link) uses the same function.
   const results = useMemo(() => buildResults(datasetVersion, state), [state, datasetVersion]);
+  const limit = importantLimit(state.statementIds.length);
 
   return (
     <>
+      <p role="status" className="visually-hidden">
+        <span key={status.seq}>{status.text}</span>
+      </p>
       {statement === undefined ? (
         <EndScreen
           datasetVersionId={datasetVersion.id}
@@ -121,7 +151,7 @@ export function QuestionnaireFlow({
           headingRef={headingRef}
           feedbackApi={feedbackApi}
           excludedParties={excludedParties}
-          onFirst={() => move({ type: "first" })}
+          onRestart={() => move({ type: "restart" })}
         />
       ) : (
         <StatementStep
@@ -129,10 +159,10 @@ export function QuestionnaireFlow({
           direction={direction}
           index={state.currentIndex}
           total={state.statementIds.length}
-          answer={state.answers.get(statement.id)}
           important={state.important.has(statement.id)}
+          atCap={isImportantCapReached(state) && !state.important.has(statement.id)}
+          limit={limit}
           headingRef={headingRef}
-          onSelect={(value) => dispatch({ type: "select", value })}
           onToggleImportant={() => dispatch({ type: "toggleImportant" })}
           onMove={move}
         />
@@ -148,10 +178,10 @@ function StatementStep({
   direction,
   index,
   total,
-  answer,
   important,
+  atCap,
+  limit,
   headingRef,
-  onSelect,
   onToggleImportant,
   onMove,
 }: {
@@ -159,10 +189,11 @@ function StatementStep({
   readonly direction: StepDirection | null;
   readonly index: number;
   readonly total: number;
-  readonly answer: AnswerValue | undefined;
   readonly important: boolean;
+  /** The cap is reached and this Statement is not marked. */
+  readonly atCap: boolean;
+  readonly limit: number;
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
-  readonly onSelect: (value: ScaleValue) => void;
   readonly onToggleImportant: () => void;
   readonly onMove: (action: QuestionnaireAction) => void;
 }) {
@@ -170,9 +201,21 @@ function StatementStep({
   return (
     <>
       <div className="statement-card">
-        <p id="questionnaire-progress" className="questionnaire__progress-label">
-          {`Afirmación ${n} de ${total}`}
-        </p>
+        {/* Anterior (from the second Statement; an empty placeholder keeps
+            the row's height on the first) and the progress label. */}
+        <div className="statement-card__top">
+          {index > 0 ? (
+            <button type="button" className="step-back" onClick={() => onMove({ type: "back" })}>
+              <ArrowBackIcon />
+              <span>Anterior</span>
+            </button>
+          ) : (
+            <span className="step-back-placeholder" aria-hidden="true" />
+          )}
+          <p id="questionnaire-progress" className="questionnaire__progress-label">
+            {`Afirmación ${n} de ${total}`}
+          </p>
+        </div>
         <progress
           className="questionnaire__progress"
           max={total}
@@ -180,52 +223,50 @@ function StatementStep({
           aria-labelledby="questionnaire-progress"
         />
         {/* Remounted per Statement, so it slides in from the side the Voter
-            moved towards (DESIGN.md "Step transition"); the progress, the
-            card and the controls stay put. */}
+            moved towards (DESIGN.md "Step transition"); the top row, the bar
+            and the answer buttons stay put. */}
         <div key={statement.id} className="statement-step" data-enter={direction ?? undefined}>
-          <h2 id="statement-text" className="questionnaire__statement" tabIndex={-1} ref={headingRef}>
+          <h2
+            id="statement-text"
+            className="questionnaire__statement"
+            tabIndex={-1}
+            ref={headingRef}
+            aria-describedby="questionnaire-progress"
+          >
             {statement.text}
           </h2>
-          <ImportantToggle important={important} onToggle={onToggleImportant} />
-          <div role="radiogroup" aria-labelledby="statement-text" className="scale">
-            {SCALE_OPTIONS.map((option) => (
-              <label key={option.value} className="scale-option">
-                <input
-                  type="radio"
-                  name={`answer-${statement.id}`}
-                  value={option.value}
-                  checked={answer === option.value}
-                  onChange={() => onSelect(option.value)}
-                />{" "}
-                <ScaleIcon value={option.value} className="scale-option__icon" />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-          {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
+          <ImportantToggle
+            important={important}
+            atCap={atCap}
+            limit={limit}
+            onToggle={onToggleImportant}
+          />
         </div>
-        {/* One row of equal buttons in reading order: Anterior (from the
-            second Statement), Saltar, Siguiente. */}
-        <div className="questionnaire__controls step-controls">
-          {index > 0 ? (
-            <button type="button" className="button-secondary" onClick={() => onMove({ type: "back" })}>
-              <ArrowBackIcon />
-              <span>Anterior</span>
+        {/* One tap answers and shows the next Statement. Identical markup
+            and style for the three; the side is in the text and icon. */}
+        <div role="group" aria-labelledby="statement-text" className="questionnaire__controls answer-controls">
+          {ANSWER_OPTIONS.map((value) => (
+            <button
+              key={String(value)}
+              type="button"
+              className="answer-button"
+              data-answer={String(value)}
+              onClick={() => onMove({ type: "answer", value })}
+            >
+              <SideIcon side={answerSide(value)} className="answer-button__icon" />
+              {value === NEUTRAL ? (
+                // Accessible name `Neutral / No lo sé`; the spaces sit outside
+                // the hidden slash so every name computation keeps them.
+                <span className="answer-button__label">
+                  Neutral{" "}
+                  <span className="visually-hidden">/</span>{" "}
+                  <span className="answer-button__sub">No lo sé</span>
+                </span>
+              ) : (
+                <span className="answer-button__label">{answerLabel(value)}</span>
+              )}
             </button>
-          ) : null}
-          <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
-            <StepOverIcon />
-            <span>Saltar</span>
-          </button>
-          <button
-            type="button"
-            className="button-primary"
-            disabled={answer === undefined}
-            onClick={() => onMove({ type: "next" })}
-          >
-            <span>Siguiente</span>
-            <ArrowForwardIcon />
-          </button>
+          ))}
         </div>
       </div>
       <section className="disclosure-card" aria-labelledby="ai-privacy-title">
@@ -245,9 +286,13 @@ function StatementStep({
 
 function ImportantToggle({
   important,
+  atCap,
+  limit,
   onToggle,
 }: {
   readonly important: boolean;
+  readonly atCap: boolean;
+  readonly limit: number;
   readonly onToggle: () => void;
 }) {
   // A short glow when the Voter turns the flag on; not on mount, so going
@@ -259,8 +304,11 @@ function ImportantToggle({
         type="button"
         className={flash ? "important-toggle important-toggle--flash" : "important-toggle"}
         aria-pressed={important}
-        aria-describedby="important-hint"
+        // At the cap it stays focusable and says why it does nothing.
+        aria-disabled={atCap ? true : undefined}
+        aria-describedby={atCap ? "important-hint important-cap" : "important-hint"}
         onClick={() => {
+          if (atCap) return;
           setFlash(!important);
           onToggle();
         }}
@@ -275,8 +323,13 @@ function ImportantToggle({
       {/* Shown as a tooltip on hover or keyboard focus; always the
           toggle's description for screen readers. */}
       <p id="important-hint" role="tooltip" className="questionnaire__hint important-hint">
-        {IMPORTANT_HINT}
+        {importantHint(limit)}
       </p>
+      {atCap ? (
+        <p id="important-cap" className="important-cap">
+          {importantCapText(limit)}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -288,7 +341,7 @@ function EndScreen({
   headingRef,
   feedbackApi,
   excludedParties,
-  onFirst,
+  onRestart,
 }: {
   readonly datasetVersionId: number;
   readonly state: QuestionnaireState;
@@ -296,10 +349,10 @@ function EndScreen({
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
   readonly feedbackApi: FeedbackApi;
   readonly excludedParties: readonly string[];
-  readonly onFirst: () => void;
+  readonly onRestart: () => void;
 }) {
-  const { answered, skipped, important, total } = summarize(state);
-  // A ranking needs one rated Statement on which some Party has a stance.
+  const { answered, neutral, important, total } = summarize(state);
+  // A ranking needs one sided Answer on which some Party has a sided stance.
   const { ranking, breakdown, hasScores } = results;
   const wide = useMediaQuery(MATRIX_QUERY);
   return (
@@ -313,15 +366,13 @@ function EndScreen({
       <div className="results-dashboard">
         <ResultsSummary
           answered={answered}
-          skipped={skipped}
+          neutral={neutral}
           important={important}
           total={total}
           voice="voter"
         />
         <div className="questionnaire__controls">
-          <button type="button" className="button-primary" onClick={onFirst}>
-            Revisar mis respuestas
-          </button>
+          <RestartButton onConfirm={onRestart} />
         </div>
         <div
           className="results-dashboard__ranking"

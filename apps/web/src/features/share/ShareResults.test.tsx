@@ -12,6 +12,7 @@ import {
 import { App } from "../../app/App";
 import { apiPaths, datasetVersionJson, electionJson, jsonResponse } from "../../test/fetch-mocks";
 import { COPIED_FLASH_MS } from "./useCopiedFlash";
+import { answerButton, findAnswerButtons, type AnswerName } from "../../test/questionnaire";
 
 const FALLBACK = "No se ha podido copiar el enlace automáticamente. Cópialo desde este campo:";
 const NOTE =
@@ -57,19 +58,18 @@ function button(name: string) {
   return screen.getByRole("button", { name }) as HTMLButtonElement;
 }
 
-type Step = { readonly rate?: string; readonly important?: boolean; readonly skip?: boolean };
+type Step = { readonly rate?: AnswerName; readonly important?: boolean; readonly neutral?: boolean };
 
 /** Opens the six-Statement Questionnaire and answers it step by step. */
 async function finish(steps: readonly Step[], fetch: FetchLike = sixStatementFetch()) {
   renderAt("/elecciones/1/cuestionario", fetch);
-  await screen.findByRole("radiogroup");
+  await findAnswerButtons();
   for (const step of steps) {
     if (step.important) fireEvent.click(button("Importante para mí"));
-    if (step.skip) {
-      fireEvent.click(button("Saltar"));
+    if (step.neutral) {
+      fireEvent.click(answerButton("Neutral / No lo sé"));
     } else {
-      fireEvent.click(screen.getByRole("radio", { name: step.rate ?? "De acuerdo" }));
-      fireEvent.click(button("Siguiente"));
+      fireEvent.click(answerButton(step.rate ?? "De acuerdo"));
     }
   }
   expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
@@ -82,7 +82,7 @@ const SCENARIO_1: readonly Step[] = [
   {},
   {},
   {},
-  { rate: "Muy en desacuerdo", important: true },
+  { rate: "En desacuerdo", important: true },
 ];
 
 function defineClipboard(value: unknown) {
@@ -117,7 +117,7 @@ describe("ShareResults", () => {
     expect(copyButton.getAttribute("data-copied")).toBe("true");
     expect(within(section).getByRole("button", { name: "¡Copiado!" })).toBe(copyButton);
 
-    const url = `${window.location.origin}/resultados#v1-1-dddddA`;
+    const url = `${window.location.origin}/resultados#v2-1-aaaaaD`;
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith(url);
     expect(url).not.toContain("?");
@@ -156,21 +156,22 @@ describe("ShareResults", () => {
     expect(warning.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  test("Scenario 2: a skip and a flagged skip are encoded with their flags", async () => {
+  test("Scenario 2: Neutral Answers are encoded as n; a flag pressed before Neutral is dropped", async () => {
     const writeText = vi.fn(async (_text: string) => undefined);
     defineClipboard({ writeText });
-    await finish([{}, { important: true, skip: true }, {}, {}, {}, { skip: true }]);
+    await finish([{}, { important: true, neutral: true }, {}, {}, {}, { neutral: true }]);
     fireEvent.click(button("Copiar enlace"));
     await screen.findByText("Enlace copiado.");
     const url = writeText.mock.calls[0]![0];
-    expect(url).toBe(`${window.location.origin}/resultados#v1-1-dSddds`);
+    // questionnaire-quick-answer Decision 3: links from the flow never carry N.
+    expect(url).toBe(`${window.location.origin}/resultados#v2-1-anaaan`);
     expect(decodeShareLink(url.split("#")[1]!).entries).toEqual([
       { value: 1, important: false },
-      { value: "skip", important: true },
+      { value: "neutral", important: false },
       { value: 1, important: false },
       { value: 1, important: false },
       { value: 1, important: false },
-      { value: "skip", important: false },
+      { value: "neutral", important: false },
     ]);
   });
 
@@ -181,7 +182,7 @@ describe("ShareResults", () => {
     const field = within(section).getByRole("textbox", {
       name: "Enlace para compartir",
     }) as HTMLInputElement;
-    const url = `${window.location.origin}/resultados#v1-1-dddddA`;
+    const url = `${window.location.origin}/resultados#v2-1-aaaaaD`;
     expect(field.value).toBe(url);
     expect(field.readOnly).toBe(true);
     expect(field.className).toBe("share__field");
@@ -232,8 +233,8 @@ describe("ShareResults", () => {
     await expectFallback();
   });
 
-  test("Scenario 4: when every Statement is skipped there is nothing to share", async () => {
-    await finish(Array.from({ length: 6 }, () => ({ skip: true })));
+  test("Scenario 4: when every Statement is Neutral there is nothing to share", async () => {
+    await finish(Array.from({ length: 6 }, () => ({ neutral: true })));
     expect(screen.getByText(/Todavía no se puede calcular tu afinidad/)).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Comparte tu resultado" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
@@ -292,7 +293,7 @@ describe("ShareResults", () => {
     expect(Array.from(document.querySelectorAll(".ranking-row")).map((li) => li.textContent)).toEqual(
       ranking,
     );
-    expect(currentLocation).toBe("/resultados#v1-1-dddddA");
+    expect(currentLocation).toBe("/resultados#v2-1-aaaaaD");
     expect(apiPaths(fetch)).toEqual([
       "/api/v1/dataset-versions/1",
       "/api/v1/elections/1",

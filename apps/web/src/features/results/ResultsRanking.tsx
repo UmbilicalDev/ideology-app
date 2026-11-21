@@ -8,8 +8,8 @@ import { PartyLogo } from "./PartyLogo";
 export const LOW_COVERAGE_LABEL = "Baja cobertura";
 
 export const LOW_COVERAGE_EXPLANATION =
-  `Compartes menos de ${LOW_COVERAGE_THRESHOLD} afirmaciones con este partido, así que su ` +
-  "afinidad se basa en pocos datos.";
+  `Se pueden comparar menos de ${LOW_COVERAGE_THRESHOLD} afirmaciones con este partido, así ` +
+  "que su afinidad se basa en pocos datos.";
 
 /**
  * The party ranking (DESIGN.md "Ranking row"). Renders `ranking` in the order
@@ -39,14 +39,14 @@ function RankingRow({ party }: { readonly party: RankedParty }) {
           <span className="ranking-row__short">{party.shortName}</span>
         </span>{" "}
         <span className="ranking-row__percent">
-          {party.percent === null ? "Sin afirmaciones en común" : `${party.percent}\u00a0%`}
+          {party.percent === null ? "Sin afirmaciones comparables" : `${party.percent}\u00a0%`}
         </span>
       </div>
       <div className="ranking-bar" aria-hidden="true">
         <div className="ranking-bar__fill" style={{ width: `${party.percent ?? 0}%` }} />
       </div>
       <p className="ranking-row__meta">
-        {sharedSentence(party.sharedStatementCount)}
+        {coincidenceSentence(party.coincidenceCount, party.comparedStatementCount)}
         {party.lowCoverage ? (
           <>
             {" "}
@@ -58,8 +58,9 @@ function RankingRow({ party }: { readonly party: RankedParty }) {
   );
 }
 
-function sharedSentence(count: number): string {
-  return count === 1 ? "1 afirmación en común" : `${count} afirmaciones en común`;
+/** "N de M coincidencias": M Statements compared with the Party, N on the same side. */
+export function coincidenceSentence(coincidences: number, compared: number): string {
+  return `${coincidences} de ${compared} ${compared === 1 ? "coincidencia" : "coincidencias"}`;
 }
 
 // Grace period so the pointer can move from the chip onto the tooltip.

@@ -1274,10 +1274,11 @@ a.button-secondary {
   margin-bottom: 0;
 }
 
-/* Step transition (DESIGN.md): after a move, the Statement, Important row
-   and scale fade in from 16px towards the way the Voter went (from the
-   right for Siguiente/Saltar, from the left for Anterior). Short and small,
-   since it repeats on every Statement; the controls never move. */
+/* Step transition (DESIGN.md): after an answer or Anterior, the Statement
+   and the Important row fade in from 16px towards the way the Voter went
+   (from the right after an answer, from the left for Anterior; none after
+   Repetir). Short and small, since it repeats on every Statement; the top
+   row and the answer buttons never move. */
 .statement-step[data-enter] {
   animation: step-enter 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
@@ -1343,93 +1344,66 @@ a.button-secondary {
   margin: 0 0 var(--space-lg);
 }
 
-.scale {
-  display: grid;
-  gap: var(--space-sm);
-  margin: 0 0 var(--space-md);
-}
-
-.scale-option {
+/* The top row of the Statement card: Anterior (or its placeholder) at the
+   start, the progress label at the end. Never animated. */
+.statement-card__top {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  width: 100%;
-  min-height: 48px;
-  padding: var(--space-sm) var(--space-md);
-  background: var(--color-surface-sunken);
-  border: 1px solid var(--color-border-control);
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-height: 44px;
+  margin: 0 0 var(--space-sm);
+}
+
+.statement-card__top .questionnaire__progress-label {
+  margin: 0;
+  text-align: end;
+}
+
+/* Anterior: a compact text control (label type, muted, accent on hover). */
+.step-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 44px;
+  margin-inline-start: calc(-1 * var(--space-sm));
+  padding: 0 var(--space-sm);
+  background: transparent;
+  border: 0;
   border-radius: var(--radius-md);
-  color: var(--color-text);
-  font: var(--type-body-sm);
-  font-weight: 500;
+  color: var(--color-text-muted);
+  font: var(--type-label);
   cursor: pointer;
-  transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease;
+  touch-action: manipulation;
 }
 
-.scale-option:hover {
-  background: var(--color-surface-raised);
-  border-color: var(--color-accent-border);
-}
-
-/* The radio indicator: a circle in currentColor, a filled dot when checked. */
-.scale-option input {
-  flex: none;
+.step-back .icon {
   width: 18px;
   height: 18px;
-  margin: 0;
-  appearance: none;
-  -webkit-appearance: none;
-  border: 2px solid var(--color-text-subtle);
-  border-radius: 50%;
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
 }
 
-.scale-option input:checked {
-  border-color: var(--color-accent);
-  background: radial-gradient(circle, var(--color-accent) 0 4px, transparent 4.5px);
-}
-
-@media (forced-colors: active) {
-  .scale-option input {
-    appearance: auto;
-    -webkit-appearance: auto;
+@media (hover: hover) {
+  .step-back:hover {
+    color: var(--color-accent);
   }
 }
 
-/* Checked: the same accent frame for every value; the label and the dot
-   carry the meaning, never a colour per side. */
-.scale-option:has(input:checked) {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  font-weight: 600;
+.step-back-placeholder {
+  display: block;
+  min-height: 44px;
 }
 
-/* The outline goes on the whole option, not only the small radio. */
-.scale-option:has(input:focus-visible) {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 2px;
-}
-
-.scale-option input:focus-visible {
-  outline: none;
-}
-
-.scale-option__icon {
-  width: 32px;
-  height: 24px;
-  color: var(--color-text-muted);
-}
-
-.scale-option:has(input:checked) .scale-option__icon {
-  color: var(--color-accent);
+@media (pointer: coarse) {
+  .statement-card__top,
+  .step-back,
+  .step-back-placeholder {
+    min-height: 48px;
+  }
 }
 
 /* Important toggle and its hint, side by side when they fit. */
 .important-row {
+  --important-toggle-height: 40px;
   position: relative;
   display: flex;
   flex-wrap: wrap;
@@ -1444,7 +1418,7 @@ a.button-secondary {
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
-  min-height: 40px;
+  min-height: var(--important-toggle-height);
   padding: 0 var(--space-md);
   background: transparent;
   color: var(--color-text);
@@ -1456,8 +1430,8 @@ a.button-secondary {
 }
 
 @media (pointer: coarse) {
-  .important-toggle {
-    min-height: 48px;
+  .important-row {
+    --important-toggle-height: 48px;
   }
 }
 
@@ -1482,6 +1456,21 @@ a.button-secondary {
 
 .important-toggle[aria-pressed="true"] .important-toggle__star {
   fill: var(--color-highlight);
+}
+
+/* At the cap (aria-disabled, still focusable): the disabled look; the cap
+   message under it says why. */
+.important-toggle[aria-disabled="true"] {
+  background: var(--color-surface-raised);
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+}
+
+.important-cap {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
 }
 
 /* Turning the flag on: one subtle amber glow. */
@@ -1518,10 +1507,11 @@ a.button-secondary {
   }
 }
 
-/* The hint is a tooltip under the toggle, on hover or keyboard focus. */
+/* The hint is a tooltip right under the toggle (not under the row, which
+   also holds the cap message), on hover or keyboard focus. */
 .questionnaire__hint.important-hint {
   position: absolute;
-  top: calc(100% + var(--space-xs));
+  top: calc(var(--important-toggle-height) + var(--space-xs));
   left: 0;
   z-index: 5;
   max-inline-size: min(22rem, 100%);
@@ -1545,6 +1535,15 @@ a.button-secondary {
   visibility: visible;
 }
 
+/* At the cap the always-visible cap message sits where the tooltip would
+   open; it already states the limit, so the tooltip stays hidden (it remains
+   in aria-describedby). */
+.important-toggle[aria-disabled="true"]:hover + .important-hint,
+.important-toggle[aria-disabled="true"]:focus-visible + .important-hint {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .questionnaire__hint {
   margin: 0;
 }
@@ -1552,11 +1551,6 @@ a.button-secondary {
 .questionnaire__note,
 .questionnaire__hint {
   color: var(--color-text-muted);
-  font: var(--type-body-sm);
-}
-
-.questionnaire__skipped {
-  color: var(--color-text);
   font: var(--type-body-sm);
 }
 
@@ -1573,26 +1567,69 @@ a.button-secondary {
   border-top: 1px solid var(--color-border);
 }
 
-/* Anterior, Saltar, Siguiente: equal columns across the card (two halves on
-   the first Statement); a long label wraps inside its button. */
-.step-controls {
+/* The answer buttons (DESIGN.md "Answer buttons"): three equal columns in
+   the order En desacuerdo, Neutral, De acuerdo. Identical for the three:
+   the side is carried by the label and the icon, never by colour. Labels
+   wrap inside the button, and the row grows equally for all three. */
+.answer-controls {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: stretch;
+  gap: var(--space-sm);
 }
 
-.step-controls .button-primary,
-.step-controls .button-secondary {
+.answer-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: var(--space-xs);
+  min-width: 0;
   min-height: var(--button-height-tall);
-  padding: var(--space-xs);
+  padding: var(--space-sm) var(--space-xs);
+  background: var(--color-surface-sunken);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font: var(--type-label);
   text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
-.step-controls .icon {
-  width: 20px;
-  height: 20px;
+/* Only where hover is real, so a tap does not leave the next Statement's
+   button looking hovered. */
+@media (hover: hover) {
+  .answer-button:hover {
+    background: var(--color-surface-raised);
+    border-color: var(--color-border-strong);
+  }
+}
+
+.answer-button:active {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+}
+
+.answer-button__icon {
+  flex: none;
+  width: 32px;
+  height: 24px;
+  color: var(--color-text-muted);
+}
+
+.answer-button__label {
+  display: block;
+}
+
+.answer-button__sub {
+  display: block;
+  color: var(--color-text-muted);
+  font: var(--type-caption);
 }
 
 /* AI and privacy disclosure below the Statement card, and the notice card
@@ -2507,21 +2544,6 @@ h3[tabindex="-1"]:focus {
   background: color-mix(in srgb, var(--color-accent-fill) var(--match-100), var(--color-surface));
 }
 
-.match-cell[data-match="75"],
-.match-swatch[data-match="75"] {
-  background: color-mix(in srgb, var(--color-accent-fill) var(--match-75), var(--color-surface));
-}
-
-.match-cell[data-match="50"],
-.match-swatch[data-match="50"] {
-  background: color-mix(in srgb, var(--color-accent-fill) var(--match-50), var(--color-surface));
-}
-
-.match-cell[data-match="25"],
-.match-swatch[data-match="25"] {
-  background: color-mix(in srgb, var(--color-accent-fill) var(--match-25), var(--color-surface));
-}
-
 .match-cell[data-match="0"],
 .match-swatch[data-match="0"] {
   background: var(--color-surface);
@@ -2910,6 +2932,56 @@ dialog.inspector {
 /* Superseded notice on the shared result: a neutral card, not an alert. */
 .shared-notice h2 {
   font: var(--type-title);
+}
+
+/* Restart confirmation (DESIGN.md "Restart confirmation"): the feedback
+   dialog's look, narrower, two equal buttons in one row. No entry
+   animation. */
+:root:has(.confirm-dialog[open]) {
+  overflow: hidden;
+}
+
+dialog.confirm-dialog {
+  box-sizing: border-box;
+  margin: auto;
+  width: min(24rem, 100% - 2 * var(--page-gutter));
+  max-width: none;
+  max-height: calc(100dvh - 2 * var(--space-md));
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+}
+
+.confirm-dialog::backdrop {
+  background: var(--color-scrim);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.confirm-dialog__surface {
+  box-sizing: border-box;
+  max-height: calc(100dvh - 2 * var(--space-md));
+  padding: var(--space-lg);
+  overflow: auto;
+}
+
+.confirm-dialog__surface h2 {
+  margin: 0 0 var(--space-sm);
+}
+
+.confirm-dialog__text {
+  margin: 0 0 var(--space-lg);
+  color: var(--color-text-muted);
+  font: var(--type-body-sm);
+}
+
+.confirm-dialog__actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-sm);
 }
 
 /* Feedback (DESIGN.md "Feedback button", "Feedback dialog", "Text area",

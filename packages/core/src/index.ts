@@ -1,14 +1,16 @@
 export {
   IMPORTANT_WEIGHT,
   LOW_COVERAGE_THRESHOLD,
+  NEUTRAL,
   NO_STANCE,
-  SKIP,
   computeMatchScore,
   computeMatchScores,
+  positionSide,
   statementAgreement,
 } from "./domain/match-score";
 export type {
   Answer,
+  AnswerSide,
   MatchScoreOptions,
   MatchScoreResult,
   PartyInput,
@@ -26,7 +28,9 @@ export type {
 } from "./domain/dataset-version";
 export {
   currentStatementId,
+  importantLimit,
   isAtEnd,
+  isImportantCapReached,
   reduceQuestionnaire,
   startQuestionnaire,
   summarize,

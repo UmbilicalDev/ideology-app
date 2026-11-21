@@ -15,10 +15,11 @@ import {
   textResponse,
 } from "../../test/fetch-mocks";
 import { SHARED_RESULTS_TITLE } from "./SharedResultsPage";
+import { answerButton, findAnswerButtons } from "../../test/questionnaire";
 
 const ELECTION_URL = "/api/v1/elections/1";
 const VERSION_URL = "/api/v1/dataset-versions/1";
-const LINK = "/resultados#v1-1-dddddA";
+const LINK = "/resultados#v2-1-aaaaaD";
 
 const MISSING = "Este enlace no contiene ningún resultado. Comprueba que lo has copiado entero.";
 const INVALID =
@@ -105,16 +106,14 @@ afterEach(() => {
 
 describe("SharedResultsPage", () => {
   test("Scenario 1: the shared link shows the end screen's ranking and breakdown", async () => {
-    // The end screen after answering De acuerdo ×5, then Muy en desacuerdo marked Important.
+    // The end screen after answering De acuerdo ×5, then En desacuerdo marked Important.
     const endScreen = renderAt("/elecciones/1/cuestionario", sixStatements());
-    await screen.findByRole("radiogroup");
+    await findAnswerButtons();
     for (let i = 0; i < 5; i += 1) {
-      fireEvent.click(screen.getByRole("radio", { name: "De acuerdo" }));
-      fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+      fireEvent.click(answerButton("De acuerdo"));
     }
     fireEvent.click(screen.getByRole("button", { name: "Importante para mí" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Muy en desacuerdo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(answerButton("En desacuerdo"));
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
     const endRanking = rankingTexts();
     const endBreakdown = breakdownTexts();
@@ -130,7 +129,7 @@ describe("SharedResultsPage", () => {
     expect(rankingTexts()).toEqual(endRanking);
     expect(breakdownTexts()).toEqual(endBreakdown);
     expect(screen.getByText("Generales 2023").className).toBe("questionnaire__election");
-    expect(screen.getByText("Muestra evaluada: 6/6 afirmaciones contestadas")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 6/6 afirmaciones con opinión")).toBeTruthy();
     expect(screen.getByText("Se marcó 1 afirmación como importante.")).toBeTruthy();
     expect(
       screen.getByText(
@@ -166,7 +165,7 @@ describe("SharedResultsPage", () => {
       [VERSION_URL]: () => jsonResponse(datasetVersionJson({ statements: 6, logos: true })),
     });
     // Disagreeing with everything ranks Partido Dos first.
-    renderAt("/resultados#v1-1-aaaaaa", fetch);
+    renderAt("/resultados#v2-1-dddddd", fetch);
     await ready();
     expect(srcs).toEqual([partyLogoUrl(1), partyLogoUrl(2)]);
     const names = Array.from(document.querySelectorAll(".ranking-row__name"), (el) => el.textContent);
@@ -183,7 +182,7 @@ describe("SharedResultsPage", () => {
 
   test("an invalid link preloads no logo", async () => {
     const { srcs } = recordImageRequests();
-    renderAt("/resultados#v1-1-dddddf", sixStatements());
+    renderAt("/resultados#v2-1-aaaaaf", sixStatements());
     await screen.findByText(INVALID);
     expect(srcs).toEqual([]);
   });
@@ -193,7 +192,7 @@ describe("SharedResultsPage", () => {
     renderAt(LINK, fetch);
     await ready();
     fireEvent.click(screen.getByRole("link", { name: "Haz tú el cuestionario" }));
-    expect(await screen.findByRole("radiogroup")).toBeTruthy();
+    expect(await findAnswerButtons()).toBeTruthy();
     expect(currentLocation).toBe("/elecciones/1/cuestionario");
   });
 
@@ -245,12 +244,12 @@ describe("SharedResultsPage", () => {
     expect(screen.queryByRole("link", { name: "Haz tú el cuestionario" })).toBeNull();
   });
 
-  test("all skipped: counts, the no-scores sentence and the breakdown", async () => {
-    renderAt("/resultados#v1-1-ssssSs", sixStatements());
+  test("all Neutral: counts, the no-scores sentence and the breakdown", async () => {
+    renderAt("/resultados#v2-1-nnnnNn", sixStatements());
     await ready();
-    expect(screen.getByText("Muestra evaluada: 0/6 afirmaciones contestadas")).toBeTruthy();
-    const summary = screen.getByRole("region", { name: "Muestra evaluada: 0/6 afirmaciones contestadas" });
-    expect(within(summary).getByText("Se saltaron 6 afirmaciones.")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 0/6 afirmaciones con opinión")).toBeTruthy();
+    const summary = screen.getByRole("region", { name: "Muestra evaluada: 0/6 afirmaciones con opinión" });
+    expect(within(summary).getByText("Se respondió «Neutral / No lo sé» en 6 afirmaciones.")).toBeTruthy();
     expect(summary.querySelector(".summary-donut")?.textContent).toBe("0\u00a0%");
     // No arc at 0 %, only the track.
     expect(summary.querySelector(".summary-donut__value")).toBeNull();
@@ -267,7 +266,7 @@ describe("SharedResultsPage", () => {
   });
 
   test("several Important Statements use the plural sentence", async () => {
-    renderAt("/resultados#v1-1-DDdddA", sixStatements());
+    renderAt("/resultados#v2-1-AAaaaD", sixStatements());
     await ready();
     expect(screen.getByText("Se marcaron 3 afirmaciones como importantes.")).toBeTruthy();
   });
@@ -280,7 +279,7 @@ describe("SharedResultsPage", () => {
     expect(apiPaths(fetch)).toEqual([]);
   });
 
-  test.each(["#v1-1-dddddf", "#garbage", "#V1-1-a", `#v1-1-${"d".repeat(501)}`])(
+  test.each(["#v2-1-aaaaaf", "#garbage", "#V2-1-a", `#v2-1-${"a".repeat(501)}`])(
     "Scenario 4: %s is invalid, with no request",
     async (hash) => {
       const fetch = sixStatements();
@@ -293,21 +292,21 @@ describe("SharedResultsPage", () => {
 
   test("Scenario 4: a 1025-character fragment is invalid, with no request", async () => {
     const fetch = sixStatements();
-    const fragment = `v1-1-${"d".repeat(1020)}`;
+    const fragment = `v2-1-${"a".repeat(1020)}`;
     expect(fragment).toHaveLength(1025);
     renderAt(`/resultados#${fragment}`, fetch);
     expect(await screen.findByText(INVALID)).toBeTruthy();
     expect(apiPaths(fetch)).toEqual([]);
   });
 
-  test("Scenario 4: #v2-1-a is unsupported, with no request", async () => {
+  test("Scenario 4: #v3-1-a is unsupported, with no request", async () => {
     const fetch = sixStatements();
-    renderAt("/resultados#v2-1-a", fetch);
+    renderAt("/resultados#v3-1-a", fetch);
     expect(await screen.findByText(UNSUPPORTED)).toBeTruthy();
     expect(apiPaths(fetch)).toEqual([]);
   });
 
-  test.each(["#v1-1-ddddd", "#v1-1-ddddddd"])(
+  test.each(["#v2-1-aaaaa", "#v2-1-aaaaaaa"])(
     "Scenario 4: a wrong letter count (%s) is invalid after exactly one request",
     async (hash) => {
       const fetch = sixStatements();
@@ -317,6 +316,69 @@ describe("SharedResultsPage", () => {
       expect(document.querySelector(".ranking, .breakdown")).toBeNull();
     },
   );
+
+  describe("a v1 link (before the three-option scale) shows the outdated notice", () => {
+    const V1 = "/resultados#v1-1-ddddsA";
+    const OUTDATED =
+      "Este resultado se hizo con una versión anterior del cuestionario. La aplicación ha cambiado " +
+      "desde entonces y ya no puede mostrarlo.";
+
+    async function notice() {
+      const heading = await screen.findByRole("heading", {
+        level: 2,
+        name: "Este enlace es de una versión anterior",
+      });
+      expect(screen.getByText(OUTDATED)).toBeTruthy();
+      expect(document.querySelector(".ranking, .breakdown, .matrix")).toBeNull();
+      expect(screen.getByRole("link", { name: "Volver al inicio" })).toBeTruthy();
+      return heading;
+    }
+
+    test("an available Questionnaire: the link goes to it; requests carry ids only", async () => {
+      const fetch = sixStatements();
+      renderAt(V1, fetch);
+      await notice();
+      const cta = await screen.findByRole("link", { name: "Haz el nuevo cuestionario" });
+      await vi.waitFor(() => expect(cta.getAttribute("href")).toBe("/elecciones/1/cuestionario"));
+      expect(urls(fetch)).toEqual([VERSION_URL, ELECTION_URL]);
+      for (const [url] of fetch.mock.calls) {
+        expect(url).not.toContain("ddddsA");
+        expect(url).not.toContain("#");
+      }
+      fireEvent.click(cta);
+      expect(currentLocation).toBe("/elecciones/1/cuestionario");
+    });
+
+    test.each([
+      ["archived", { status: "archived" }],
+      ["no Published version", { published_dataset_version_id: null }],
+    ])("an unavailable Questionnaire (%s): the link goes to /", async (_name, election) => {
+      renderAt(V1, sixStatements(election));
+      await notice();
+      // Both requests settle before the link target is final.
+      await vi.waitFor(() =>
+        expect(screen.getByRole("link", { name: "Haz el nuevo cuestionario" }).getAttribute("href")).toBe("/"),
+      );
+    });
+
+    test("an unknown Dataset Version: the notice, the link goes to /", async () => {
+      const fetch = routes({
+        "/api/v1/dataset-versions/999999": () => jsonResponse({ detail: "Not Found" }, 404),
+      });
+      renderAt("/resultados#v1-999999-ab", fetch);
+      await notice();
+      expect(screen.getByRole("link", { name: "Haz el nuevo cuestionario" }).getAttribute("href")).toBe("/");
+      expect(urls(fetch)).toEqual(["/api/v1/dataset-versions/999999"]);
+    });
+
+    test.each(["#v1-x", "#v1-", "#v1-0-a"])("a malformed v1 link (%s): the notice, no request", async (hash) => {
+      const fetch = sixStatements();
+      renderAt(`/resultados${hash}`, fetch);
+      await notice();
+      expect(screen.getByRole("link", { name: "Haz el nuevo cuestionario" }).getAttribute("href")).toBe("/");
+      expect(urls(fetch)).toEqual([]);
+    });
+  });
 
   test("Scenario 5: an unknown Dataset Version is not found after one request", async () => {
     const fetch = routes({ [VERSION_URL]: () => jsonResponse({ detail: "Not Found" }, 404) });
@@ -399,9 +461,9 @@ describe("SharedResultsPage", () => {
     expect(document.activeElement).toBe(h1);
     expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Comparte tu resultado" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Revisar mis respuestas" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Repetir cuestionario" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Volver a la última afirmación" })).toBeNull();
-    expect(screen.queryByRole("radio")).toBeNull();
+    expect(document.querySelector(".answer-controls")).toBeNull();
     view.unmount();
     expect(document.title).toBe("IdeologiApp");
   });

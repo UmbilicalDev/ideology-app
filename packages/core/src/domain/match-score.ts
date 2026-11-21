@@ -3,26 +3,35 @@
 // Runs in the Voter's browser so Answers never reach the server. Pure,
 // dependency-free module: no imports, no browser or network globals.
 //
-// For each Statement with an Answer other than SKIP and a Party Position other
-// than NO_STANCE: agreement = 1 - |answer - position| / 4, weight = 2 when the
-// Answer is Important, else 1. Match Score = sum(weight * agreement) / sum(weight),
-// or null when no Statement is shared. Fewer than N shared Statements is
-// flagged as low coverage.
+// Answers have three values: -1 (En desacuerdo), NEUTRAL (Neutral / No lo sé)
+// and 1 (De acuerdo). Party Positions stay on the stored -2..+2 scale and are
+// read by side: -2/-1 against, +1/+2 in favour, 0 excluded.
+//
+// For each Statement with a sided Answer (not NEUTRAL) and a sided Party
+// Position (not 0, not NO_STANCE): agreement = 1 when both are on the same
+// side, else 0; weight = 2 when the Answer is Important, else 1.
+// Match Score = sum(weight * agreement) / sum(weight), or null when no
+// Statement is compared. M (`comparedStatementCount`) counts the compared
+// Statements and N (`coincidenceCount`) the ones on the same side. Fewer than
+// the threshold compared Statements is flagged as low coverage.
 //
 // The input comes from untrusted sources (a Share Link fragment), so the
 // runtime checks stay even though the types describe valid input.
 
-export const SKIP = "skip" as const;
+export const NEUTRAL = "neutral" as const;
 export const NO_STANCE = "no_stance" as const;
 export const IMPORTANT_WEIGHT = 2 as const;
 export const LOW_COVERAGE_THRESHOLD = 5 as const;
 
+/** A stored Party Position value. */
 export type ScaleValue = -2 | -1 | 0 | 1 | 2;
+/** A sided Answer: -1 against (En desacuerdo), 1 in favour (De acuerdo). */
+export type AnswerSide = -1 | 1;
 export type StatementId = number | string;
 
 export interface Answer {
   statementId: StatementId;
-  value: ScaleValue | typeof SKIP;
+  value: AnswerSide | typeof NEUTRAL;
   important?: boolean | undefined;
 }
 
@@ -42,7 +51,10 @@ export interface MatchScoreOptions {
 
 export interface MatchScoreResult {
   matchScore: number | null;
-  sharedStatementCount: number;
+  /** M: Statements with a sided Answer and a sided Party Position. */
+  comparedStatementCount: number;
+  /** N: compared Statements where the Voter and the Party are on the same side. */
+  coincidenceCount: number;
   lowCoverage: boolean;
 }
 
@@ -54,6 +66,19 @@ interface Entry {
 
 function isScaleValue(value: unknown): value is ScaleValue {
   return Number.isInteger(value) && (value as number) >= -2 && (value as number) <= 2;
+}
+
+function isAnswerSide(value: unknown): value is AnswerSide {
+  return value === -1 || value === 1;
+}
+
+/** The side of a stored Position: -1 for -2/-1, 1 for +1/+2, `null` for 0. */
+export function positionSide(value: ScaleValue): AnswerSide | null {
+  if (!isScaleValue(value)) {
+    throw new RangeError(`position value must be an integer from -2 to 2, got ${describe(value)}`);
+  }
+  if (value === 0) return null;
+  return value < 0 ? -1 : 1;
 }
 
 function describe(value: unknown): string {
@@ -115,8 +140,8 @@ function indexAnswers(answers: unknown): Map<string, Entry> {
   const byId = indexEntries(
     answers,
     "answers",
-    (v) => v === SKIP || isScaleValue(v),
-    `an integer from -2 to 2 or "${SKIP}"`,
+    (v) => v === NEUTRAL || isAnswerSide(v),
+    `-1, 1 or "${NEUTRAL}"`,
   );
   for (const [id, answer] of byId) {
     if (answer.important !== undefined && typeof answer.important !== "boolean") {
@@ -137,16 +162,25 @@ function indexPositions(positions: unknown, field = "positions"): Map<string, En
   );
 }
 
-export function statementAgreement(answerValue: ScaleValue, positionValue: ScaleValue): number {
-  if (!isScaleValue(answerValue)) {
-    throw new RangeError(`answerValue must be an integer from -2 to 2, got ${describe(answerValue)}`);
+/**
+ * 1 when the sided Answer and the Position are on the same side, else 0.
+ * Throws `RangeError` for a Position of 0 (no side) or out-of-range input:
+ * callers exclude 0 first.
+ */
+export function statementAgreement(answerValue: AnswerSide, positionValue: ScaleValue): 0 | 1 {
+  if (!isAnswerSide(answerValue)) {
+    throw new RangeError(`answerValue must be -1 or 1, got ${describe(answerValue)}`);
   }
   if (!isScaleValue(positionValue)) {
     throw new RangeError(
       `positionValue must be an integer from -2 to 2, got ${describe(positionValue)}`,
     );
   }
-  return 1 - Math.abs(answerValue - positionValue) / 4;
+  const side = positionSide(positionValue);
+  if (side === null) {
+    throw new RangeError("positionValue 0 has no side and is excluded from the Match Score");
+  }
+  return side === answerValue ? 1 : 0;
 }
 
 function score(
@@ -156,20 +190,24 @@ function score(
 ): MatchScoreResult {
   let weighted = 0;
   let totalWeight = 0;
-  let shared = 0;
+  let compared = 0;
+  let coincidences = 0;
   for (const [id, answer] of answersById) {
-    if (answer.value === SKIP) continue;
+    if (answer.value === NEUTRAL) continue;
     const position = positionsById.get(id);
-    if (position === undefined || position.value === NO_STANCE) continue;
+    if (position === undefined || position.value === NO_STANCE || position.value === 0) continue;
     const weight = answer.important === true ? IMPORTANT_WEIGHT : 1;
-    weighted += weight * statementAgreement(answer.value as ScaleValue, position.value as ScaleValue);
+    const agreement = statementAgreement(answer.value as AnswerSide, position.value as ScaleValue);
+    weighted += weight * agreement;
     totalWeight += weight;
-    shared += 1;
+    compared += 1;
+    coincidences += agreement;
   }
   return {
     matchScore: totalWeight === 0 ? null : weighted / totalWeight,
-    sharedStatementCount: shared,
-    lowCoverage: shared < threshold,
+    comparedStatementCount: compared,
+    coincidenceCount: coincidences,
+    lowCoverage: compared < threshold,
   };
 }
 

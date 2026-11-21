@@ -49,7 +49,8 @@
 
 - An Operator adds a URL manifesto; it is fetched, parsed, and included in the next run.
 - A run fails check 2 for one party; nothing is published; the Operator re-runs it.
-- A Voter marks 5 Statements Important and skips 3; the scores reflect weights and exclusions.
+- A Voter marks 5 Statements Important and answers Neutral on 3 of them; those 3 marks are dropped, and the scores reflect the 2 remaining weights and the exclusions.
+- A Voter opens a `v1` Share Link made before the three-option scale; they see the outdated-version notice with a `Haz el nuevo cuestionario` link, never a result or a broken page.
 - A Voter opens a Share Link from a superseded Dataset Version; they see that version's result and a notice that newer data exists.
 
 ## Edge Cases
@@ -58,5 +59,5 @@
 - A party that split from a ticket after the election (e.g. Podemos from Sumar) is not a separate Party for that Election.
 - A manifesto available only as a scanned PDF (no text layer).
 - A party with no manifesto for the Election → 0% coverage → Validation fails the run (Parties are never excluded). In a two-Party Election no Statement then separates the Parties either, so check 4 also names every Statement.
-- The user skips every Statement → no ranking; prompt them to answer more.
+- The user answers Neutral on every Statement → no ranking; prompt them to repeat the questionnaire and answer at least one with a side.
 - In `live` mode a source change can supersede the Questionnaire a Voter is in the middle of; their session keeps the Dataset Version it started with.

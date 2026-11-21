@@ -42,9 +42,9 @@ describe("HowItWorksCarousel", () => {
     expect(pages().map((page) => page.querySelector("h2")?.textContent)).toEqual(TITLES);
     expect(HOW_IT_WORKS_SLIDES.map((slide) => slide.points)).toEqual([
       [
-        "Elige tu grado de acuerdo.",
-        "Puedes saltarte las que quieras.",
-        "Marca como importantes las que más te importan.",
+        "Pulsa «En desacuerdo», «Neutral» o «De acuerdo» y pasarás a la siguiente.",
+        "Si no lo tienes claro, elige «Neutral / No lo sé».",
+        "Antes de responder, marca como importantes las que más te importan (hasta un tercio).",
       ],
       [
         "Comprueba en qué porcentaje coincides con cada partido.",
