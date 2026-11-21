@@ -4,7 +4,8 @@ Depends on ``models`` and ``config`` (for ``ValidationSettings``) only; never
 imports ``pipeline``, ``llm`` or ``pdf_text``. To add a check, write
 ``validation/<name>.py`` exporting a ``Check`` and append it to ``CHECKS``
 (registry order is run order; current checks: evidence quotes, party coverage,
-statement separation, statement uniqueness, statement count, topic spread); a
+statement separation, statement uniqueness, statement count, topic spread,
+context note); a
 threshold it needs is a ``ValidationSettings`` field read from the environment
 in ``config``. ``pipeline.runs.validate_run`` stores the results.
 """
@@ -25,6 +26,7 @@ from ideology_app.validation.base import (
     ValidationInput,
     load_input,
 )
+from ideology_app.validation.context_note import CONTEXT_NOTE
 from ideology_app.validation.evidence_quotes import (
     EVIDENCE_QUOTES,
     QuoteMiss,
@@ -48,6 +50,7 @@ CHECKS: tuple[Check, ...] = (
     STATEMENT_UNIQUENESS,
     STATEMENT_COUNT,
     TOPIC_SPREAD,
+    CONTEXT_NOTE,
 )
 
 
@@ -59,6 +62,7 @@ def run_checks(data: ValidationInput, checks: Sequence[Check] = CHECKS) -> list[
 __all__ = [
     "CHECKS",
     "CHECK_NAME_MAX",
+    "CONTEXT_NOTE",
     "EVIDENCE_QUOTES",
     "MESSAGE_MAX",
     "PARTY_COVERAGE",

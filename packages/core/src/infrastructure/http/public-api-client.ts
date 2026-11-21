@@ -165,8 +165,20 @@ function parseStatements(body: Record<string, unknown>): readonly Statement[] {
     previousPosition = position;
     const text = requireString(item, "text", path);
     const topic = requireString(item, "topic", path);
-    return { id, position, text, topic };
+    const contextNote = parseContextNote(item["context_note"], path);
+    return { id, position, text, topic, contextNote };
   });
+}
+
+// A body cached before `context_note` existed has no key: read it as `null`.
+function parseContextNote(value: unknown, path: string): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || value === "") {
+    throw new ContractError(`${path}.context_note must be null or a non-empty string`);
+  }
+  return value;
 }
 
 function isScaleValue(value: unknown): value is ScaleValue {

@@ -9,6 +9,12 @@ export interface Statement {
   readonly position: number;
   readonly text: string;
   readonly topic: string;
+  /**
+   * Neutral AI-generated context note on the law, plan, institution or term
+   * the Statement names, exactly as published; `null` for Dataset Versions
+   * created before notes existed.
+   */
+  readonly contextNote: string | null;
 }
 
 export interface Evidence {

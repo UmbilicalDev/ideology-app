@@ -58,7 +58,7 @@ class RunReport:
     output_tokens: int
     resumed_from_run_id: int | None
     reused_calls: int
-    validation_settings: dict[str, int] | None
+    validation_settings: dict[str, Any] | None
     dataset_version_id: int | None
     dataset_version_status: DatasetVersionStatus | None
     statement_count: int | None

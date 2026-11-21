@@ -85,7 +85,12 @@ def mock_provider() -> Iterator[Callable[[Handler], tuple[AnthropicProvider, lis
 
         http_client = httpx2.Client(transport=httpx2.MockTransport(record))
         http_clients.append(http_client)
-        client = anthropic.Anthropic(api_key="test-key", http_client=http_client, max_retries=0)
+        # timeout=120.0, as the adapter's own client sets: with the SDK default
+        # timeout, messages.parse refuses a non-streaming request whose
+        # max_tokens may take over 10 minutes (generate_statements v6: 32768).
+        client = anthropic.Anthropic(
+            api_key="test-key", http_client=http_client, max_retries=0, timeout=120.0
+        )
         return AnthropicProvider(model="claude-haiku-5-5", client=client), captured
 
     yield make

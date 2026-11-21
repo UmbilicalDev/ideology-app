@@ -238,7 +238,7 @@ class PipelineRun(Base):
     )
     # The ValidationSettings the run was validated with (field -> value), written
     # once by ``validate_run`` in the commit that stores its results; null before.
-    validation_settings: Mapped[dict[str, int] | None] = mapped_column(sa.JSON)
+    validation_settings: Mapped[dict[str, Any] | None] = mapped_column(sa.JSON)
     # The run whose recorded LLM calls this run may reuse (``--resume-from``).
     # No FOREIGN KEY: adding one on SQLite needs a table recreate (see 0010).
     resumed_from_run_id: Mapped[int | None] = mapped_column(sa.Integer)
@@ -246,6 +246,12 @@ class PipelineRun(Base):
     # ``runs._finish`` in the commit that writes the Dataset Version; null for a
     # run without one and for runs before ``pipeline-coverage-selection``.
     statement_selection: Mapped[dict[str, Any] | None] = mapped_column(sa.JSON)
+    # The Published Dataset Version whose Statements were given to
+    # ``generate_statements`` as anchors (prompt input), set by ``runs._start``;
+    # null without one and for runs before ``0014``. A run queued with
+    # ``resumed_from_run_id`` inherits that run's value. No FOREIGN KEY, like
+    # ``resumed_from_run_id``.
+    anchor_dataset_version_id: Mapped[int | None] = mapped_column(sa.Integer)
 
     election: Mapped[Election] = relationship(back_populates="pipeline_runs")
     dataset_version: Mapped["DatasetVersion | None"] = relationship(
@@ -373,6 +379,10 @@ class Statement(Base):
     text: Mapped[str] = mapped_column(sa.String(300))
     # Not an Enum: the topic list is versioned with the prompts.
     topic: Mapped[str] = mapped_column(sa.String(50))
+    # Neutral AI-generated context note, stored exactly as the provider returned
+    # it (check ``context_note``). Null for Dataset Versions created before
+    # ``0014``; never backfilled or edited.
+    context_note: Mapped[str | None] = mapped_column(sa.String(500))
 
     dataset_version: Mapped[DatasetVersion] = relationship(back_populates="statements")
     party_positions: Mapped[list["PartyPosition"]] = relationship(

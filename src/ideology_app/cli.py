@@ -1053,8 +1053,11 @@ def pipeline_statements(app: AppContext, dataset_version_id: int) -> None:
     """List the Statements of a Dataset Version in order."""
     with session_scope(app.engine) as session:
         version = pipelines.get_dataset_version(session, dataset_version_id)
-        rows: list[list[object]] = [[s.position, s.topic, s.text] for s in version.statements]
-    _print_rows(["position", "topic", "text"], rows)
+        rows: list[list[object]] = [
+            [s.position, s.topic, s.text, _one_line(s.context_note)]
+            for s in version.statements
+        ]
+    _print_rows(["position", "topic", "text", "context_note"], rows)
 
 
 def _one_line(text: str | None) -> str | None:
@@ -1167,7 +1170,8 @@ def _publication(report: pipelines.RunReport) -> str:
 
 
 SELECTION_POOL_HEADER = [
-    "pool", "position", "topic", "stances", "distinct", "spread", "tier", "status", "text"
+    "pool", "position", "topic", "stances", "distinct", "spread", "tier", "status", "anchor",
+    "text", "context_note",
 ]
 
 
@@ -1261,11 +1265,27 @@ def _repaired_rows(selection: dict[str, Any]) -> list[list[object]]:
     ]
 
 
+def _anchors_line(selection: dict[str, Any] | None) -> str:
+    """The ``statement_anchors`` summary (``pipeline-statement-clarity-context``)."""
+    anchors = None if selection is None else selection.get("anchors")
+    if anchors is None:
+        return NOT_RECORDED
+    if anchors["dataset_version_id"] is None:
+        return "none"
+    missing = anchors["missing"]
+    return (
+        f"dataset version {anchors['dataset_version_id']}, {anchors['count']} anchors, "
+        f"{len(anchors['in_pool'])} in pool, {len(anchors['selected'])} selected, "
+        f"missing {', '.join(str(k) for k in missing) if missing else 'none'}"
+    )
+
+
 def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object]]:
-    """The agenda, selection and ``findings_check`` lines of ``pipeline report``."""
+    """The agenda, anchors, selection and ``findings_check`` lines of ``pipeline report``."""
     if selection is None:
         return [
             ("statement_agenda", NOT_RECORDED),
+            ("statement_anchors", NOT_RECORDED),
             ("statement_selection", NOT_RECORDED),
             ("selection_coverage", NOT_RECORDED),
             ("findings_check", NOT_RECORDED),
@@ -1285,6 +1305,7 @@ def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object
     )
     return [
         ("statement_agenda", _agenda_line(selection.get("agenda"))),
+        ("statement_anchors", _anchors_line(selection)),
         ("statement_selection", summary),
         ("selection_coverage", coverage or "none"),
         ("findings_check", _findings_line(selection)),
@@ -1302,7 +1323,10 @@ def _selection_rows(selection: dict[str, Any]) -> list[list[object]]:
             entry["spread"],
             entry["tier"],
             entry["status"],
+            entry.get("anchor"),
             _one_line(entry["text"]),
+            # Absent before selection v2 (pipeline-statement-clarity-context).
+            _one_line(entry.get("context_note")),
         ]
         for entry in selection["pool"]
     ]
@@ -1311,7 +1335,14 @@ def _selection_rows(selection: dict[str, Any]) -> list[list[object]]:
 def _sorted_pairs(values: dict[str, Any] | None) -> str:
     if values is None:
         return NOT_RECORDED
-    return ", ".join(f"{key}={values[key]}" for key in sorted(values))
+    return ", ".join(f"{key}={_setting_value(values[key])}" for key in sorted(values))
+
+
+def _setting_value(value: object) -> object:
+    """A list (the context note word list) is shown as its length: ``N words``."""
+    if isinstance(value, (list, tuple)):
+        return f"{len(value)} words"
+    return value
 
 
 @pipeline.command("report")

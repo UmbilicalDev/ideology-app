@@ -20,6 +20,7 @@ from ideology_app.config import (
 )
 from ideology_app.validation import (
     CHECKS,
+    CONTEXT_NOTE,
     EVIDENCE_QUOTES,
     PARTY_COVERAGE,
     STATEMENT_COUNT,
@@ -86,8 +87,9 @@ def test_registry_appends_the_three_checks_in_order() -> None:
         STATEMENT_UNIQUENESS,
         STATEMENT_COUNT,
         TOPIC_SPREAD,
+        CONTEXT_NOTE,  # pipeline-statement-clarity-context, appended last
     )
-    assert [c.name for c in CHECKS[3:]] == [
+    assert [c.name for c in CHECKS[3:6]] == [
         "statement_uniqueness", "statement_count", "topic_spread"
     ]
     assert STATEMENT_UNIQUENESS.run is check_statement_uniqueness

@@ -517,7 +517,10 @@ def test_reuse_from_is_still_guarded(
         invoke("pipeline", "run", "--election", "1", "--reuse-from", "1", "--fresh", "--yes")
     )
     assert "Pipeline run 3: reusing identical calls of run 1 (13 recorded calls)" in fresh.output
-    assert provider.calls == []
+    # pipeline-statement-clarity-context: run 1 recorded no anchors (nothing was
+    # Published before it), so run 3 takes the current Published version (run
+    # 1's own) as anchors and only its reduce request changes.
+    assert [request.task for request in provider.calls] == ["generate_statements"]
 
 
 def test_resume_from_is_not_blocked(engine: Engine, use_provider: Callable[[Any], Any]) -> None:

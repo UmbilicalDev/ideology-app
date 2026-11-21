@@ -277,7 +277,9 @@ def test_published_version_follows_contract(
 
     statements = body["statements"]
     assert [s["position"] for s in statements] == list(range(1, 36))
-    assert all(list(s) == ["id", "position", "text", "topic"] for s in statements)
+    assert all(
+        list(s) == ["id", "position", "text", "topic", "context_note"] for s in statements
+    )
     statement_ids = [s["id"] for s in statements]
 
     with Session(migrated_engine) as session:
@@ -425,8 +427,20 @@ def test_exact_dataset_version_body(
         "election_id": 1,
         "created_at": "2026-10-19T08:30:15Z",
         "statements": [
-            {"id": 10, "position": 1, "text": "Primera.", "topic": "economy"},
-            {"id": 11, "position": 2, "text": "Segunda.", "topic": "health"},
+            {
+                "id": 10,
+                "position": 1,
+                "text": "Primera.",
+                "topic": "economy",
+                "context_note": None,
+            },
+            {
+                "id": 11,
+                "position": 2,
+                "text": "Segunda.",
+                "topic": "health",
+                "context_note": None,
+            },
         ],
         "parties": [
             {
@@ -1040,3 +1054,44 @@ def test_logo_changes_leave_dataset_versions_untouched(
     set_logo(migrated_engine, 2, LOGO_SVG)
 
     assert snapshot() == before
+
+
+# pipeline-statement-clarity-context: context_note on /api/v1 (scenarios 6 and 7).
+
+
+def test_context_note_is_served_exactly_as_stored(
+    published: int, migrated_engine: Engine, client_for: Callable[[], TestClient]
+) -> None:
+    with Session(migrated_engine) as s:
+        stored = s.scalars(
+            select(Statement.context_note)
+            .where(Statement.dataset_version_id == published)
+            .order_by(Statement.position)
+        ).all()
+    assert all(note for note in stored)
+
+    body = client_for().get(f"/api/v1/dataset-versions/{published}").json()
+
+    assert [st["context_note"] for st in body["statements"]] == list(stored)
+
+
+def test_a_version_without_notes_serves_null(
+    migrated_engine: Engine, client_for: Callable[[], TestClient]
+) -> None:
+    # A Dataset Version created before 0014 keeps NULL notes (never backfilled).
+    seed_exact_version(migrated_engine)
+
+    body = client_for().get("/api/v1/dataset-versions/1").json()
+
+    assert [st["context_note"] for st in body["statements"]] == [None, None]
+
+
+def test_openapi_documents_context_note(client_for: Callable[[], TestClient]) -> None:
+    schema = client_for().get("/api/openapi.json").json()
+    field = schema["components"]["schemas"]["StatementOut"]["properties"]["context_note"]
+    assert field["anyOf"] == [{"type": "string"}, {"type": "null"}]
+    assert field["description"] == (
+        "Neutral AI-generated context note; null for Dataset Versions created before it "
+        "existed."
+    )
+    assert "context_note" in schema["components"]["schemas"]["StatementOut"]["required"]

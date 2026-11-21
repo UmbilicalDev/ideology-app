@@ -14,9 +14,9 @@ import {
 } from "../../src/index";
 
 const STATEMENTS: Statement[] = [
-  { id: 11, position: 1, text: "Primera afirmación.", topic: "economía" },
-  { id: 12, position: 2, text: "Segunda afirmación.", topic: "vivienda" },
-  { id: 13, position: 3, text: "Tercera afirmación.", topic: "energía" },
+  { id: 11, position: 1, text: "Primera afirmación.", topic: "economía", contextNote: null },
+  { id: 12, position: 2, text: "Segunda afirmación.", topic: "vivienda", contextNote: null },
+  { id: 13, position: 3, text: "Tercera afirmación.", topic: "energía", contextNote: null },
 ];
 
 function party(

@@ -66,6 +66,12 @@ class StatementOut(_Out):
     position: int
     text: str
     topic: str
+    context_note: str | None = Field(
+        description=(
+            "Neutral AI-generated context note; null for Dataset Versions created "
+            "before it existed."
+        )
+    )
 
 
 class DatasetVersionOut(_Out):

@@ -38,7 +38,7 @@ from ideology_app.pipeline import (
 )
 from ideology_app.pipeline import runs as runs_module
 
-CHECK_COUNT = 6
+CHECK_COUNT = 7  # context_note is the seventh check (pipeline-statement-clarity-context)
 
 
 @pytest.fixture(autouse=True)

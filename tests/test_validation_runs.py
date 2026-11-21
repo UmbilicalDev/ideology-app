@@ -28,7 +28,12 @@ from pipeline_fixtures import (
 from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session
 
-from ideology_app.config import ConfigError, GenerationMode, ValidationSettings
+from ideology_app.config import (
+    DEFAULT_CONTEXT_NOTE_EVALUATIVE_WORDS,
+    ConfigError,
+    GenerationMode,
+    ValidationSettings,
+)
 from ideology_app.db import session_scope
 from ideology_app.elections import InvalidInputError, NotFoundError
 from ideology_app.llm import FakeProvider, LLMRequest
@@ -63,6 +68,7 @@ SHAPE_PASSED = [
     ("statement_uniqueness", True, []),
     ("statement_count", True, []),
     ("topic_spread", True, []),
+    ("context_note", True, []),
 ]
 
 
@@ -242,7 +248,7 @@ def test_invented_quote_fails_the_run_with_one_entry(
         "dataset_versions": 1,
         "statements": 35,
         "party_positions": 70,
-        "validation_results": 6,
+        "validation_results": 7,
         "validation_report_entries": 1,
     }
     with Session(seeded) as s:
@@ -448,11 +454,18 @@ def test_validate_run_unknown_run(migrated_engine: Engine) -> None:
 
 # pipeline-run-report: the thresholds a run was validated with are recorded
 
+# pipeline-statement-clarity-context: the three context note settings are recorded too.
+NOTE_SETTINGS_DICT = {
+    "context_note_min_chars": 30,
+    "context_note_max_chars": 300,
+    "context_note_evaluative_words": list(DEFAULT_CONTEXT_NOTE_EVALUATIVE_WORDS),
+}
 DEFAULT_SETTINGS_DICT = {
     "min_party_coverage_percent": 50,
     "min_statements": 25,
     "max_statements": 35,
     "max_topic_share_percent": 30,
+    **NOTE_SETTINGS_DICT,
 }
 
 
@@ -482,6 +495,7 @@ def test_validate_run_records_its_settings_on_both_outcomes(
         "min_statements": 2,
         "max_statements": 40,
         "max_topic_share_percent": 50,
+        **NOTE_SETTINGS_DICT,
     }
 
 
@@ -835,6 +849,7 @@ def _assert_shape_failure(
         "statement_uniqueness",
         "statement_count",
         "topic_spread",
+        "context_note",
     ]
     assert [(name, entries) for name, passed, entries in stored if not passed] == [
         (failed, [entry])
@@ -960,6 +975,7 @@ def test_valid_statement_set_passes_all_six_checks(seeded: Engine) -> None:
         ("statement_uniqueness", True),
         ("statement_count", True),
         ("topic_spread", True),
+        ("context_note", True),
     ]
 
 

@@ -72,12 +72,24 @@ const STATEMENTS_TEXTS = [
     "afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación " +
     "política con una dirección clara, como subir o bajar un impuesto, y no una medida de " +
     "detalle, para que el mayor número posible de partidos se pueda situar en ella. Debe " +
-    "entenderse por sí sola: si propone cambiar o derogar una ley o una política vigente, dice " +
-    "cuál es o en qué consiste.",
+    "entenderse por sí sola y en lenguaje llano: expresa la medida por su contenido y en " +
+    "positivo, de modo que estar de acuerdo signifique querer esa medida, sin dobles " +
+    "negaciones; solo habla de derogar o suprimir algo cuando la propuesta no tiene otro " +
+    "contenido.",
+  // pipeline-statement-clarity-context: anchors and context notes.
+  "La inteligencia artificial recibe también las afirmaciones del cuestionario publicado " +
+    "anteriormente y las vuelve a redactar con estas reglas, para que los temas que ya conoces " +
+    "no desaparezcan por azar. Siguen en el cuestionario solo si superan el mismo procedimiento " +
+    "de elección que las demás.",
+  "Cada afirmación lleva una breve nota de contexto, también redactada por la inteligencia " +
+    "artificial, que explica de forma neutral qué es la ley, el plan, la institución o el " +
+    "concepto que nombra. La nota no sale de los programas, y las comprobaciones automáticas no " +
+    "pueden confirmar que sea exacta; sus instrucciones le piden solo hechos descriptivos, sin " +
+    "valoraciones ni nombres de partidos.",
   "Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres de " +
     "partidos o de políticos, una sola propuesta por afirmación, temas variados, orientaciones " +
-    "en las que los partidos discrepen y no añadir nada que no esté en las candidatas. Nadie " +
-    "modifica a mano el resultado.",
+    "en las que los partidos discrepen y no añadir nada que no esté en las candidatas ni en las " +
+    "afirmaciones anteriores. Nadie modifica a mano el resultado.",
 ];
 
 const POSITIONS_NO_STANCE_TEXT =
@@ -92,7 +104,8 @@ const SELECTION_TEXTS = [
     "entre 60 y 80, y sitúa a cada partido en todas ellas. Después, un procedimiento " +
     "automático, sin inteligencia artificial y sin azar, elige entre 25 y 35 para el " +
     "cuestionario.",
-  "Deja fuera las afirmaciones repetidas y las que no separan a los partidos, porque todos " +
+  "Deja fuera las afirmaciones cuya nota de contexto no cumple las comprobaciones, las " +
+    "repetidas y las que no separan a los partidos, porque todos " +
     `los que tienen posición coinciden, y no deja que un tema supere el 30${NBSP}% del ` +
     "cuestionario. Entre las demás, elige primero las que dan posición al partido que menos " +
     "tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas y, " +
@@ -215,17 +228,21 @@ describe("MethodologyPage", () => {
     expect(positions.textContent).toContain("solo cuenta de qué lado está la posición");
   });
 
-  test("lists the six Validation checks with the default coverage threshold", () => {
+  test("lists the seven Validation checks with the default thresholds", () => {
     renderMethodology();
     const region = screen.getByRole("region", { name: "Comprobaciones antes de publicar" });
     const items = within(region).getAllByRole("listitem");
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(7);
     expect(items[1]?.textContent).toBe(
       `cada partido tiene posición en al menos el 50${NBSP}% de las afirmaciones;`,
     );
     expect(items[4]?.textContent).toBe("el cuestionario tiene entre 25 y 35 afirmaciones;");
     expect(items[5]?.textContent).toBe(
-      `ningún tema reúne más del 30${NBSP}% de las afirmaciones.`,
+      `ningún tema reúne más del 30${NBSP}% de las afirmaciones;`,
+    );
+    expect(items[6]?.textContent?.replace(/\s+/g, " ")).toBe(
+      "cada afirmación tiene una nota de contexto de entre 30 y 300 caracteres que no usa " +
+        "ninguna palabra valorativa de una lista fija.",
     );
     // pipeline-verified-findings: the threshold is 50 % (it was 60 %).
     const main = screen.getByRole("main").textContent ?? "";

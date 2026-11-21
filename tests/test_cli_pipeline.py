@@ -119,10 +119,13 @@ def test_run_list_and_statements(run, seeded, use_fake) -> None:
     statements = run("pipeline", "statements", "--dataset-version", "1")
     assert statements.exit_code == 0, statements.output
     lines = statements.output.splitlines()
-    assert lines[0] == "position\ttopic\ttext"
+    assert lines[0] == "position\ttopic\ttext\tcontext_note"
     # The selection keeps pool Statements 1..35 of the 70-Statement pool.
     expected = statements_payload()["statements"][:35]
-    assert lines[1:] == [f"{i}\t{e['topic']}\t{e['text']}" for i, e in enumerate(expected, 1)]
+    assert lines[1:] == [
+        f"{i}\t{e['topic']}\t{e['text']}\t{e['context_note']}"
+        for i, e in enumerate(expected, 1)
+    ]
 
 
 def test_live_generation_mode_is_recorded(run, seeded, use_fake, monkeypatch) -> None:
@@ -489,6 +492,8 @@ SHAPE_PASSED_ROWS = [
     "statement_uniqueness\tpassed\t\t\t",
     "statement_count\tpassed\t\t\t",
     "topic_spread\tpassed\t\t\t",
+    # pipeline-statement-clarity-context: the seventh check, appended last.
+    "context_note\tpassed\t\t\t",
 ]
 PASSED_CHECKS = (
     f"{CHECKS_HEADER}\n"
@@ -924,7 +929,8 @@ def test_default_run_prints_six_passed_checks(run, seeded, use_fake) -> None:
 
     assert result.exit_code == 0, result.output
     assert result.output == PASSED_CHECKS
-    assert len(result.output.splitlines()) == 7
+    # Header plus seven checks (context_note since pipeline-statement-clarity-context).
+    assert len(result.output.splitlines()) == 8
 
 
 TWENTY = ValidationSettings(min_statements=20, max_statements=20)
@@ -953,6 +959,7 @@ def test_count_failure_is_committed_and_reported(run, seeded, db_url, no_provide
         "statement_uniqueness\tpassed\t\t\t",
         COUNT_20_ROW,
         "topic_spread\tpassed\t\t\t",
+        "context_note\tpassed\t\t\t",
     ]
     # The failed run keeps its candidate Dataset Version and its 20 Statements.
     statements = run("pipeline", "statements", "--dataset-version", "1").output.splitlines()
@@ -1219,10 +1226,13 @@ def test_cli_reuse_from_prints_and_reuses(run, seeded, db_url, use_fake) -> None
     assert result.output.startswith(
         "Pipeline run 2: reusing identical calls of run 1 (13 recorded calls)\n"
     )
-    assert provider.calls == []
+    # Run 1 recorded no anchors and published version 1, so run 2 lists it as
+    # anchors (pipeline-statement-clarity-context): only the reduce is new.
+    assert [r.task for r in provider.calls] == ["generate_statements"]
     report = run("pipeline", "report", "--run", "2").output
     assert "resumed_from: 1\n" in report
-    assert "reused_calls: 13\n" in report
+    assert "reused_calls: 12\n" in report
+    assert "statement_anchors: dataset version 1, 35 anchors," in report
 
 
 def test_reuse_from_refuses_an_unknown_run(run, seeded, db_url, use_fake) -> None:

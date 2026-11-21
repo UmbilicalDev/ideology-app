@@ -43,7 +43,7 @@ TABLES_AT_0005 = TABLES_AT_0004 | POSITION_TABLES
 VALIDATION_TABLES = {"validation_results", "validation_report_entries"}
 TABLES_AT_0009 = TABLES_AT_0005 | VALIDATION_TABLES
 ALL_TABLES = TABLES_AT_0009 | {"pipeline_run_calls"}
-HEAD = "0013"
+HEAD = "0014"
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -1202,9 +1202,9 @@ def test_upgrade_0012_adds_nullable_statement_selection_and_keeps_rows(db_url: s
     assert "statement_selection" not in before
     sql_before = _pipeline_run_sql(db_url)
 
-    run_migrations(db_url)
+    run_migrations(db_url, "0012")
 
-    assert _version(db_url) == HEAD
+    assert _version(db_url) == "0012"
     after = _pipeline_run_columns(db_url)
     assert set(after) - set(before) == {"statement_selection"}
     assert after["statement_selection"]["nullable"] is True
@@ -1246,7 +1246,11 @@ def test_downgrade_to_0011_drops_only_the_column_and_keeps_versions(db_url: str)
     downgrade(db_url, "0011")
 
     assert _version(db_url) == "0011"
-    assert set(_pipeline_run_columns(db_url)) == columns_before - {"statement_selection"}
+    # 0014's anchor_dataset_version_id goes too (downgrading through 0014).
+    assert set(_pipeline_run_columns(db_url)) == columns_before - {
+        "statement_selection",
+        "anchor_dataset_version_id",
+    }
     assert _tables(db_url) == ALL_TABLES
     assert PUBLISHED_INDEX in _dataset_version_indexes(db_url)
     # Not recreated: the CHECKs stay and the ON DELETE CASCADE never fires.
@@ -1402,3 +1406,108 @@ def test_offline_postgresql_render_of_0013() -> None:
     down_sql = down.getvalue()
     for column in ("logo", "logo_media_type", "logo_sha256"):
         assert f"ALTER TABLE parties DROP COLUMN {column};" in down_sql
+
+
+# Migration 0014: Statement context notes and the run's anchor Dataset Version
+# (pipeline-statement-clarity-context).
+
+
+def _columns(url: str, table: str) -> dict[str, dict[str, object]]:
+    engine = make_engine(url)
+    try:
+        return {c["name"]: c for c in sa.inspect(engine).get_columns(table)}
+    finally:
+        engine.dispose()
+
+
+def _all_rows(url: str, table: str) -> list[tuple[object, ...]]:
+    engine = make_engine(url)
+    try:
+        with engine.connect() as conn:
+            return [tuple(r) for r in conn.execute(sa.text(f"SELECT * FROM {table} ORDER BY id"))]
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_0014_adds_two_nullable_columns_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url, "0013")
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+    finally:
+        engine.dispose()
+    statements_before = _all_rows(db_url, "statements")
+    runs_before = _all_rows(db_url, "pipeline_runs")
+    counts = _counts(db_url, ALL_ROW_TABLES)
+
+    run_migrations(db_url, "0014")
+
+    assert _version(db_url) == "0014"
+    statement_columns = _columns(db_url, "statements")
+    note = statement_columns["context_note"]
+    assert note["nullable"] is True
+    assert isinstance(note["type"], sa.String) and note["type"].length == 500
+    anchor = _columns(db_url, "pipeline_runs")["anchor_dataset_version_id"]
+    assert anchor["nullable"] is True and isinstance(anchor["type"], sa.Integer)
+    engine = make_engine(db_url)
+    try:
+        assert sa.inspect(engine).get_foreign_keys("pipeline_runs") == [
+            fk
+            for fk in sa.inspect(engine).get_foreign_keys("pipeline_runs")
+            if "anchor_dataset_version_id" not in fk["constrained_columns"]
+        ]
+    finally:
+        engine.dispose()
+    # No data migration: every existing row keeps its values and gets NULL.
+    assert _counts(db_url, ALL_ROW_TABLES) == counts
+    assert _all_rows(db_url, "statements") == [(*row, None) for row in statements_before]
+    assert _all_rows(db_url, "pipeline_runs") == [(*row, None) for row in runs_before]
+
+
+def test_downgrade_to_0013_drops_only_the_new_columns_and_keeps_children(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        with engine.begin() as conn:
+            conn.execute(sa.text("UPDATE statements SET context_note = 'Nota de contexto.'"))
+            conn.execute(sa.text("UPDATE pipeline_runs SET anchor_dataset_version_id = 1"))
+    finally:
+        engine.dispose()
+    statement_columns = set(_columns(db_url, "statements"))
+    run_columns = set(_columns(db_url, "pipeline_runs"))
+    counts = _counts(db_url, ALL_ROW_TABLES)
+    assert counts["party_positions"] == 1 and counts["statements"] == 1
+
+    downgrade(db_url, "0013")
+
+    assert _version(db_url) == "0013"
+    assert set(_columns(db_url, "statements")) == statement_columns - {"context_note"}
+    assert set(_columns(db_url, "pipeline_runs")) == run_columns - {"anchor_dataset_version_id"}
+    assert _tables(db_url) == ALL_TABLES
+    # Not recreated: the cascade from statements to party_positions never fires.
+    assert _counts(db_url, ALL_ROW_TABLES) == counts
+    run_migrations(db_url)
+    assert _version(db_url) == HEAD
+
+
+def test_offline_postgresql_render_of_0014() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0013:0014",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0014:0013",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "ALTER TABLE statements ADD COLUMN context_note VARCHAR(500);" in up_sql
+    assert "ALTER TABLE pipeline_runs ADD COLUMN anchor_dataset_version_id INTEGER;" in up_sql
+    assert "CHECK" not in up_sql and "FOREIGN KEY" not in up_sql
+    down_sql = down.getvalue()
+    assert "ALTER TABLE statements DROP COLUMN context_note;" in down_sql
+    assert "ALTER TABLE pipeline_runs DROP COLUMN anchor_dataset_version_id;" in down_sql

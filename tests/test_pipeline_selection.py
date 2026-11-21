@@ -11,9 +11,10 @@ from pipeline_fixtures import offline_guard
 from ideology_app.config import ValidationSettings
 from ideology_app.pipeline import (
     SELECTION_VERSION,
+    PoolStatement,
     PositionResult,
-    StatementDraft,
     TOPICS,
+    anchor_summary,
     pool_bounds,
     select_statements,
     topic_cap,
@@ -41,12 +42,30 @@ def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     offline_guard(monkeypatch)
 
 
-def pool(count: int, topics: Sequence[str] | None = None) -> list[StatementDraft]:
-    """``count`` distinct Statements; topics ``TOPICS[i % 18]`` unless given."""
+def note(n: int) -> str:
+    """A valid context note (30..300 characters, no evaluative word)."""
+    return f"El ámbito {n} reúne las normas y los servicios públicos de esa materia."
+
+
+def draft(
+    text: str, topic: str, context_note: str | None = None, anchor: int | None = None
+) -> PoolStatement:
+    """A pool Statement; its note defaults to a valid one."""
+    return PoolStatement(
+        text=text,
+        topic=topic,
+        context_note=note(0) if context_note is None else context_note,
+        anchor=anchor,
+    )
+
+
+def pool(count: int, topics: Sequence[str] | None = None) -> list[PoolStatement]:
+    """``count`` distinct Statements with valid notes; topics ``TOPICS[i % 18]`` unless given."""
     return [
-        StatementDraft(
-            text=f"Afirmación {n}: el Estado debe actuar en el ámbito {n}.",
-            topic=topics[n - 1] if topics else TOPICS[(n - 1) % len(TOPICS)],
+        draft(
+            f"Afirmación {n}: el Estado debe actuar en el ámbito {n}.",
+            topics[n - 1] if topics else TOPICS[(n - 1) % len(TOPICS)],
+            note(n),
         )
         for n in range(1, count + 1)
     ]
@@ -77,6 +96,14 @@ def separating(count: int, parties: int = 2) -> Values:
     return {p: [1 if p == 1 else -1] * count for p in range(1, parties + 1)}
 
 
+def settings_json(settings: ValidationSettings) -> dict:
+    """``asdict(settings)`` as stored in the report: the word list as a JSON list."""
+    return {
+        **dataclasses.asdict(settings),
+        "context_note_evaluative_words": list(settings.context_note_evaluative_words),
+    }
+
+
 def selected_numbers(report: dict) -> list[int]:
     return [e["pool"] for e in report["pool"] if e["status"] == "selected"]
 
@@ -84,7 +111,9 @@ def selected_numbers(report: dict) -> list[int]:
 def as_input(selection, settings: ValidationSettings, party_ids: Sequence[int]) -> ValidationInput:
     return ValidationInput(
         statements=tuple(
-            StatementRow(id=n, position=n, text=s.text, topic=s.topic)
+            StatementRow(
+                id=n, position=n, text=s.text, topic=s.topic, context_note=s.context_note
+            )
             for n, s in enumerate(selection.statements, start=1)
         ),
         positions=tuple(
@@ -134,8 +163,8 @@ def test_party_relabelling_does_not_change_selection() -> None:
 
 def test_duplicates_keep_first_in_pool_order() -> None:
     drafts = pool(50)
-    drafts[4] = StatementDraft(text="  AFIRMACIÓN 2: el estado debe actuar en el ámbito 2 ", topic="health")
-    drafts[30] = StatementDraft(text=drafts[1].text, topic="economy")
+    drafts[4] = draft("  AFIRMACIÓN 2: el estado debe actuar en el ámbito 2 ", "health")
+    drafts[30] = draft(drafts[1].text, "economy")
 
     selection = select_statements(drafts, positions(separating(50)), [1, 2], DEFAULTS)
 
@@ -194,7 +223,7 @@ def test_count_within_settings_range(settings: ValidationSettings, low: int, hig
         selection = select_statements(pool(size), positions(values), parties, settings)
         assert low <= len(selection.statements) <= high
         assert check_statement_count(as_input(selection, settings, parties)) == []
-        assert selection.report["settings"] == dataclasses.asdict(settings)
+        assert selection.report["settings"] == settings_json(settings)
 
 
 def test_worst_covered_party_is_served_first() -> None:
@@ -283,7 +312,7 @@ def test_non_separating_fill_only_to_minimum() -> None:
 def test_fewer_unique_than_minimum_keeps_all() -> None:
     drafts = pool(12)
     for n in range(6, 12):
-        drafts[n] = StatementDraft(text=drafts[n - 6].text, topic=drafts[n].topic)
+        drafts[n] = draft(drafts[n - 6].text, drafts[n].topic)
 
     selection = select_statements(drafts, positions(separating(12)), [1, 2], SMALL)
 
@@ -322,7 +351,7 @@ def test_selected_in_pool_order_and_positions_renumbered_with_evidence_unchanged
 
 def test_report_is_json_and_complete() -> None:
     drafts = pool(50)
-    drafts[9] = StatementDraft(text=drafts[0].text, topic="health")
+    drafts[9] = draft(drafts[0].text, "health")
     values = _mixed_values(50)
 
     selection = select_statements(drafts, positions(values), [1, 2, 3], DEFAULTS)
@@ -333,8 +362,8 @@ def test_report_is_json_and_complete() -> None:
         "version", "settings", "topic_cap", "party_ids", "pool_size", "selected_count",
         "count_rule", "projected_failures", "parties", "pool",
     ]
-    assert report["version"] == SELECTION_VERSION == "v1"
-    assert report["settings"] == dataclasses.asdict(DEFAULTS)
+    assert report["version"] == SELECTION_VERSION == "v2"
+    assert report["settings"] == settings_json(DEFAULTS)
     assert report["party_ids"] == [1, 2, 3]
     assert report["pool_size"] == 50
     assert report["selected_count"] == len(selection.statements)
@@ -350,16 +379,20 @@ def test_report_is_json_and_complete() -> None:
     for entry in report["pool"]:
         n = entry["pool"]
         assert list(entry) == [
-            "pool", "text", "topic", "values", "stances", "distinct", "spread", "tier",
-            "status", "duplicate_of", "pick", "position",
+            "pool", "text", "topic", "context_note", "anchor", "values", "stances",
+            "distinct", "spread", "tier", "status", "duplicate_of", "pick", "position",
         ]
         assert entry["text"] == drafts[n - 1].text and entry["topic"] == drafts[n - 1].topic
+        assert entry["context_note"] == drafts[n - 1].context_note
+        assert entry["anchor"] is None
         assert entry["values"] == [values[p][n - 1] for p in (1, 2, 3)]
         found = [v for v in entry["values"] if v is not None]
         assert entry["stances"] == len(found)
         assert entry["distinct"] == len(set(found))
         assert entry["spread"] == (max(found) - min(found) if len(found) > 1 else 0)
-        assert entry["status"] in ("selected", "duplicate", "topic_full", "not_picked")
+        assert entry["status"] in (
+            "selected", "context_invalid", "duplicate", "topic_full", "not_picked"
+        )
         assert (entry["position"] is not None) == (entry["status"] == "selected")
     assert report["pool"][9]["status"] == "duplicate"
     assert report["pool"][9]["duplicate_of"] == 1
@@ -391,3 +424,73 @@ def test_default_coverage_target_is_50_percent() -> None:
     strict = dataclasses.replace(DEFAULTS, min_party_coverage_percent=60)
     report = select_statements(pool(50), positions(values), [1, 2, 3], strict).report
     assert (report["selected_count"], report["count_rule"]) == (28, "coverage_met")
+
+
+# pipeline-statement-clarity-context: selection v2 rule 0 (context notes) and anchors.
+
+
+def test_a_failing_note_is_never_selected_and_its_duplicate_can_stay() -> None:
+    drafts = pool(50)
+    # Statement 4's note is too short; Statement 40 repeats its text with a valid note.
+    drafts[3] = draft(drafts[3].text, drafts[3].topic, "Corta.")
+    drafts[39] = draft(drafts[3].text, drafts[39].topic, note(40))
+    # Statement 7's note uses an evaluative word.
+    drafts[6] = draft(drafts[6].text, drafts[6].topic, "Una medida polémica " + note(7))
+
+    selection = select_statements(drafts, positions(separating(50)), [1, 2], DEFAULTS)
+
+    entries = selection.report["pool"]
+    assert [(e["pool"], e["status"], e["tier"], e["pick"]) for e in entries
+            if e["status"] == "context_invalid"] == [(4, "context_invalid", None, None),
+                                                     (7, "context_invalid", None, None)]
+    # Duplicate detection runs only among the eligible Statements: 40 is no duplicate.
+    assert entries[39]["duplicate_of"] is None and entries[39]["status"] != "duplicate"
+    assert 4 not in selected_numbers(selection.report)
+    assert 7 not in selected_numbers(selection.report)
+    assert "context_note" not in selection.report["projected_failures"]
+    assert all(s.context_note in (note(n) for n in range(1, 51)) for s in selection.statements)
+
+
+def test_whitespace_note_is_context_invalid() -> None:
+    drafts = pool(40)
+    # The schema refuses a blank note; model_construct stands for one that got through.
+    drafts[0] = PoolStatement.model_construct(
+        text=drafts[0].text, topic=drafts[0].topic, context_note=" \n ", anchor=None
+    )
+    selection = select_statements(drafts, positions(separating(40)), [1, 2], DEFAULTS)
+    assert selection.report["pool"][0]["status"] == "context_invalid"
+
+
+def test_anchors_get_no_preference() -> None:
+    plain = pool(55)
+    anchored = [
+        draft(d.text, d.topic, d.context_note, anchor=(n % 7) + 1 if n % 3 == 0 else None)
+        for n, d in enumerate(plain, start=1)
+    ]
+    values = _mixed_values(55)
+
+    base = select_statements(plain, positions(values), [1, 2, 3], DEFAULTS)
+    other = select_statements(anchored, positions(values), [1, 2, 3], DEFAULTS)
+
+    assert selected_numbers(other.report) == selected_numbers(base.report)
+    assert [e["anchor"] for e in other.report["pool"]] == [d.anchor for d in anchored]
+
+
+def test_anchor_summary_reports_pool_selected_and_missing() -> None:
+    rows = [
+        {"pool": 1, "anchor": 3, "status": "selected"},
+        {"pool": 2, "anchor": 1, "status": "not_picked"},
+        {"pool": 3, "anchor": 3, "status": "duplicate"},
+        {"pool": 4, "anchor": None, "status": "selected"},
+        {"pool": 5, "anchor": 5, "status": "selected"},
+    ]
+    assert anchor_summary(rows, 5, 6) == {
+        "dataset_version_id": 5,
+        "count": 6,
+        "in_pool": [1, 3, 5],
+        "selected": [3, 5],
+        "missing": [2, 4, 6],
+    }
+    assert anchor_summary([], None, 0) == {
+        "dataset_version_id": None, "count": 0, "in_pool": [], "selected": [], "missing": []
+    }

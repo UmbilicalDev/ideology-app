@@ -48,6 +48,40 @@ DEFAULT_MIN_STATEMENTS = 25
 DEFAULT_MAX_STATEMENTS = 35
 DEFAULT_MAX_TOPIC_SHARE_PERCENT = 30
 
+# Context notes (pipeline-statement-clarity-context). The structural cap equals
+# ``pipeline.prompts.CONTEXT_NOTE_SCHEMA_MAX`` and the ``statements.context_note``
+# column width; the configured bounds must stay within it.
+CONTEXT_NOTE_MAX_CHARS_LIMIT = 500
+DEFAULT_CONTEXT_NOTE_MIN_CHARS = 30
+DEFAULT_CONTEXT_NOTE_MAX_CHARS = 300
+# Whole words (or consecutive words) a context note must not use; matched after
+# folding case and accents (``validation.context_note``). A planner proposal for
+# the team to review (docs/risks-and-open-questions.md).
+DEFAULT_CONTEXT_NOTE_EVALUATIVE_WORDS: tuple[str, ...] = (
+    "injusto", "injusta", "injustos", "injustas",
+    "polémico", "polémica", "polémicos", "polémicas",
+    "controvertido", "controvertida", "controvertidos", "controvertidas",
+    "represivo", "represiva", "represivos", "represivas",
+    "abusivo", "abusiva", "abusivos", "abusivas",
+    "desastroso", "desastrosa", "desastrosos", "desastrosas",
+    "nefasto", "nefasta", "nefastos", "nefastas",
+    "excelente", "excelentes",
+    "beneficioso", "beneficiosa", "beneficiosos", "beneficiosas",
+    "perjudicial", "perjudiciales",
+    "acertado", "acertada", "acertados", "acertadas",
+    "erróneo", "errónea", "erróneos", "erróneas",
+    "fracaso", "fracasos",
+    "exitoso", "exitosa", "exitosos", "exitosas",
+    "necesario", "necesaria", "necesarios", "necesarias",
+    "imprescindible", "imprescindibles",
+    "radical", "radicales",
+    "extremista", "extremistas",
+    "populista", "populistas",
+    "sectario", "sectaria",
+    "afortunadamente", "lamentablemente", "desgraciadamente",
+    "por desgracia", "por suerte",
+)
+
 DEFAULT_SOURCE_REFETCH_INTERVAL_HOURS = 6
 
 DEFAULT_CLAUDE_CODE_BIN = "claude"
@@ -91,6 +125,11 @@ class ValidationSettings:
     ``max_topic_share_percent``: the maximum share (0..100) of the Statements a
     single topic may have; a topic fails only when strictly above it (check
     ``topic_spread``).
+    ``context_note_min_chars`` / ``context_note_max_chars``: the inclusive
+    range for a Statement's context note, counted after trimming
+    (``1 <= min <= max <= CONTEXT_NOTE_MAX_CHARS_LIMIT``); and
+    ``context_note_evaluative_words``: the non-empty list of words or phrases,
+    each with a letter or digit, a note must not use (check ``context_note``).
     A later threshold check adds its field here.
     """
 
@@ -98,6 +137,9 @@ class ValidationSettings:
     min_statements: int = DEFAULT_MIN_STATEMENTS
     max_statements: int = DEFAULT_MAX_STATEMENTS
     max_topic_share_percent: int = DEFAULT_MAX_TOPIC_SHARE_PERCENT
+    context_note_min_chars: int = DEFAULT_CONTEXT_NOTE_MIN_CHARS
+    context_note_max_chars: int = DEFAULT_CONTEXT_NOTE_MAX_CHARS
+    context_note_evaluative_words: tuple[str, ...] = DEFAULT_CONTEXT_NOTE_EVALUATIVE_WORDS
 
     def __post_init__(self) -> None:
         if not _is_int_in(self.min_party_coverage_percent, 0, 100):
@@ -109,6 +151,30 @@ class ValidationSettings:
             raise ValueError("min_statements must not be greater than max_statements")
         if not _is_int_in(self.max_topic_share_percent, 0, 100):
             raise ValueError("max_topic_share_percent must be an integer from 0 to 100")
+        for name in ("context_note_min_chars", "context_note_max_chars"):
+            if not _is_int_in(getattr(self, name), 1, CONTEXT_NOTE_MAX_CHARS_LIMIT):
+                raise ValueError(
+                    f"{name} must be an integer from 1 to {CONTEXT_NOTE_MAX_CHARS_LIMIT}"
+                )
+        if self.context_note_min_chars > self.context_note_max_chars:
+            raise ValueError(
+                "context_note_min_chars must not be greater than context_note_max_chars"
+            )
+        words = self.context_note_evaluative_words
+        if (
+            not isinstance(words, tuple)
+            or not words
+            or not all(isinstance(w, str) and _has_word_character(w) for w in words)
+        ):
+            raise ValueError(
+                "context_note_evaluative_words must be a non-empty tuple of strings "
+                "that each contain a letter or digit"
+            )
+
+
+def _has_word_character(value: str) -> bool:
+    """True when ``value`` contains a letter or digit."""
+    return any(ch.isalnum() for ch in value)
 
 
 def _is_int_in(value: object, low: int, high: int | None) -> bool:
@@ -219,6 +285,34 @@ def _positive_int_env(name: str, default: int) -> int:
     return int(raw)
 
 
+def _bounded_int_env(name: str, default: int, high: int) -> int:
+    """An integer from 1 to ``high`` read from ``name``, or ``default`` if unset or blank."""
+    raw = _env(name)
+    if raw is None:
+        return default
+    if not (raw.isascii() and raw.isdigit()) or not 1 <= int(raw) <= high:
+        raise ConfigError(f"Invalid {name} {raw!r}; expected an integer from 1 to {high}")
+    return int(raw)
+
+
+def _word_list_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """A comma-separated list of words read from ``name`` (each trimmed), or ``default``.
+
+    Unset or blank means ``default``. Empty entries are dropped; an entry with
+    no letter or digit, or a list left empty, raises ``ConfigError``.
+    """
+    raw = _env(name)
+    if raw is None:
+        return default
+    words = tuple(part.strip() for part in raw.split(",") if part.strip())
+    if not words:
+        raise ConfigError(f"Invalid {name}: expected a comma-separated list of words")
+    for word in words:
+        if not _has_word_character(word):
+            raise ConfigError(f"Invalid {name}: entry {word!r} has no letter or digit")
+    return words
+
+
 def validation_settings() -> ValidationSettings:
     """Return the Validation thresholds from the environment.
 
@@ -227,8 +321,13 @@ def validation_settings() -> ValidationSettings:
     100; ``VALIDATION_MIN_STATEMENTS`` (default 25) and
     ``VALIDATION_MAX_STATEMENTS`` (default 35) are integers of at least 1, and
     the min must not be greater than the max. Anything else (decimals, ``%``,
-    signs) raises ``ConfigError``. Variables are checked in this order:
-    coverage, min, max, range, share; the first error wins.
+    signs) raises ``ConfigError``. ``VALIDATION_CONTEXT_NOTE_MIN_CHARS``
+    (default 30) and ``VALIDATION_CONTEXT_NOTE_MAX_CHARS`` (default 300) are
+    integers from 1 to ``CONTEXT_NOTE_MAX_CHARS_LIMIT`` (500), min not above
+    max; ``VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS`` is a comma-separated
+    list that replaces the default list (unset or blank: the default).
+    Variables are checked in this order: coverage, min, max, range, share,
+    note min, note max, note range, words; the first error wins.
     """
     coverage = _percent_env(
         "VALIDATION_MIN_PARTY_COVERAGE_PERCENT", DEFAULT_MIN_PARTY_COVERAGE_PERCENT
@@ -242,11 +341,33 @@ def validation_settings() -> ValidationSettings:
             f"VALIDATION_MAX_STATEMENTS ({max_statements})"
         )
     share = _percent_env("VALIDATION_MAX_TOPIC_SHARE_PERCENT", DEFAULT_MAX_TOPIC_SHARE_PERCENT)
+    note_min = _bounded_int_env(
+        "VALIDATION_CONTEXT_NOTE_MIN_CHARS",
+        DEFAULT_CONTEXT_NOTE_MIN_CHARS,
+        CONTEXT_NOTE_MAX_CHARS_LIMIT,
+    )
+    note_max = _bounded_int_env(
+        "VALIDATION_CONTEXT_NOTE_MAX_CHARS",
+        DEFAULT_CONTEXT_NOTE_MAX_CHARS,
+        CONTEXT_NOTE_MAX_CHARS_LIMIT,
+    )
+    if note_min > note_max:
+        raise ConfigError(
+            "Invalid context note length range: "
+            f"VALIDATION_CONTEXT_NOTE_MIN_CHARS ({note_min}) is greater than "
+            f"VALIDATION_CONTEXT_NOTE_MAX_CHARS ({note_max})"
+        )
+    words = _word_list_env(
+        "VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS", DEFAULT_CONTEXT_NOTE_EVALUATIVE_WORDS
+    )
     return ValidationSettings(
         min_party_coverage_percent=coverage,
         min_statements=min_statements,
         max_statements=max_statements,
         max_topic_share_percent=share,
+        context_note_min_chars=note_min,
+        context_note_max_chars=note_max,
+        context_note_evaluative_words=words,
     )
 
 

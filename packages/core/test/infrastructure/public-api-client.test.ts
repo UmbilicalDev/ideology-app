@@ -259,6 +259,8 @@ function evidenceBody(overrides: Record<string, unknown> = {}): Record<string, u
 }
 
 const LOGO_URL = "/api/v1/parties/5/logo?v=0123456789abcdef";
+// Kept exactly as sent, surrounding whitespace included (never trimmed).
+const NOTE = "  La CIE es el centro de internamiento de extranjeros. \n";
 
 function versionBody(): Record<string, unknown> {
   return {
@@ -266,8 +268,8 @@ function versionBody(): Record<string, unknown> {
     election_id: 1,
     created_at: "2026-10-20T09:30:00Z",
     statements: [
-      { id: 10, position: 1, text: "Afirmación uno", topic: "economía" },
-      { id: 20, position: 2, text: "Afirmación dos", topic: "vivienda" },
+      { id: 10, position: 1, text: "Afirmación uno", topic: "economía", context_note: NOTE },
+      { id: 20, position: 2, text: "Afirmación dos", topic: "vivienda", context_note: null },
     ],
     parties: [
       {
@@ -321,8 +323,8 @@ describe("createPublicApiClient getDatasetVersion", () => {
       electionId: 1,
       createdAt: "2026-10-20T09:30:00Z",
       statements: [
-        { id: 10, position: 1, text: "Afirmación uno", topic: "economía" },
-        { id: 20, position: 2, text: "Afirmación dos", topic: "vivienda" },
+        { id: 10, position: 1, text: "Afirmación uno", topic: "economía", contextNote: NOTE },
+        { id: 20, position: 2, text: "Afirmación dos", topic: "vivienda", contextNote: null },
       ],
       parties: [
         {
@@ -374,6 +376,18 @@ describe("createPublicApiClient getDatasetVersion", () => {
     }
   });
 
+  test("a null or missing context_note is null (bodies cached before context_note existed)", async () => {
+    const mutations: Mutate[] = [
+      (b) => { b["statements"][0]["context_note"] = null; },
+      (b) => { delete b["statements"][0]["context_note"]; },
+    ];
+    for (const mutate of mutations) {
+      const api = createPublicApiClient({ fetch: fetchReturning(jsonResponse(mutated(mutate))) });
+      const version = await api.getDatasetVersion(3);
+      expect(version.statements[0]?.contextNote).toBeNull();
+    }
+  });
+
   test("a 404 is an http error with status 404 and json() is not called", async () => {
     const response = jsonResponse({ error: { code: "dataset_version_not_found", message: "x" } }, 404);
     const error = await rejection(
@@ -415,6 +429,9 @@ describe("createPublicApiClient getDatasetVersion", () => {
     ["a non-increasing position", (b) => { b["statements"][1]["position"] = 1; }, "statements[1].position must be greater than the previous position"],
     ["text null", (b) => { b["statements"][0]["text"] = null; }, "statements[0].text must be a string"],
     ["a missing topic", (b) => { delete b["statements"][0]["topic"]; }, "statements[0].topic must be a string"],
+    ['context_note ""', (b) => { b["statements"][0]["context_note"] = ""; }, "statements[0].context_note must be null or a non-empty string"],
+    ["context_note 7", (b) => { b["statements"][1]["context_note"] = 7; }, "statements[1].context_note must be null or a non-empty string"],
+    ["context_note {}", (b) => { b["statements"][0]["context_note"] = {}; }, "statements[0].context_note must be null or a non-empty string"],
     ["party id 1.5", (b) => { b["parties"][0]["id"] = 1.5; }, "parties[0].id must be a positive integer"],
     ["a missing short_name", (b) => { delete b["parties"][0]["short_name"]; }, "parties[0].short_name must be a string"],
     ...[

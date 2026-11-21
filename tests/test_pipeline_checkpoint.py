@@ -484,17 +484,23 @@ def test_reuse_from_a_run_with_a_dataset_version(seeded: Engine, source: str) ->
     outcome = execute_run(seeded, reused_id, provider)
 
     # Every request is identical, so every call is reused with zero tokens and
-    # the stored answers give the same result as the source run.
+    # the stored answers give the same result as the source run. Except
+    # (pipeline-statement-clarity-context): the source run recorded no anchors,
+    # so when it published, the reuse takes its version as anchors and only
+    # the reduce goes to the provider (which returns the same pool).
     assert outcome.status is finished.status
     rows = calls(seeded, reused_id)
+    reduce_reused = source == "failed"
     assert _reused_by_task(rows) == {
         "statement_candidates": [True, True],
-        "generate_statements": [True],
+        "generate_statements": [reduce_reused],
         "position_findings": [True] * 8,
         "party_positions": [True, True],
     }
-    assert provider.calls == []
-    assert all(r.input_tokens == 0 and r.output_tokens == 0 for r in rows)
+    assert [r.task for r in provider.calls] == (
+        [] if reduce_reused else ["generate_statements"]
+    )
+    assert all(r.input_tokens == 0 and r.output_tokens == 0 for r in rows if r.reused)
     assert statements(seeded, reused_id) == statements(seeded, done)
 
 

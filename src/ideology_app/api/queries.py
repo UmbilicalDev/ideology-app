@@ -187,7 +187,13 @@ def _version_out(session: Session, version: DatasetVersion) -> DatasetVersionOut
         election_id=version.election_id,
         created_at=_utc_timestamp(version.created_at),
         statements=[
-            StatementOut(id=s.id, position=s.position, text=s.text, topic=s.topic)
+            StatementOut(
+                id=s.id,
+                position=s.position,
+                text=s.text,
+                topic=s.topic,
+                context_note=s.context_note,
+            )
             for s in statements
         ],
         parties=[

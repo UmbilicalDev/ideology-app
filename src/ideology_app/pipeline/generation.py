@@ -4,7 +4,10 @@ Pure of the database. Depends only on ``llm.base`` (never on a concrete
 provider), the prompts module and ``pipeline.agenda``. Party names never enter
 a prompt: the input holds only ids and page text, and the candidates of the
 reduce are the Party-balanced Agenda (``agenda.balance_candidates``), which
-carries no Party id either.
+carries no Party id either. The reduce also lists the anchors (the Statements
+of the Election's Published Dataset Version, text and topic only) as prompt
+input; they never join the Agenda or the pool directly, so every pool
+Statement, context notes included, is model output.
 """
 
 from collections.abc import Iterable, Sequence
@@ -22,6 +25,7 @@ from ideology_app.pipeline.prompts import (
     POOL_TARGET_STATEMENTS,
     STATEMENT_CANDIDATES,
     CandidateList,
+    PoolStatement,
     PromptSpec,
     StatementDraft,
     StatementSet,
@@ -64,10 +68,21 @@ class Chunk:
 
 
 @dataclass(frozen=True)
+class Anchor:
+    """A Statement of the Election's Published Dataset Version given to the reduce."""
+
+    text: str
+    topic: str
+
+
+NO_ANCHORS_TEXT = "(ninguna)"
+
+
+@dataclass(frozen=True)
 class StatementPool:
     """The Statement Pool of a run and the Party-balanced Agenda it came from."""
 
-    statements: tuple[StatementDraft, ...]
+    statements: tuple[PoolStatement, ...]
     agenda: Agenda
 
 
@@ -182,24 +197,40 @@ def pool_bounds(settings: ValidationSettings | None = None) -> tuple[int, int, i
 
 
 def reduce_request(
-    candidates: Iterable[StatementDraft], settings: ValidationSettings | None = None
+    candidates: Iterable[StatementDraft],
+    settings: ValidationSettings | None = None,
+    anchors: Sequence[Anchor] = (),
 ) -> LLMRequest[Any]:
     """The ``generate_statements`` request for the Statement Pool.
 
-    Candidates are deduplicated and sorted. The schema bounds the pool size to
-    ``pool_bounds(settings)`` (``None``: the ``config.ValidationSettings``
-    defaults), and the prompt asks for its ``target``.
+    Candidates are deduplicated and sorted. ``anchors`` are listed in the given
+    order as ``[k] [topic] text`` (k = 1..n), or ``(ninguna)`` when empty. The
+    schema bounds the pool size to ``pool_bounds(settings)`` (``None``: the
+    ``config.ValidationSettings`` defaults) and each ``anchor`` to 1..n (only
+    ``null`` without anchors); the prompt asks for its ``target`` and states
+    the configured context note length range and evaluative words (in settings
+    order).
     """
+    if settings is None:
+        settings = ValidationSettings()
     low, high, target = pool_bounds(settings)
     unique = sorted({(c.topic, c.text) for c in candidates})
     lines = "\n".join(f"- [{topic}] {text}" for topic, text in unique)
+    anchor_lines = (
+        "\n".join(f"[{k}] [{a.topic}] {a.text}" for k, a in enumerate(anchors, start=1))
+        or NO_ANCHORS_TEXT
+    )
     return _request(
         GENERATE_STATEMENTS,
-        schema=statement_set_schema(low, high),
+        schema=statement_set_schema(low, high, len(anchors)),
         candidates=lines,
+        anchors=anchor_lines,
         count=target,
         min_count=low,
         max_count=high,
+        note_min=settings.context_note_min_chars,
+        note_max=settings.context_note_max_chars,
+        evaluative_words=", ".join(settings.context_note_evaluative_words),
     )
 
 
@@ -208,6 +239,7 @@ def generate_statements(
     chunks: Sequence[Chunk],
     usage: Usage,
     settings: ValidationSettings | None = None,
+    anchors: Sequence[Anchor] = (),
 ) -> StatementPool:
     """Map each chunk to candidates, balance them per Party, reduce them to the pool.
 
@@ -218,7 +250,8 @@ def generate_statements(
     (``pipeline.selection``). ``settings`` (a ``config.ValidationSettings``;
     ``None``: its defaults) gives the pool bounds of the reduce schema
     (``pool_bounds``), so an out-of-range list fails that call with
-    ``LLMOutputError``. Raises ``GenerationError`` before
+    ``LLMOutputError``. ``anchors`` go to the reduce prompt only
+    (``reduce_request``). Raises ``GenerationError`` before
     any call when there are too many chunks, and before the reduce call when
     no chunk yields a candidate. ``LLMError`` from the provider propagates; ``usage`` keeps the
     counts of the calls that succeeded.
@@ -236,7 +269,7 @@ def generate_statements(
     agenda = balance_candidates(per_chunk, pool_max=pool_bounds(settings)[1])
     if not agenda.candidates:
         raise GenerationError(NO_CANDIDATES_REASON)
-    result = provider.generate(reduce_request(agenda.candidates, settings))
+    result = provider.generate(reduce_request(agenda.candidates, settings, anchors))
     usage.record(result)
     final: StatementSet = result.output
     return StatementPool(statements=tuple(final.statements), agenda=agenda)
@@ -245,7 +278,9 @@ def generate_statements(
 __all__ = [
     "CHUNK_MAX_CHARS",
     "MAX_LLM_CALLS_PER_RUN",
+    "NO_ANCHORS_TEXT",
     "NO_CANDIDATES_REASON",
+    "Anchor",
     "Chunk",
     "DocumentPages",
     "GenerationError",

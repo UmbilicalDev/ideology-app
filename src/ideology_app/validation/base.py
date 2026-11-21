@@ -27,10 +27,13 @@ CHECK_NAME_MAX = 50
 
 @dataclass(frozen=True)
 class StatementRow:
+    """A Statement; ``context_note`` is None when it has none (versions before ``0014``)."""
+
     id: int
     position: int
     text: str
     topic: str
+    context_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -139,7 +142,13 @@ def load_input(
     ).all()
     return ValidationInput(
         statements=tuple(
-            StatementRow(id=s.id, position=s.position, text=s.text, topic=s.topic)
+            StatementRow(
+                id=s.id,
+                position=s.position,
+                text=s.text,
+                topic=s.topic,
+                context_note=s.context_note,
+            )
             for s in statements
         ),
         positions=tuple(

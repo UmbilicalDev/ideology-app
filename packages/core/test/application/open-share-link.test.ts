@@ -17,6 +17,7 @@ const STATEMENTS = Array.from({ length: 3 }, (_, i) => ({
   position: i + 1,
   text: `Afirmación ${i + 1}.`,
   topic: "economía",
+  contextNote: null,
 }));
 
 function party(id: number, name: string, value: 1 | -1): Party {

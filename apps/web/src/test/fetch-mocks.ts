@@ -55,6 +55,8 @@ export function datasetVersionJson({
     position: i + 1,
     text: `Afirmación de prueba ${i + 1}`,
     topic: "economía",
+    // The API sends null for Dataset Versions created before context notes.
+    context_note: null,
   }));
   const evidence = { quote: "Cita.", page: 1, url: null, source_document_id: 1 };
   return {
