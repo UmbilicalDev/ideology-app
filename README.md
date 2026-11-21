@@ -100,7 +100,7 @@ Notas:
 Con el servidor arrancado:
 
 1. En la portada, elige "Elecciones generales 2026" (la portada muestra solo la elección más reciente; la de 2023 sigue abierta en `/elecciones/1/cuestionario`).
-2. Responde el cuestionario (*Questionnaire*) de 32 afirmaciones (26 en 2023) en una escala de 5 puntos. Puedes usar "Saltar", marcar "Importante para mí" (cuenta doble) y volver con "Anterior".
+2. Responde el cuestionario (*Questionnaire*) de 32 afirmaciones (26 en 2023) con tres opciones: "De acuerdo", "Neutral / No lo sé" (no cuenta para la afinidad) o "En desacuerdo". Puedes marcar "Importante para mí" (cuenta doble) y volver con "Anterior".
 3. Mira el ranking de partidos y el desglose por afirmación, con la cita de la Evidencia y su página. Cuando el documento tiene URL, la página es un enlace al PDF (`#page=N`); PSOE y VOX muestran solo la página.
 4. En "Comparte tu resultado", "Copiar enlace" copia un enlace `/resultados#…`. Las respuestas van en el fragmento y no llegan al servidor.
 5. La metodología está en `/metodologia` (enlace "Lee la metodología completa", en el apartado "Cómo funciona" de la portada).

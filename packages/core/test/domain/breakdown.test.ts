@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   NO_STANCE,
-  SKIP,
+  NEUTRAL,
   buildBreakdown,
   evidenceHref,
   rankParties,
@@ -56,15 +56,15 @@ describe("buildBreakdown", () => {
     ]);
   });
 
-  test("answers: rating, skip and missing; important only for a rated flagged Answer", () => {
+  test("answers: side, Neutral and missing; important only for a sided flagged Answer", () => {
     const answers: Answer[] = [
-      { statementId: 11, value: 2, important: true },
-      { statementId: 12, value: SKIP, important: true },
+      { statementId: 11, value: 1, important: true },
+      { statementId: 12, value: NEUTRAL, important: true },
     ];
     const rows = buildBreakdown(STATEMENTS, PARTIES, answers, []);
     expect(rows.map((r) => [r.answer, r.important])).toEqual([
-      [2, true],
-      [SKIP, false],
+      [1, true],
+      [NEUTRAL, false],
       [null, false],
     ]);
     const unflagged = buildBreakdown(STATEMENTS, PARTIES, [{ statementId: 11, value: -1 }], []);
@@ -73,8 +73,8 @@ describe("buildBreakdown", () => {
   });
 
   test("string Statement ids match, as in the engine", () => {
-    const rows = buildBreakdown(STATEMENTS, PARTIES, [{ statementId: "13", value: 0, important: true }], []);
-    expect(rows[2]!.answer).toBe(0);
+    const rows = buildBreakdown(STATEMENTS, PARTIES, [{ statementId: "13", value: -1, important: true }], []);
+    expect(rows[2]!.answer).toBe(-1);
     expect(rows[2]!.important).toBe(true);
   });
 
@@ -92,12 +92,13 @@ describe("buildBreakdown", () => {
 
   test("the order equals rankParties for a fixture", () => {
     const answers: Answer[] = [
-      { statementId: 11, value: -2, important: false },
+      { statementId: 11, value: -1, important: false },
       { statementId: 12, value: -1, important: true },
-      { statementId: 13, value: -2, important: false },
+      { statementId: 13, value: -1, important: false },
     ];
     const order = rankParties(answers, PARTIES).map((p) => p.partyId);
-    expect(order).toEqual([2, 3, 1]);
+    // Beta 100 %; Alfa and Gamma 0 %, tied and ordered by name.
+    expect(order).toEqual([2, 1, 3]);
     const rows = buildBreakdown(STATEMENTS, PARTIES, answers, order);
     for (const row of rows) {
       expect(row.positions.map((p) => p.partyId)).toEqual(order);

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState, type RefObject } from
 import { Link } from "react-router";
 
 import {
-  SKIP,
+  NEUTRAL,
   buildResults,
   currentStatementId,
   reduceQuestionnaire,
@@ -14,7 +14,6 @@ import {
   type QuestionnaireAction,
   type QuestionnaireState,
   type Results,
-  type ScaleValue,
   type Statement,
 } from "@ideology-app/core";
 
@@ -24,7 +23,6 @@ import {
   ExternalLinkIcon,
   ShieldIcon,
   StarIcon,
-  StepOverIcon,
 } from "../../ui/icons";
 import { DonationBlock } from "../donate/DonationBlock";
 import { ExcludedPartiesNotice } from "../results/ExcludedPartiesNotice";
@@ -35,16 +33,17 @@ import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
 import { RankingHeader } from "../results/RankingHeader";
 import { ResultsRanking } from "../results/ResultsRanking";
 import { ResultsSummary } from "../results/ResultsSummary";
-import { ScaleIcon } from "../scale-icons";
-import { SCALE_LABELS } from "../scale-labels";
+import { SideIcon, answerSide } from "../scale-icons";
+import { answerLabel } from "../scale-labels";
 import { ShareApp } from "../share/ShareApp";
 import { ShareResults } from "../share/ShareResults";
 
-// The five options from most to least favourable (Muy de acuerdo first).
-// Meaning is carried by the text, never by colour alone (DESIGN.md).
-const SCALE_OPTIONS: readonly { readonly value: ScaleValue; readonly label: string }[] = (
-  [2, 1, 0, -1, -2] as const
-).map((value) => ({ value, label: SCALE_LABELS[value] }));
+// The three options: De acuerdo, Neutral / No lo sé, En desacuerdo. Neutral
+// leaves the Statement without a value (it does not count for the Match
+// Score). Meaning is carried by the text, never by colour alone (DESIGN.md).
+const SCALE_OPTIONS: readonly { readonly value: AnswerValue; readonly label: string }[] = (
+  [1, NEUTRAL, -1] as const
+).map((value) => ({ value, label: answerLabel(value) }));
 
 const NOTE =
   "Las afirmaciones las ha generado una inteligencia artificial a partir de los programas " +
@@ -162,7 +161,7 @@ function StatementStep({
   readonly answer: AnswerValue | undefined;
   readonly important: boolean;
   readonly headingRef: RefObject<HTMLHeadingElement | null>;
-  readonly onSelect: (value: ScaleValue) => void;
+  readonly onSelect: (value: AnswerValue) => void;
   readonly onToggleImportant: () => void;
   readonly onMove: (action: QuestionnaireAction) => void;
 }) {
@@ -193,19 +192,18 @@ function StatementStep({
                 <input
                   type="radio"
                   name={`answer-${statement.id}`}
-                  value={option.value}
+                  value={String(option.value)}
                   checked={answer === option.value}
                   onChange={() => onSelect(option.value)}
                 />{" "}
-                <ScaleIcon value={option.value} className="scale-option__icon" />
+                <SideIcon side={answerSide(option.value)} className="scale-option__icon" />
                 <span>{option.label}</span>
               </label>
             ))}
           </div>
-          {answer === SKIP ? <p className="questionnaire__skipped">Has saltado esta afirmación.</p> : null}
         </div>
         {/* One row of equal buttons in reading order: Anterior (from the
-            second Statement), Saltar, Siguiente. */}
+            second Statement), Siguiente. */}
         <div className="questionnaire__controls step-controls">
           {index > 0 ? (
             <button type="button" className="button-secondary" onClick={() => onMove({ type: "back" })}>
@@ -213,10 +211,6 @@ function StatementStep({
               <span>Anterior</span>
             </button>
           ) : null}
-          <button type="button" className="button-secondary" onClick={() => onMove({ type: "skip" })}>
-            <StepOverIcon />
-            <span>Saltar</span>
-          </button>
           <button
             type="button"
             className="button-primary"
@@ -298,8 +292,8 @@ function EndScreen({
   readonly excludedParties: readonly string[];
   readonly onFirst: () => void;
 }) {
-  const { answered, skipped, important, total } = summarize(state);
-  // A ranking needs one rated Statement on which some Party has a stance.
+  const { answered, neutral, important, total } = summarize(state);
+  // A ranking needs one sided Answer on which some Party has a sided stance.
   const { ranking, breakdown, hasScores } = results;
   const wide = useMediaQuery(MATRIX_QUERY);
   return (
@@ -313,7 +307,7 @@ function EndScreen({
       <div className="results-dashboard">
         <ResultsSummary
           answered={answered}
-          skipped={skipped}
+          neutral={neutral}
           important={important}
           total={total}
           voice="voter"

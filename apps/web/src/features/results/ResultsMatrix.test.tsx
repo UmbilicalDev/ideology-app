@@ -23,6 +23,14 @@ const DOS: BreakdownPosition = {
   value: -1,
   evidence: { quote: "Subiremos el IVA.", page: 7, href: null },
 };
+const CERO: BreakdownPosition = {
+  partyId: 4,
+  name: "Partido Cero",
+  shortName: "P0",
+  logoUrl: null,
+  value: 0,
+  evidence: { quote: "Lo estudiaremos.", page: 2, href: null },
+};
 const TRES: BreakdownPosition = {
   partyId: 3,
   name: "Partido Tres",
@@ -43,7 +51,7 @@ function row(id: number, answer: BreakdownRow["answer"], important = false): Bre
   };
 }
 
-const ROWS: BreakdownRow[] = [row(1, 1, true), row(2, -2), row(3, 0), row(4, "skip"), row(5, null)];
+const ROWS: BreakdownRow[] = [row(1, 1, true), row(2, -1), row(3, "neutral"), row(4, "neutral", true), row(5, null)];
 
 function stubWidth(wide: boolean) {
   vi.stubGlobal(
@@ -68,22 +76,22 @@ afterEach(() => {
 });
 
 describe("breakdown view helpers", () => {
-  test("coincidence follows the matching rule and is null without a rated Answer or a stance", () => {
-    expect(coincidence(row(1, 2), UNO)).toBe(100);
-    expect(coincidence(row(1, 1), UNO)).toBe(75);
-    expect(coincidence(row(1, -2), UNO)).toBe(0);
-    expect(coincidence(row(1, -2), DOS)).toBe(75);
-    expect(coincidence(row(1, "skip"), UNO)).toBeNull();
+  test("coincidence reads sides: 100 same side, 0 opposite, null for neutral, 0, no stance or no Answer", () => {
+    expect(coincidence(row(1, 1), UNO)).toBe(100);
+    expect(coincidence(row(1, -1), UNO)).toBe(0);
+    expect(coincidence(row(1, -1), DOS)).toBe(100);
+    expect(coincidence(row(1, 1), DOS)).toBe(0);
+    expect(coincidence(row(1, "neutral"), UNO)).toBeNull();
     expect(coincidence(row(1, null), UNO)).toBeNull();
-    expect(coincidence(row(1, 2), TRES)).toBeNull();
+    expect(coincidence(row(1, 1), TRES)).toBeNull();
+    expect(coincidence(row(1, 1), CERO)).toBeNull();
   });
 
-  test("filters group the Muy grades with their side and Important needs the flag", () => {
+  test("filters read the three Answers; Important is the row's flag", () => {
     expect(ROWS.filter((r) => matchesFilter(r, "agree")).map((r) => r.statementId)).toEqual([1]);
     expect(ROWS.filter((r) => matchesFilter(r, "disagree")).map((r) => r.statementId)).toEqual([2]);
-    expect(ROWS.filter((r) => matchesFilter(r, "neutral")).map((r) => r.statementId)).toEqual([3]);
-    expect(ROWS.filter((r) => matchesFilter(r, "skipped")).map((r) => r.statementId)).toEqual([4]);
-    expect(ROWS.filter((r) => matchesFilter(r, "important")).map((r) => r.statementId)).toEqual([1]);
+    expect(ROWS.filter((r) => matchesFilter(r, "neutral")).map((r) => r.statementId)).toEqual([3, 4]);
+    expect(ROWS.filter((r) => matchesFilter(r, "important")).map((r) => r.statementId)).toEqual([1, 4]);
     expect(ROWS.filter((r) => matchesFilter(r, "all"))).toHaveLength(5);
   });
 });
@@ -96,7 +104,12 @@ describe("ResultsBreakdown filters (cards, below 1024px)", () => {
     expect(screen.queryByRole("table")).toBeNull();
     expect(chip(/^Todas/).getAttribute("aria-pressed")).toBe("true");
     expect(chip(/^Todas/).textContent).toBe("Todas5");
-    expect(chip(/^Saltadas/).textContent).toBe("Saltadas1");
+    expect(chip(/^Neutral/).textContent).toBe("Neutral2");
+    expect(
+      within(screen.getByRole("group", { name: "Filtrar afirmaciones" }))
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Todas5", "De acuerdo1", "Neutral2", "En desacuerdo1", "Importantes2"]);
 
     fireEvent.click(chip(/^En desacuerdo/));
     expect(chip(/^En desacuerdo/).getAttribute("aria-pressed")).toBe("true");
@@ -110,7 +123,7 @@ describe("ResultsBreakdown filters (cards, below 1024px)", () => {
 
   test("a filter with no rows says so", () => {
     render(<ResultsBreakdown rows={[row(1, 1)]} />);
-    fireEvent.click(chip(/^Saltadas/));
+    fireEvent.click(chip(/^Neutral/));
     expect(screen.getByText("Ninguna afirmación coincide con este filtro.")).toBeTruthy();
   });
 });
@@ -139,11 +152,11 @@ describe("ResultsMatrix (1024px and up)", () => {
     expect(within(table).getByRole("columnheader", { name: "Partido Uno" })).toBe(partyHeads[0]);
     const first = within(table).getAllByRole("row")[1]!;
     const cells = within(first).getAllByRole("button").slice(1);
-    // A stance is drawn as its scale icon (decorative); no stance is a dash.
+    // A stance is drawn as its side icon (decorative); no stance is a dash.
     const shown = (c: HTMLElement) => (c.querySelector("svg[aria-hidden='true']") === null ? c.textContent : "icon");
     expect(cells.map((c) => [shown(c), c.getAttribute("data-match"), c.getAttribute("aria-label")])).toEqual([
-      ["icon", "75", "Partido Uno: Muy de acuerdo, coincidencia 75 %. Ver la cita"],
-      ["icon", "50", "Partido Dos: En desacuerdo, coincidencia 50 %. Ver la cita"],
+      ["icon", "100", "Partido Uno: De acuerdo, coincide contigo. Ver la cita"],
+      ["icon", "0", "Partido Dos: En desacuerdo, no coincide contigo. Ver la cita"],
       ["—", "none", "Partido Tres: Sin posición en el programa"],
     ]);
     // Same markup and classes for every Party: no per-Party styling.
@@ -152,10 +165,42 @@ describe("ResultsMatrix (1024px and up)", () => {
     expect(within(first).getByText("De acuerdo").className).toBe("visually-hidden");
   });
 
-  test("a skipped Statement has no coincidence in any cell", () => {
-    render(<ResultsBreakdown rows={[row(4, "skip")]} />);
+  test("a Neutral Answer has no coincidence in any cell", () => {
+    render(<ResultsBreakdown rows={[row(4, "neutral")]} />);
     const cells = within(screen.getAllByRole("row")[1]!).getAllByRole("button").slice(1);
     expect(cells.map((c) => c.getAttribute("data-match"))).toEqual(["none", "none", "none"]);
+  });
+
+  test("a Position of 0 reads Neutral and has no coincidence", () => {
+    render(<ResultsBreakdown rows={[{ ...row(1, 1), positions: [CERO] }]} />);
+    const [cell] = within(screen.getAllByRole("row")[1]!).getAllByRole("button").slice(1);
+    expect(cell!.getAttribute("data-match")).toBe("none");
+    expect(cell!.getAttribute("aria-label")).toBe("Partido Cero: Neutral. Ver la cita");
+  });
+
+  test("the legend shows three side icons, the no-stance dash and two swatches", () => {
+    render(<ResultsBreakdown rows={ROWS} />);
+    const legend = document.querySelector(".matrix-legend")!;
+    expect(
+      Array.from(legend.querySelectorAll(".matrix-legend__item")).map((i) => [
+        i.textContent,
+        i.querySelector("svg") !== null,
+      ]),
+    ).toEqual([
+      ["De acuerdo", true],
+      ["Neutral", true],
+      ["En desacuerdo", true],
+      ["—Sin posición en el programa", false],
+    ]);
+    expect(
+      Array.from(legend.querySelectorAll(".matrix-legend__step")).map((i) => [
+        i.textContent,
+        i.querySelector(".match-swatch")?.getAttribute("data-match"),
+      ]),
+    ).toEqual([
+      ["Coincide", "100"],
+      ["No coincide", "0"],
+    ]);
   });
 
   test("a cell opens its Evidence in the inspector; Escape closes it and focus returns", () => {
@@ -165,7 +210,7 @@ describe("ResultsMatrix (1024px and up)", () => {
     const dialog = screen.getByRole("dialog", { name: "Afirmación de prueba 1." });
     expect(within(dialog).getByText("Subiremos el IVA.").tagName).toBe("BLOCKQUOTE");
     expect(dialog.querySelector(".inspector-position__match")?.textContent).toBe(
-      " · coincidencia contigo 50\u00a0%",
+      " · no coincide contigo",
     );
     expect(within(dialog).getAllByRole("listitem")).toHaveLength(1);
     expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cerrar" }));
@@ -189,6 +234,15 @@ describe("ResultsMatrix (1024px and up)", () => {
     expect(within(dialog).getAllByRole("listitem")).toHaveLength(3);
     expect(within(dialog).getByText("Respuesta del enlace:", { exact: false })).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: /Ver todos/ })).toBeNull();
+    // A Neutral Answer has no coincidence line.
+    expect(dialog.querySelector(".inspector-position__match")).toBeNull();
+  });
+
+  test("on a shared result the inspector reads con el enlace", () => {
+    render(<ResultsBreakdown rows={ROWS} answerOwner="link" />);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Partido Uno: De acuerdo, coincide con el enlace/ })[0]!);
+    const dialog = screen.getByRole("dialog", { name: "Afirmación de prueba 1." });
+    expect(dialog.querySelector(".inspector-position__match")?.textContent).toBe(" · coincide con el enlace");
   });
 
   test("the answer cell opens the Statement too, and focus returns to the Statement button", () => {

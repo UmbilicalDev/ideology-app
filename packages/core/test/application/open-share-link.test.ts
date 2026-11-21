@@ -51,7 +51,7 @@ const ELECTION: Election = {
   publishedDatasetVersionId: 7,
 };
 
-const LINK = "v1-7-dsA";
+const LINK = "v2-7-anD";
 
 function fakeApi({
   version = async () => VERSION,
@@ -111,11 +111,12 @@ describe("openShareLink", () => {
   });
 
   test.each([
-    ["v1-7-dsf", "malformed"],
+    ["v2-7-dnf", "malformed"],
+    ["v2-7-dnb", "malformed"],
     ["garbage", "malformed"],
-    ["V1-7-a", "malformed"],
-    ["v1-7-" + "d".repeat(1020), "malformed"],
-    ["v2-7-a", "unsupported_version"],
+    ["V2-7-a", "malformed"],
+    ["v2-7-" + "d".repeat(1020), "malformed"],
+    ["v3-7-a", "unsupported_version"],
   ])("%s is invalid (%s) with no request", async (fragment, reason) => {
     const fake = fakeApi();
     expect(await openShareLink(fake.api, fragment)).toEqual({ kind: "invalid", reason });
@@ -123,7 +124,7 @@ describe("openShareLink", () => {
     expect(fake.getElection).not.toHaveBeenCalled();
   });
 
-  test.each(["v1-7-ds", "v1-7-dsAd"])(
+  test.each(["v2-7-dn", "v2-7-dnAd"])(
     "%s has the wrong letter count: invalid after exactly one request",
     async (fragment) => {
       const fake = fakeApi();
@@ -192,6 +193,69 @@ describe("openShareLink", () => {
     expect(await openShareLink(fake.api, LINK)).toEqual({ kind: "error" });
   });
 
+  describe("a retired v1 link is outdated", () => {
+    const V1 = "v1-7-ddcbaeS";
+
+    test("available Questionnaire: the Election id, after the two id-only requests", async () => {
+      const fake = fakeApi();
+      expect(await openShareLink(fake.api, V1)).toEqual({ kind: "outdated", questionnaireElectionId: 3 });
+      expect(fake.getDatasetVersion.mock.calls).toEqual([[7]]);
+      expect(fake.getElection.mock.calls).toEqual([[3]]);
+      expect(fake.listElections).not.toHaveBeenCalled();
+    });
+
+    test.each([
+      [{ status: "archived" as const }],
+      [{ publishedDatasetVersionId: null }],
+      [{ status: "draft" as const }],
+    ])("unavailable Questionnaire %o: null", async (overrides) => {
+      const fake = fakeApi({ election: async () => ({ ...ELECTION, ...overrides }) });
+      expect(await openShareLink(fake.api, V1)).toEqual({ kind: "outdated", questionnaireElectionId: null });
+    });
+
+    test("an Election with another id: null", async () => {
+      const fake = fakeApi({ election: async () => ({ ...ELECTION, id: 4 }) });
+      expect(await openShareLink(fake.api, V1)).toEqual({ kind: "outdated", questionnaireElectionId: null });
+    });
+
+    test("a Dataset Version 404: null, without an Election request", async () => {
+      const fake = fakeApi({ version: async () => Promise.reject(http(404)) });
+      expect(await openShareLink(fake.api, "v1-999999-ab")).toEqual({
+        kind: "outdated",
+        questionnaireElectionId: null,
+      });
+      expect(fake.getDatasetVersion.mock.calls).toEqual([[999999]]);
+      expect(fake.getElection).not.toHaveBeenCalled();
+    });
+
+    test("an Election 404: null", async () => {
+      const fake = fakeApi({ election: async () => Promise.reject(http(404)) });
+      expect(await openShareLink(fake.api, V1)).toEqual({ kind: "outdated", questionnaireElectionId: null });
+    });
+
+    test.each(failures)("a %s failure: null", async (_name, fail) => {
+      for (const fake of [fakeApi({ version: fail }), fakeApi({ election: fail })]) {
+        expect(await openShareLink(fake.api, V1)).toEqual({
+          kind: "outdated",
+          questionnaireElectionId: null,
+        });
+      }
+    });
+
+    test.each(["v1-x", "v1-", "v1-0-a", "v1-9999999999-a"])(
+      "%s has no usable id: null with no request",
+      async (fragment) => {
+        const fake = fakeApi();
+        expect(await openShareLink(fake.api, fragment)).toEqual({
+          kind: "outdated",
+          questionnaireElectionId: null,
+        });
+        expect(fake.getDatasetVersion).not.toHaveBeenCalled();
+        expect(fake.getElection).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   test("nothing is logged", async () => {
     // Core has no DOM or Node types (`types: []`), so `console` is reached structurally.
     const logger = (globalThis as unknown as { console: Record<string, (...args: unknown[]) => void> })
@@ -203,6 +267,7 @@ describe("openShareLink", () => {
       await openShareLink(fakeApi({ version: async () => Promise.reject(http(500)) }).api, LINK);
       await openShareLink(fakeApi().api, "garbage");
       await openShareLink(fakeApi().api, LINK);
+      await openShareLink(fakeApi({ version: async () => Promise.reject(http(500)) }).api, "v1-7-a");
       for (const spy of spies) expect(spy).not.toHaveBeenCalled();
     } finally {
       for (const spy of spies) spy.mockRestore();

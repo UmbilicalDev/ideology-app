@@ -1,37 +1,47 @@
-import { NO_STANCE, SKIP, type BreakdownRow } from "@ideology-app/core";
+import { NO_STANCE, type BreakdownRow } from "@ideology-app/core";
 
-import { StarIcon, StepOverIcon } from "../../ui/icons";
-import { ScaleIcon } from "../scale-icons";
-import { SCALE_LABELS } from "../scale-labels";
+import { StarIcon } from "../../ui/icons";
+import { SideIcon, answerSide, stanceSide, type Side } from "../scale-icons";
 import { coincidence, stanceLabel } from "./breakdown-view";
 import { answerLabel, NO_STANCE_LABEL } from "./Evidence";
 import { PartyLogo } from "./PartyLogo";
+import type { CoincidenceCopy } from "./ResultsBreakdown";
 
-const MATCH_STEPS = [100, 75, 50, 25, 0] as const;
+// The two cell tints: same side (100) and opposite sides (0).
+const MATCH_STEPS = [
+  { step: 100, label: "Coincide" },
+  { step: 0, label: "No coincide" },
+] as const;
 
-// Legend order, as the scale reads from agreement to disagreement.
-const LEGEND_VALUES = [2, 1, 0, -1, -2] as const;
+// Legend order, as the options read: De acuerdo, Neutral, En desacuerdo.
+const LEGEND_SIDES: readonly { readonly side: Side; readonly label: string }[] = [
+  { side: 1, label: "De acuerdo" },
+  { side: 0, label: "Neutral" },
+  { side: -1, label: "En desacuerdo" },
+];
 
-// No stance (and no Answer) keep a dash: there is no grade to draw.
+// No stance (and no Answer) keep a dash: there is no side to draw.
 const NO_VALUE = "—";
 
 /**
  * The Statement matrix (DESIGN.md "Statement matrix", 1024px and up): one
  * row per Statement, one column per Party in ranking order, every column
- * built the same way and `--matrix-party-width` wide (logo-only headers). A cell shows the Party's stance as the scale icon and is
- * tinted by its coincidence with the Answer (one accent, never a colour per
- * side or per Party); its accessible name has the full stance and the
- * coincidence. A cell opens that Position in the inspector, a Statement opens
+ * built the same way and `--matrix-party-width` wide (logo-only headers). A
+ * cell shows the Party's stance as its side icon and is tinted when it
+ * coincides with the Answer (one accent, never a colour per side or per
+ * Party); its accessible name has the stance and whether it coincides. A cell opens that Position in the inspector, a Statement opens
  * every Party's.
  */
 export function ResultsMatrix({
   rows,
   answerHeading,
+  coincidenceCopy,
   onOpenPosition,
   onOpenStatement,
 }: {
   readonly rows: readonly BreakdownRow[];
   readonly answerHeading: string;
+  readonly coincidenceCopy: CoincidenceCopy;
   readonly onOpenPosition: (row: BreakdownRow, partyId: number, trigger: HTMLElement) => void;
   readonly onOpenStatement: (row: BreakdownRow, trigger: HTMLElement) => void;
 }) {
@@ -40,16 +50,12 @@ export function ResultsMatrix({
     <>
       <div className="matrix-legend">
         <p className="matrix-legend__icons">
-          {LEGEND_VALUES.map((value) => (
-            <span key={value} className="matrix-legend__item">
-              <ScaleIcon value={value} className="matrix-legend__icon" />
-              {SCALE_LABELS[value]}
+          {LEGEND_SIDES.map(({ side, label }) => (
+            <span key={side} className="matrix-legend__item">
+              <SideIcon side={side} className="matrix-legend__icon" />
+              {label}
             </span>
           ))}
-          <span className="matrix-legend__item">
-            <StepOverIcon className="matrix-legend__icon" />
-            Saltada
-          </span>
           <span className="matrix-legend__item">
             <strong aria-hidden="true">{NO_VALUE}</strong>
             {NO_STANCE_LABEL}
@@ -57,10 +63,10 @@ export function ResultsMatrix({
         </p>
         <p className="matrix-legend__scale">
           <span>Coincidencia con la respuesta:</span>
-          {MATCH_STEPS.map((step) => (
+          {MATCH_STEPS.map(({ step, label }) => (
             <span key={step} className="matrix-legend__step">
               <span className="match-swatch" data-match={step} aria-hidden="true" />
-              {`${step} %`}
+              {label}
             </span>
           ))}
         </p>
@@ -119,7 +125,7 @@ export function ResultsMatrix({
                   const stance = stanceLabel(position, NO_STANCE_LABEL);
                   const name =
                     `${position.name}: ${stance}` +
-                    (match === null ? "" : `, coincidencia ${match} %`) +
+                    (match === null ? "" : `, ${match === 100 ? coincidenceCopy.yes : coincidenceCopy.no}`) +
                     (position.value === NO_STANCE ? "" : ". Ver la cita");
                   return (
                     <td key={position.partyId} className="matrix__cell">
@@ -133,7 +139,7 @@ export function ResultsMatrix({
                         {position.value === NO_STANCE ? (
                           NO_VALUE
                         ) : (
-                          <ScaleIcon value={position.value} className="match-cell__icon" />
+                          <SideIcon side={stanceSide(position.value)} className="match-cell__icon" />
                         )}
                       </button>
                     </td>
@@ -154,10 +160,8 @@ function AnswerChip({ row }: { readonly row: BreakdownRow }) {
     <span className="answer-chip">
       {row.answer === null ? (
         <span aria-hidden="true">{NO_VALUE}</span>
-      ) : row.answer === SKIP ? (
-        <StepOverIcon className="answer-chip__icon" />
       ) : (
-        <ScaleIcon value={row.answer} className="answer-chip__icon" />
+        <SideIcon side={answerSide(row.answer)} className="answer-chip__icon" />
       )}
       <span className="visually-hidden">{answerLabel(row.answer)}</span>
       {row.important ? (

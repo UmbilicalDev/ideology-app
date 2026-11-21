@@ -51,7 +51,7 @@ const ROWS: BreakdownRow[] = [
     statementId: 102,
     position: 2,
     text: "Segunda afirmación.",
-    answer: "skip",
+    answer: "neutral",
     important: false,
     positions: [UNO_URL, DOS_UPLOAD, TRES_NONE],
   },
@@ -102,17 +102,17 @@ describe("ResultsBreakdown", () => {
     const answers = rows().map((r) => r.querySelector(".breakdown-row__answer")!);
     expect(answers.map((a) => a.textContent)).toEqual([
       "Tu respuesta: De acuerdo Importante (cuenta el doble)",
-      "Tu respuesta: Saltada (no cuenta para la afinidad)",
+      "Tu respuesta: Neutral / No lo sé (no cuenta para la afinidad)",
       "Tu respuesta: Sin responder",
     ]);
     expect(answers[0]!.querySelector("strong")?.textContent).toBe("De acuerdo");
     expect(screen.getAllByText("Importante (cuenta el doble)")).toHaveLength(1);
     expect(screen.getByText("Importante (cuenta el doble)").className).toBe("important-mark");
-    // Leading icons: the scale icon, step-over when skipped, none when unanswered;
+    // Leading icons: the side icon (the up-down pair for Neutral), none when unanswered;
     // the Important mark carries the star. All decorative.
     expect(answers.map((a) => a.querySelector("strong svg")?.getAttribute("class") ?? null)).toEqual([
       "icon icon--wide value-icon",
-      "icon value-icon",
+      "icon icon--wide value-icon",
       null,
     ]);
     const star = screen.getByText("Importante (cuenta el doble)").querySelector("svg");
@@ -127,7 +127,7 @@ describe("ResultsBreakdown", () => {
       expect(details).toHaveLength(3);
       expect(details.every((d) => !d.open)).toBe(true);
       expect(details.map((d) => textWithoutLogos(d.querySelector("summary")!))).toEqual([
-        "Partido Uno P1 Muy de acuerdo",
+        "Partido Uno P1 De acuerdo",
         "Partido Dos P2 En desacuerdo",
         "Partido Tres P3 Sin posición en el programa",
       ]);
@@ -221,7 +221,7 @@ describe("ResultsBreakdown", () => {
     expect(screen.getByText(INTRO)).toBeTruthy();
     expect(rows(LINK_TITLE).map((r) => r.querySelector(".breakdown-row__answer")?.textContent)).toEqual([
       "Respuesta del enlace: De acuerdo Importante (cuenta el doble)",
-      "Respuesta del enlace: Saltada (no cuenta para la afinidad)",
+      "Respuesta del enlace: Neutral / No lo sé (no cuenta para la afinidad)",
       "Respuesta del enlace: Sin responder",
     ]);
     expect(container.textContent).not.toContain("Tu respuesta");

@@ -54,16 +54,17 @@ function button(name: string) {
   return screen.getByRole("button", { name }) as HTMLButtonElement;
 }
 
-/** Opens the six-Statement Questionnaire and rates (or skips) every Statement. */
-async function finish({ skipAll = false } = {}) {
+/** Opens the six-Statement Questionnaire and answers every Statement (De acuerdo, or Neutral). */
+async function finish({ allNeutral = false } = {}) {
   const fetch = sixStatementFetch();
   renderAt("/elecciones/1/cuestionario", fetch);
   await screen.findByRole("radiogroup");
   for (let i = 0; i < 6; i += 1) {
-    if (skipAll) {
-      fireEvent.click(button("Saltar"));
+    if (allNeutral) {
+      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+      fireEvent.click(button("Siguiente"));
     } else {
-      fireEvent.click(screen.getByRole("radio", { name: i === 5 ? "Muy en desacuerdo" : "De acuerdo" }));
+      fireEvent.click(screen.getByRole("radio", { name: i === 5 ? "En desacuerdo" : "De acuerdo" }));
       fireEvent.click(button("Siguiente"));
     }
   }
@@ -326,8 +327,8 @@ describe("ShareApp on the end screen", () => {
     expect(within(appSection()).getByRole("status").textContent).toBe(FALLBACK_INSTAGRAM);
   });
 
-  test("Scenario 6: all Statements skipped shows only Comparte IdeologiApp", async () => {
-    await finish({ skipAll: true });
+  test("Scenario 6: all Statements Neutral shows only Comparte IdeologiApp", async () => {
+    await finish({ allNeutral: true });
     expect(screen.queryByRole("region", { name: "Comparte tu resultado" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
     const app = appSection();
@@ -372,17 +373,17 @@ describe("ShareApp never leaks Answers (Scenario 5)", () => {
     window.history.replaceState(null, "", previous);
   });
 
-  test("with the address bar at /resultados#v1-1-dddddA, every URL, the clipboard and the share data hold only the home URL", async () => {
+  test("with the address bar at /resultados#v2-1-aaaaaD, every URL, the clipboard and the share data hold only the home URL", async () => {
     const fetch = routes({
       "/api/v1/elections/1": () => jsonResponse(electionJson()),
       "/api/v1/dataset-versions/1": () => jsonResponse(datasetVersionJson({ statements: 6 })),
     });
-    window.history.replaceState(null, "", "/resultados#v1-1-dddddA");
+    window.history.replaceState(null, "", "/resultados#v2-1-aaaaaD");
     const writeText = vi.fn(async (_text: string) => undefined);
     const share = vi.fn(async (_data: ShareData) => Promise.reject(domError("NotAllowedError")));
     defineClipboard({ writeText });
     defineShare(share);
-    renderAt("/resultados#v1-1-dddddA", fetch);
+    renderAt("/resultados#v2-1-aaaaaD", fetch);
     await screen.findByRole("heading", { level: 2, name: "Afinidad con cada partido" });
 
     fireEvent.click(target("Copiar enlace de IdeologiApp"));
@@ -410,7 +411,7 @@ describe("ShareApp never leaks Answers (Scenario 5)", () => {
 
 describe("ShareApp on the shared result (Scenario 7)", () => {
   test("a ready link shows only Comparte IdeologiApp, between the CTA and the breakdown", async () => {
-    renderAt("/resultados#v1-1-dddddA", sixStatementFetch());
+    renderAt("/resultados#v2-1-aaaaaD", sixStatementFetch());
     await screen.findByRole("heading", { level: 2, name: "Afinidad con cada partido" });
     const app = appSection();
     expect(screen.queryByRole("region", { name: "Comparte tu resultado" })).toBeNull();

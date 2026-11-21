@@ -8,7 +8,7 @@ import { ResultsRanking } from "./ResultsRanking";
 
 const NBSP = " ";
 const EXPLANATION =
-  "Compartes menos de 5 afirmaciones con este partido, así que su afinidad se basa en pocos datos.";
+  "Se pueden comparar menos de 5 afirmaciones con este partido, así que su afinidad se basa en pocos datos.";
 
 function ranked(overrides: Partial<RankedParty> & Pick<RankedParty, "partyId" | "name">): RankedParty {
   return {
@@ -16,7 +16,8 @@ function ranked(overrides: Partial<RankedParty> & Pick<RankedParty, "partyId" | 
     logoUrl: null,
     matchScore: 0.5,
     percent: 50,
-    sharedStatementCount: 10,
+    comparedStatementCount: 10,
+    coincidenceCount: 5,
     lowCoverage: false,
     ...overrides,
   };
@@ -38,25 +39,34 @@ function rows() {
 describe("ResultsRanking", () => {
   test("renders one row per Party in the given order, with name, short name, percent and count", () => {
     renderRanking([
-      ranked({ partyId: 7, name: "Ñandú Unido", shortName: "ÑU", matchScore: 0.81, percent: 81, sharedStatementCount: 7 }),
-      ranked({ partyId: 2, name: "Álava Común", shortName: "ÁC", matchScore: 0.555, percent: 56, sharedStatementCount: 1, lowCoverage: true }),
+      ranked({ partyId: 7, name: "Ñandú Unido", shortName: "ÑU", matchScore: 0.81, percent: 81, comparedStatementCount: 9, coincidenceCount: 7 }),
+      ranked({ partyId: 2, name: "Álava Común", shortName: "ÁC", matchScore: 1, percent: 100, comparedStatementCount: 1, coincidenceCount: 1, lowCoverage: true }),
     ]);
     const items = rows();
     expect(items.map(textWithoutLogos)).toEqual([
-      `Ñandú Unido ÑU 81${NBSP}%7 afirmaciones en común`,
-      `Álava Común ÁC 56${NBSP}%1 afirmación en común Baja cobertura${EXPLANATION}`,
+      `Ñandú Unido ÑU 81${NBSP}%7 de 9 coincidencias`,
+      `Álava Común ÁC 100${NBSP}%1 de 1 coincidencia Baja cobertura${EXPLANATION}`,
     ]);
     expect(items[0]!.querySelector(".ranking-bar__fill")?.getAttribute("style")).toBe("width: 81%;");
-    expect(items[1]!.querySelector(".ranking-bar__fill")?.getAttribute("style")).toBe("width: 56%;");
+    expect(items[1]!.querySelector(".ranking-bar__fill")?.getAttribute("style")).toBe("width: 100%;");
     expect(screen.getByRole("list").getAttribute("aria-labelledby")).toBe("results-title");
   });
 
-  test("a null score shows Sin afirmaciones en común, an empty track and the badge", () => {
+  test("a null score shows Sin afirmaciones comparables, 0 de 0 coincidencias, an empty track and the badge", () => {
     renderRanking([
-      ranked({ partyId: 3, name: "Sin Datos", matchScore: null, percent: null, sharedStatementCount: 0, lowCoverage: true }),
+      ranked({
+        partyId: 3,
+        name: "Sin Datos",
+        matchScore: null,
+        percent: null,
+        comparedStatementCount: 0,
+        coincidenceCount: 0,
+        lowCoverage: true,
+      }),
     ]);
     const [row] = rows();
-    expect(row!.querySelector(".ranking-row__percent")?.textContent).toBe("Sin afirmaciones en común");
+    expect(row!.querySelector(".ranking-row__percent")?.textContent).toBe("Sin afirmaciones comparables");
+    expect(row!.querySelector(".ranking-row__meta")?.textContent).toContain("0 de 0 coincidencias");
     expect(textWithoutLogos(row!)).not.toContain("%");
     expect(row!.querySelector(".ranking-bar__fill")?.getAttribute("style")).toBe("width: 0%;");
     const chip = within(row!).getByRole("button", { name: "Baja cobertura" });
@@ -74,11 +84,18 @@ describe("ResultsRanking", () => {
     expect(screen.queryByText(/se basa en pocos datos/)).toBeNull();
   });
 
+  test("spec scenario 4: 9 de 12 coincidencias reads with its percent", () => {
+    renderRanking([
+      ranked({ partyId: 1, name: "Uno", matchScore: 0.75, percent: 75, comparedStatementCount: 12, coincidenceCount: 9 }),
+    ]);
+    expect(textWithoutLogos(rows()[0]!)).toBe(`Uno P1 75${NBSP}%9 de 12 coincidencias`);
+  });
+
   test("one chip per low-coverage row, and no legend under the ranking", () => {
     renderRanking([
       ranked({ partyId: 1, name: "Uno", percent: 90 }),
-      ranked({ partyId: 2, name: "Dos", percent: 40, sharedStatementCount: 4, lowCoverage: true }),
-      ranked({ partyId: 3, name: "Tres", percent: 20, sharedStatementCount: 2, lowCoverage: true }),
+      ranked({ partyId: 2, name: "Dos", percent: 40, comparedStatementCount: 4, coincidenceCount: 0, lowCoverage: true }),
+      ranked({ partyId: 3, name: "Tres", percent: 20, comparedStatementCount: 2, coincidenceCount: 0, lowCoverage: true }),
     ]);
     expect(screen.getAllByRole("button", { name: "Baja cobertura" })).toHaveLength(2);
     expect(screen.getAllByRole("tooltip", { hidden: true })).toHaveLength(2);
@@ -89,7 +106,7 @@ describe("ResultsRanking", () => {
   test("the chip is described by its tooltip, which opens on hover, focus and tap and closes with Escape", () => {
     vi.useFakeTimers();
     try {
-      renderRanking([ranked({ partyId: 2, name: "Dos", sharedStatementCount: 4, lowCoverage: true })]);
+      renderRanking([ranked({ partyId: 2, name: "Dos", comparedStatementCount: 4, coincidenceCount: 0, lowCoverage: true })]);
       const chip = screen.getByRole("button", { name: "Baja cobertura" });
       const tooltip = screen.getByRole("tooltip", { hidden: true });
       expect(chip.getAttribute("aria-describedby")).toBe(tooltip.id);

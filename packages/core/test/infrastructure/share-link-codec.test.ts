@@ -4,7 +4,7 @@ import {
   MAX_SHARE_LINK_STATEMENTS,
   NO_STANCE,
   SHARE_LINK_FORMAT_VERSION,
-  SKIP,
+  NEUTRAL,
   ShareLinkError,
   decodeShareLink,
   encodeShareLink,
@@ -18,8 +18,8 @@ import {
   type ShareLinkErrorKind,
 } from "../../src/index";
 
-const VALUES: readonly AnswerValue[] = [-2, -1, 0, 1, 2, SKIP];
-const LETTERS = ["a", "b", "c", "d", "e", "s"];
+const VALUES: readonly AnswerValue[] = [-1, NEUTRAL, 1];
+const LETTERS = ["d", "n", "a"];
 
 function finished(
   entries: readonly (readonly [AnswerValue, boolean])[],
@@ -34,7 +34,7 @@ function finished(
   return { statementIds: [...ids], currentIndex: ids.length, answers, important };
 }
 
-function expectError(run: () => unknown, kind: ShareLinkErrorKind) {
+function expectError(run: () => unknown, kind: ShareLinkErrorKind): ShareLinkError {
   let caught: unknown;
   try {
     run();
@@ -44,6 +44,7 @@ function expectError(run: () => unknown, kind: ShareLinkErrorKind) {
   expect(caught).toBeInstanceOf(ShareLinkError);
   expect((caught as ShareLinkError).kind).toBe(kind);
   expect((caught as ShareLinkError).message).toMatch(/^share link: /);
+  return caught as ShareLinkError;
 }
 
 // Deterministic PRNG (mulberry32) so the random round-trip is reproducible.
@@ -74,37 +75,37 @@ function partiesFor(ids: readonly number[], random: () => number): Party[] {
 }
 
 describe("encodeShareLink", () => {
-  test("format version 1 and a 500-Statement cap", () => {
-    expect(SHARE_LINK_FORMAT_VERSION).toBe(1);
+  test("format version 2 and a 500-Statement cap", () => {
+    expect(SHARE_LINK_FORMAT_VERSION).toBe(2);
     expect(MAX_SHARE_LINK_STATEMENTS).toBe(500);
   });
 
-  test("all 12 symbols: each value with and without Important", () => {
+  test("all 6 symbols: each value with and without Important", () => {
     const entries = VALUES.flatMap((value) => [
       [value, false] as const,
       [value, true] as const,
     ]);
-    expect(encodeShareLink(finished(entries), 7)).toBe("v1-7-aAbBcCdDeEsS");
+    expect(encodeShareLink(finished(entries), 7)).toBe("v2-7-dDnNaA");
     VALUES.forEach((value, i) => {
-      expect(encodeShareLink(finished([[value, false]]), 1)).toBe(`v1-1-${LETTERS[i]}`);
-      expect(encodeShareLink(finished([[value, true]]), 1)).toBe(`v1-1-${LETTERS[i]!.toUpperCase()}`);
+      expect(encodeShareLink(finished([[value, false]]), 1)).toBe(`v2-1-${LETTERS[i]}`);
+      expect(encodeShareLink(finished([[value, true]]), 1)).toBe(`v2-1-${LETTERS[i]!.toUpperCase()}`);
     });
   });
 
-  test("a flagged skip keeps its flag as S", () => {
-    expect(encodeShareLink(finished([[1, false], [SKIP, true], [SKIP, false]]), 1)).toBe("v1-1-dSs");
+  test("a flagged Neutral Answer keeps its flag as N", () => {
+    expect(encodeShareLink(finished([[1, false], [NEUTRAL, true], [NEUTRAL, false]]), 1)).toBe("v2-1-aNn");
   });
 
   test("the payload follows Statement order, not Statement id order", () => {
-    const state = finished([[-2, false], [2, false]], [205, 3]);
-    expect(encodeShareLink(state, 1)).toBe("v1-1-ae");
+    const state = finished([[-1, false], [1, false]], [205, 3]);
+    expect(encodeShareLink(state, 1)).toBe("v2-1-da");
   });
 
   test("1 and 500 Statements; ids 1 and 2147483647", () => {
-    expect(encodeShareLink(finished([[0, false]]), 1)).toBe("v1-1-c");
-    const many = finished(Array.from({ length: 500 }, () => [SKIP, false] as const));
+    expect(encodeShareLink(finished([[NEUTRAL, false]]), 1)).toBe("v2-1-n");
+    const many = finished(Array.from({ length: 500 }, () => [NEUTRAL, false] as const));
     const payload = encodeShareLink(many, 2147483647);
-    expect(payload).toBe(`v1-2147483647-${"s".repeat(500)}`);
+    expect(payload).toBe(`v2-2147483647-${"n".repeat(500)}`);
     expect(decodeShareLink(payload).entries).toHaveLength(500);
   });
 
@@ -118,56 +119,61 @@ describe("encodeShareLink", () => {
     expect(() => encodeShareLink(tooMany, 1)).toThrow(RangeError);
   });
 
-  test("throws RangeError when a Statement has no Answer", () => {
-    const state = finished([[1, false], [2, false]]);
+  test("throws RangeError when a Statement has no Answer or an old value", () => {
+    const state = finished([[1, false], [-1, false]]);
     const answers = new Map(state.answers);
     answers.delete(102);
     expect(() => encodeShareLink({ ...state, answers }, 1)).toThrow(RangeError);
+    const old = new Map(state.answers);
+    old.set(102, 2 as unknown as AnswerValue);
+    expect(() => encodeShareLink({ ...state, answers: old }, 1)).toThrow(RangeError);
   });
 
   test("every character is RFC 3986 unreserved", () => {
-    const payload = encodeShareLink(finished([[2, true], [SKIP, false]]), 42);
+    const payload = encodeShareLink(finished([[1, true], [NEUTRAL, false]]), 42);
     expect(encodeURIComponent(payload)).toBe(payload);
   });
 });
 
 describe("decodeShareLink", () => {
   test("decodes values and Important flags in order", () => {
-    expect(decodeShareLink("v1-12-aBcDeSs")).toEqual({
-      formatVersion: 1,
+    expect(decodeShareLink("v2-12-dDnNaA")).toEqual({
+      formatVersion: 2,
       datasetVersionId: 12,
       entries: [
-        { value: -2, important: false },
+        { value: -1, important: false },
         { value: -1, important: true },
-        { value: 0, important: false },
+        { value: NEUTRAL, important: false },
+        { value: NEUTRAL, important: true },
+        { value: 1, important: false },
         { value: 1, important: true },
-        { value: 2, important: false },
-        { value: SKIP, important: true },
-        { value: SKIP, important: false },
       ],
     });
   });
 
   test.each([
     "",
-    "v1",
-    "v1-1-",
-    "v1-0-a",
-    "v1-01-a",
-    "v1-2147483648-a",
-    "v1-9999999999-a",
-    "v1-1-f",
-    "v1-1-a b",
-    "V1-1-a",
-    "v1-1-a-",
-    "#v1-1-a",
-    "v1-1-%61",
+    "v2",
+    "v2-1-",
+    "v2-0-a",
+    "v2-01-a",
+    "v2-2147483648-a",
+    "v2-9999999999-a",
+    "v2-1-b",
+    "v2-1-c",
+    "v2-1-e",
+    "v2-1-s",
+    "v2-1-a b",
+    "V2-1-a",
+    "v2-1-a-",
+    "#v2-1-a",
+    "v2-1-%61",
     "v0-1-a",
-    " v1-1-a",
-    "v1-1-a\n",
-    "v1--1-a",
-    `v1-1-${"a".repeat(501)}`,
-    `v1-1-${"a".repeat(1019)}`,
+    " v2-1-a",
+    "v2-1-a\n",
+    "v2--1-a",
+    `v2-1-${"a".repeat(501)}`,
+    `v2-1-${"a".repeat(1019)}`,
   ])("malformed: %j", (fragment) => {
     expectError(() => decodeShareLink(fragment), "malformed");
   });
@@ -176,8 +182,33 @@ describe("decodeShareLink", () => {
     expectError(() => decodeShareLink(`v2-${"a".repeat(1022)}`), "malformed");
   });
 
-  test.each(["v2-1-a", "v10-1-a", "v999-1-zzz"])("unsupported_version: %s", (fragment) => {
+  test.each(["v3-1-a", "v10-1-a", "v999-1-zzz"])("unsupported_version: %s", (fragment) => {
     expectError(() => decodeShareLink(fragment), "unsupported_version");
+  });
+
+  test.each([
+    ["v1-5-ddcbaeS", 5],
+    ["v1-1-a", 1],
+    ["v1-2147483647-s", 2147483647],
+    ["v1-5-", 5],
+    ["v1-5-zzz", 5],
+    ["v1-999999-ab", 999999],
+  ] as const)("outdated_version with the Dataset Version id: %s", (fragment, id) => {
+    const error = expectError(() => decodeShareLink(fragment), "outdated_version");
+    expect(error.datasetVersionId).toBe(id);
+  });
+
+  test.each(["v1-x", "v1-", "v1-0-a", "v1-01-a", "v1-2147483648-a", "v1-9999999999-a", "v1-5"])(
+    "outdated_version without an id: %s",
+    (fragment) => {
+      const error = expectError(() => decodeShareLink(fragment), "outdated_version");
+      expect(error.datasetVersionId).toBeUndefined();
+    },
+  );
+
+  test("other errors carry no Dataset Version id", () => {
+    expect(expectError(() => decodeShareLink("v2-5-x"), "malformed").datasetVersionId).toBeUndefined();
+    expect(expectError(() => decodeShareLink("v3-5-a"), "unsupported_version").datasetVersionId).toBeUndefined();
   });
 });
 
@@ -185,38 +216,38 @@ describe("restoreQuestionnaire", () => {
   const ids = [101, 102, 103];
 
   test("returns the end-screen state with answers and flags by Statement id", () => {
-    const state = restoreQuestionnaire(decodeShareLink("v1-1-dSa"), ids);
+    const state = restoreQuestionnaire(decodeShareLink("v2-1-aNd"), ids);
     expect(state.currentIndex).toBe(3);
     expect(state.statementIds).toEqual(ids);
     expect([...state.answers]).toEqual([
       [101, 1],
-      [102, SKIP],
-      [103, -2],
+      [102, NEUTRAL],
+      [103, -1],
     ]);
     expect([...state.important]).toEqual([102]);
   });
 
   test("statement_count_mismatch for one id too few or too many", () => {
-    const link = decodeShareLink("v1-1-dSa");
+    const link = decodeShareLink("v2-1-aNd");
     expectError(() => restoreQuestionnaire(link, ids.slice(0, 2)), "statement_count_mismatch");
     expectError(() => restoreQuestionnaire(link, [...ids, 104]), "statement_count_mismatch");
   });
 
-  test("Scenario 2: skip and Important round-trip with identical ranking", () => {
+  test("Neutral and Important round-trip with identical ranking", () => {
     const sixIds = [101, 102, 103, 104, 105, 106];
     const live = finished(
       [
         [1, false],
-        [SKIP, true],
+        [NEUTRAL, true],
+        [1, true],
+        [-1, false],
         [1, false],
-        [1, false],
-        [1, false],
-        [SKIP, false],
+        [NEUTRAL, false],
       ],
       sixIds,
     );
-    const payload = encodeShareLink(live, 1);
-    expect(payload).toBe("v1-1-dSddds");
+    const payload = encodeShareLink(live, 5);
+    expect(payload).toBe("v2-5-aNAdan");
     const restored = restoreQuestionnaire(decodeShareLink(payload), sixIds);
     expect(restored.answers).toEqual(live.answers);
     expect(restored.important).toEqual(live.important);

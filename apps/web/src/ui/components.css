@@ -1276,7 +1276,7 @@ a.button-secondary {
 
 /* Step transition (DESIGN.md): after a move, the Statement, Important row
    and scale fade in from 16px towards the way the Voter went (from the
-   right for Siguiente/Saltar, from the left for Anterior). Short and small,
+   right for Siguiente, from the left for Anterior). Short and small,
    since it repeats on every Statement; the controls never move. */
 .statement-step[data-enter] {
   animation: step-enter 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
@@ -1555,11 +1555,6 @@ a.button-secondary {
   font: var(--type-body-sm);
 }
 
-.questionnaire__skipped {
-  color: var(--color-text);
-  font: var(--type-body-sm);
-}
-
 .questionnaire__controls {
   display: flex;
   flex-wrap: wrap;
@@ -1573,8 +1568,8 @@ a.button-secondary {
   border-top: 1px solid var(--color-border);
 }
 
-/* Anterior, Saltar, Siguiente: equal columns across the card (two halves on
-   the first Statement); a long label wraps inside its button. */
+/* Anterior, Siguiente: equal columns across the card (Siguiente takes the
+   full row on the first Statement); a long label wraps inside its button. */
 .step-controls {
   display: grid;
   grid-auto-flow: column;
@@ -2505,21 +2500,6 @@ h3[tabindex="-1"]:focus {
 .match-cell[data-match="100"],
 .match-swatch[data-match="100"] {
   background: color-mix(in srgb, var(--color-accent-fill) var(--match-100), var(--color-surface));
-}
-
-.match-cell[data-match="75"],
-.match-swatch[data-match="75"] {
-  background: color-mix(in srgb, var(--color-accent-fill) var(--match-75), var(--color-surface));
-}
-
-.match-cell[data-match="50"],
-.match-swatch[data-match="50"] {
-  background: color-mix(in srgb, var(--color-accent-fill) var(--match-50), var(--color-surface));
-}
-
-.match-cell[data-match="25"],
-.match-swatch[data-match="25"] {
-  background: color-mix(in srgb, var(--color-accent-fill) var(--match-25), var(--color-surface));
 }
 
 .match-cell[data-match="0"],

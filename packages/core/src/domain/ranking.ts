@@ -16,11 +16,14 @@ export interface RankedParty {
   readonly shortName: string;
   /** Same-origin logo path from `Party.logoUrl`, or `null` (placeholder). */
   readonly logoUrl: string | null;
-  /** The engine's score from 0 to 1, or `null` when no Statement is shared. */
+  /** The engine's score from 0 to 1, or `null` when no Statement is compared. */
   readonly matchScore: number | null;
   /** `Math.round(matchScore * 100)`, or `null` with `matchScore`. */
   readonly percent: number | null;
-  readonly sharedStatementCount: number;
+  /** M: Statements compared with this Party (sided Answer and sided Position). */
+  readonly comparedStatementCount: number;
+  /** N: compared Statements on the same side ("N de M coincidencias"). */
+  readonly coincidenceCount: number;
   readonly lowCoverage: boolean;
 }
 
@@ -52,7 +55,8 @@ export function rankParties(answers: readonly Answer[], parties: readonly Party[
       logoUrl: party.logoUrl,
       matchScore: result.matchScore,
       percent: result.matchScore === null ? null : Math.round(result.matchScore * 100),
-      sharedStatementCount: result.sharedStatementCount,
+      comparedStatementCount: result.comparedStatementCount,
+      coincidenceCount: result.coincidenceCount,
       lowCoverage: result.lowCoverage,
     };
   });
