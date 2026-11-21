@@ -4,7 +4,7 @@ import { Link, useLocation } from "react-router";
 import { summarize, type OpenShareLinkResult, type PublicApi } from "@ideology-app/core";
 
 import { HomeButton } from "../common/HomeButton";
-import { METHODOLOGY_PATH, questionnairePath } from "../paths";
+import { HOME_PATH, METHODOLOGY_PATH, questionnairePath } from "../paths";
 import { useMediaQuery } from "../common/useMediaQuery";
 import { MATRIX_QUERY, ResultsBreakdown } from "../results/ResultsBreakdown";
 import { excludedPartiesFor, ExcludedPartiesNotice } from "../results/ExcludedPartiesNotice";
@@ -22,6 +22,9 @@ const INVALID =
   "te lo envíen de nuevo.";
 const UNSUPPORTED =
   "Este enlace se creó con una versión más reciente de esta web. Recarga la página para abrirlo.";
+const OUTDATED =
+  "Este resultado se hizo con una versión anterior del cuestionario. La aplicación ha cambiado " +
+  "desde entonces y ya no puede mostrarlo.";
 const NOT_FOUND = "No encontramos el cuestionario de este enlace. Puede que ya no esté disponible.";
 const ERROR = "No se ha podido cargar el resultado. Comprueba tu conexión e inténtalo de nuevo.";
 
@@ -78,6 +81,8 @@ function SharedResultLoader({ api, fragment }: { readonly api: PublicApi; readon
             return <Message text={MISSING} />;
           case "invalid":
             return <Message text={state.reason === "unsupported_version" ? UNSUPPORTED : INVALID} />;
+          case "outdated":
+            return <Outdated electionId={state.questionnaireElectionId} />;
           case "not_found":
             return <Message text={NOT_FOUND} />;
           case "error":
@@ -109,9 +114,31 @@ function Message({ text }: { readonly text: string }) {
   );
 }
 
+/**
+ * A link with a retired layout (`v1`, before the three-option scale): a clear
+ * notice, never a broken page, with the current Questionnaire of the link's
+ * Election when it is available and otherwise the Landing.
+ */
+function Outdated({ electionId }: { readonly electionId: number | null }) {
+  return (
+    <>
+      <section className="card shared-notice" aria-labelledby="outdated-title">
+        <h2 id="outdated-title">Este enlace es de una versión anterior</h2>
+        <p>{OUTDATED}</p>
+        <p>
+          <Link className="button-primary" to={electionId === null ? HOME_PATH : questionnairePath(electionId)}>
+            Haz el nuevo cuestionario
+          </Link>
+        </p>
+      </section>
+      <HomeButton />
+    </>
+  );
+}
+
 function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult, { kind: "ready" }> }) {
   const { election, state, results, versionStatus, questionnaireAvailable } = result;
-  const { answered, skipped, important, total } = summarize(state);
+  const { answered, neutral, important, total } = summarize(state);
   const superseded = versionStatus === "superseded";
   const wide = useMediaQuery(MATRIX_QUERY);
   return (
@@ -134,7 +161,7 @@ function SharedResult({ result }: { readonly result: Extract<OpenShareLinkResult
       <div className="results-dashboard">
         <ResultsSummary
           answered={answered}
-          skipped={skipped}
+          neutral={neutral}
           important={important}
           total={total}
           voice="link"

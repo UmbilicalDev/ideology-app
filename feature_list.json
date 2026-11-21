@@ -1535,5 +1535,172 @@
       "2026-11-20 implementer: npm typecheck ok, Vitest 946 passed (41 files, new ExcludedPartiesNotice.test.tsx), vite build ok on feature/landing-card-results-disclaimer.",
       "Browser (Claude desktop Browser pane, Chromium, dark theme, web-shared-db on data/ideology.db): Landing at 1440x900 shows the card as one row and the whole carousel above the fold; at 1024 the row holds (name wraps to two lines); at 375 the card is stacked as before. End screen of Elecciones generales 2026 (30 answers) at 1440 and 375 shows the note between the intro and the ranking; the shared result (/resultados#v1-5-...) at 375 shows it too. Console: no errors. Network: only GETs (pages, assets, /api/v1/elections/2, dataset-versions/5, logos, donation); the answers stay in the URL fragment."
     ]
+  },
+  {
+    "id": "three-option-scale",
+    "area": "core",
+    "title": "Three-option answer scale and 'X de Y coincidencias' in the ranking",
+    "user_visible_behavior": "The Answer scale becomes three options: 'En desacuerdo', 'Neutral / No lo sé', 'De acuerdo'. 'Neutral / No lo sé' replaces Saltar: it leaves the Statement without a value (excluded from the Match Score), and the separate Saltar control is removed (user decision 2026-11-21). Party Positions are read by side (−2/−1 = against, +1/+2 = in favour; 0 and no stance excluded). Per Statement the agreement is 100 % on the same side and 0 % on opposite sides, so a Party's affinity is its weighted share of coincidences. Each ranking row reads 'N de M coincidencias' (M = Statements compared with that Party) instead of 'M afirmaciones en común', so the count and the percent can no longer contradict each other. New Share Link layout marker; old v1 links need not keep working (user decision 2026-11-21) but an old link opens a clear message saying it belongs to an earlier version of the questionnaire and the app has changed, with a 'Haz el nuevo cuestionario' link to the current questionnaire (user decision 2026-11-21), never a broken page. /metodologia, CONTEXT.md (Answer), docs/build-brief.md (Matching Rule) and DESIGN.md are updated.",
+    "depends_on": [
+      "ui-2026-focus-tweaks"
+    ],
+    "status": "accepted",
+    "verification": [
+      "packages/core match-score tests for the three-option rule: same side 1, opposite side 0, neutral and no stance excluded, Important weight 2",
+      "Ranking shows 'N de M coincidencias' and percent equals the weighted coincidence share",
+      "Share Link encode/decode tests for the new marker; a v1 link shows the outdated-version message with a working 'Haz el nuevo cuestionario' link",
+      "/metodologia copy states the new rule",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop: questionnaire, end screen and shared result; console clean; no request carries answers"
+    ],
+    "evidence": [
+      "2026-11-21 implementer: CI=true ./init.sh exit 0 on feature/three-option-scale (pytest 1897 passed, Vitest 997 passed in 41 files, vite build ok). A first gate run hit two Vitest 'Failed to start forks worker' timeouts under machine load (20-minute run, no test failed); npm test and the full gate were re-run green.",
+      "Core: match-score (NEUTRAL, AnswerSide, positionSide, 0/1 statementAgreement, comparedStatementCount/coincidenceCount; spec scenarios 1, 2, 5 incl. same side, opposite, neutral, 0, no stance, Important weight), questionnaire (no skip; summarize {answered, neutral, important, total}), breakdown, ranking (scenario 4: 9 de 12 = 75 %), codec v2 [dnaDNA] round trip (seeded 200 cases) and every v1 variant -> outdated_version with/without id, openShareLink outdated (available, unavailable, 404, network, malformed). Core Vitest 392 passed.",
+      "rg -n 'SKIP|sharedStatementCount|skipped' packages apps/web/src: no hits. rg for Saltar/Saltada/saltad/afirmaciones en común/Muy de acuerdo/Muy en desacuerdo/cinco puntos in apps/web/src, DESIGN.md, README.md, CONTEXT.md, docs/build-brief.md: only intended hits (methodology extraction sentence 'escala de cinco puntos', DESIGN notes naming the removed Saltar/double-thumb, tests asserting absence).",
+      "Browser walk (Claude built-in browser, Chromium) against DATABASE_URL=sqlite:///data/ideology.db (Dataset Version 5, Election 2), at 375x812 light and dark and 1280x800 dark and light: Landing step 1 copy (three options, no 'grado de acuerdo'/'saltarte'); Questionnaire: radios exactly De acuerdo / Neutral / No lo sé / En desacuerdo (values 1/neutral/-1), no Saltar, Siguiente disabled until a choice, Neutral then Siguiente advances, Statement 1 shows only Siguiente and Statement 2 Anterior+Siguiente, Anterior keeps the Neutral choice and the Important flag set on a Neutral Statement.",
+      "End screen (32 Statements, 26 sided, 6 Neutral, Important on 2 Neutral and 1 sided): summary 'Muestra evaluada: 26/32 afirmaciones con opinión', 'Has respondido «Neutral / No lo sé» en 6 afirmaciones.', 'Has marcado 1 afirmación como importante.'; filters Todas32 / De acuerdo16 / Neutral6 / En desacuerdo10 / Importantes1 (Neutral filter shows 6 cards); hand check from the cards: Compromís N=11, M=16, 69 % matches its row '69 % | 11 de 16 coincidencias'. 1280: legend De acuerdo/Neutral/En desacuerdo + dash + swatches Coincide(100)/No coincide(0); cells data-match 100/0/none (99/84/201); inspector on Compromís st. 2 'En desacuerdo · no coincide contigo', focus on Cerrar, Escape returns focus to the cell.",
+      "Share Link: Copiar enlace (clipboard blocked in the pane, fallback field) gave /resultados#v2-5-NadaNaddAnaadadnadaadnadaadnadaa (32 letters); opening it showed the identical 12-row ranking with the same N de M counts and link-voice summary. Low-coverage link #v2-5-aaaAnnnn…: Baja cobertura on every row (M<5), '1 de 1 coincidencia', ERC 'Sin afirmaciones comparables | 0 de 0 coincidencias', cell names 'coincide con el enlace'.",
+      "v1 links: #v1-5-<32 v1 letters> shows h2 'Este enlace es de una versión anterior', the explanation, 'Haz el nuevo cuestionario' -> /elecciones/2/cuestionario (clicked: Afirmación 1 de 32) and Volver al inicio; requests only GET /api/v1/dataset-versions/5 and /api/v1/elections/2. #v1-999999-ab (404) and #v1-x show the notice with the link to /. #v3-5-aa shows the 'versión más reciente' message; #v2-5-aab and #v2-5-aaa (wrong count) show the invalid message. /metodologia 'Cómo se calcula la afinidad' states three options, sides, 1/0, Neutral/no stance/0 excluded, Important double, N de M, weighted-percent note; no 25-point or skipping wording.",
+      "Network and console: no request URL contains v1-, v2- or '#'; every /api/ request carries ids only; localStorage/sessionStorage empty. Console: the only entry is Chrome's own 'Failed to load resource: 404' for the deliberate GET /api/v1/dataset-versions/999999 (the nonexistent v1 link); no app errors.",
+      "2026-11-21 independent validator: accept. CI=true ./init.sh exit 0 (pytest 1897 passed, Vitest 997 passed in 41 files, vite build ok). Diff reviewed against the spec; rg for SKIP/sharedStatementCount/skipped has no hits, and the Saltar/old-scale rg shows only intended hits. Matching rule hand-checked with SQL on data/ideology.db (DV5): all 12 rows equal the browser (e.g. EH Bildu 9 de 13 = 71 % with one Important coincidence, VOX 4 de 10 = 36 %, tie Adelante Andalucía before ERC at 45 %); the position-0 cell (Frente Amplio, s26) is untinted 'Neutral'. Real browser (Claude Browser pane, Chromium, web-shared-db :8001 on data/ideology.db) at 375x812 and 1280x800, dark and light: Landing step 1 copy; three options and no Saltar, Siguiente disabled until a choice, Neutral then Siguiente advances, Anterior keeps Neutral + Important; end screen summary 22/32 con opinión, 10 Neutral, 1 Important; filters 32/11/10/11/1; matrix legend and tints 100/0/none, 'coincide contigo' in names and inspector; all-neutral gives the prompt with no ranking or share; v2 link reproduces the identical ranking and breakdown with 'con el enlace'; 1 de 1 / 0 de 0 + 'Sin afirmaciones comparables' + Baja cobertura when M<5; v1-5 notice links to /elecciones/2/cuestionario (clicked, opens the Questionnaire), v1-999999 / v1-x / v1-0 link to /; v3 gives 'versión más reciente', a bad v2 letter or count gives invalid, no fragment gives missing; /metodologia copy matches the engine. Console errors were only the expected 404s for dataset-versions/999999; no request carried answers or a fragment. Low: commit docs/specs/three-option-scale.md (to be committed with the implementation). Notes: all-Neutral prompt copy says 'no has respondido ninguna afirmación…' (revisit in questionnaire-quick-answer); '#v1' without dash or upper-case 'V1-' falls to the generic invalid message."
+    ],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). Root cause found while planning: the ranking's 'afirmaciones en común' counts Statements compared (both sides have a value), not agreements, and ~40 % of Positions in Dataset Version 5 are no stance, so Parties with more stances showed larger counts with lower affinity."
+  },
+  {
+    "id": "questionnaire-quick-answer",
+    "area": "web",
+    "title": "Answer buttons that advance, back means re-answer, 'Repetir cuestionario'",
+    "user_visible_behavior": "The scale radio options and the Anterior / Saltar / Siguiente row are replaced: the bottom row holds three answer buttons 'En desacuerdo', 'Neutral', 'De acuerdo', and tapping one records the Answer and moves to the next Statement. A smaller 'Anterior' control sits at the top of the Statement card; there is no Saltar control ('Neutral' leaves a Statement without a value); going back clears that Statement's Answer, so it must be answered again. The Important toggle stays (pressed before answering) but at most a third of the questionnaire's Statements (rounded up) can be marked Important; at the cap the toggle explains why it is disabled. The end-of-questionnaire 'Revisar mis respuestas' flow is removed; the end screen offers 'Repetir cuestionario', which starts again from the first Statement with no Answers. The Landing how-it-works recording of step 1 is re-recorded.",
+    "depends_on": [
+      "three-option-scale"
+    ],
+    "status": "not_started",
+    "verification": [
+      "Vitest: an answer button records the Answer and advances; Anterior clears the previous Answer; Neutral advances and leaves the Statement without a value; no Saltar control; Important cap = ceil(n/3); Repetir cuestionario resets all Answers and Important flags",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, pointer and keyboard (focus lands on the new Statement after advancing), reduced motion; console clean; no request carries answers"
+    ],
+    "evidence": [],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). User decision 2026-11-21: no Saltar control; 'Neutral' takes its role. Alternative recorded: remove the Important flag entirely."
+  },
+  {
+    "id": "pipeline-statement-clarity-context",
+    "area": "pipeline",
+    "title": "Clearer Statements and a neutral AI-generated context note per Statement",
+    "user_visible_behavior": "Operator-facing (no UI yet). Statement generation prompts gain wording rules from Voter feedback: one consistent direction (state the measure positively, avoid 'derogar/suprimir X' when the measure can be stated as its content; no double negatives), plain language, and self-contained text (no unexplained jargon such as 'por cada nueva regulación'). The current published Statements (Dataset Version 5) are given to pool generation as anchor candidates so the topics Voters already know are kept when they still pass selection, reworded under the new rules. Each Statement gets a short neutral context note generated by the LLM (what a named law, plan or institution is: Reforma laboral, Ley de Vivienda, Ley mordaza, Plan Nacional del Agua, CIE, ayuda oficial al desarrollo, cheque escolar, concierto educativo, República Árabe Saharaui Democrática = Sáhara Occidental, antiguo territorio español). The note is stored on the Statement (migration), exposed by the public API and checked by Validation (length bounds, present when the Statement names a law or institution, no evaluative wording per a configured word list). Tests use the fake provider.",
+    "depends_on": [],
+    "status": "not_started",
+    "verification": [
+      "Prompt version bump and fake-provider tests for the wording rules and anchor candidates in the pool request",
+      "Migration adds the context column; API returns it; Dataset Versions stay immutable",
+      "Validation tests for the context note checks",
+      "CI=true ./init.sh passes"
+    ],
+    "evidence": [],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). User decision 2026-11-21: context notes are AI-generated through the pipeline and Validation, never hand-written (Project Invariants)."
+  },
+  {
+    "id": "pipeline-statement-priority-tiers",
+    "area": "pipeline",
+    "title": "Larger extraction and Statements ranked by how many Parties take a stance",
+    "user_visible_behavior": "Operator-facing. Extraction aims to capture every concrete proposal in the manifestos (a larger Statement pool), then ranks Statements by the number of Parties with a stance (ties: separation, then pool order), dropping those only one or very few Parties address. The Dataset Version publishes up to 40 Statements in priority order (position 1 = most Parties with a stance), so a questionnaire of length N is always the first N Statements. Validation is adapted: count range, topic spread and Party coverage are checked on each offered length (15, 30 and the full set), not only on the whole set; separation (check 4) and the selection's separation score follow the three-option rule: a Statement separates the Parties only if at least one Party is in favour (+1/+2) and one against (−1/−2), 0 and no stance not counting (user decision 2026-11-21: Validation adapts to the answer scale, not the reverse). The selection report (`pipeline report`) shows each Statement's Party count and tier.",
+    "depends_on": [
+      "pipeline-statement-clarity-context"
+    ],
+    "status": "not_started",
+    "verification": [
+      "Fake-provider tests: priority order by Party count is deterministic and Party-symmetric; tiers are prefixes",
+      "Validation tests per tier (count, topic spread, coverage, separation); a Statement with only +1/+2 (or only −1/−2) stances fails separation",
+      "pipeline report shows Party count and tier",
+      "CI=true ./init.sh passes"
+    ],
+    "evidence": [],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). Builds on pipeline-coverage-selection (pool + deterministic selection). Tier lengths 15/30/40 are the user's initial proposal; the spec may tune them to what Validation allows."
+  },
+  {
+    "id": "e2e-2026-dataset-clarity",
+    "area": "data",
+    "title": "Real 2026 run with clear Statements, context notes and priority tiers",
+    "user_visible_behavior": "A real pipeline run for 'Elecciones generales 2026' with the new prompts publishes a new Dataset Version (clear wording, context notes, up to 40 Statements in priority order) in the committed data/ideology.db. Dataset Version 5 stays as history. A manual sanity read by the team checks the feedback examples (Ley de Vivienda, reforma laboral, ley mordaza, regulaciones a empresas) read unambiguously.",
+    "depends_on": [
+      "pipeline-statement-priority-tiers",
+      "three-option-scale"
+    ],
+    "status": "not_started",
+    "verification": [
+      "Run passes Validation and publishes; ideology db check passes",
+      "pipeline report reviewed; team sanity read recorded",
+      "Real browser walk of the new Dataset Version at 375px and desktop"
+    ],
+    "evidence": [],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). Real LLM run by an Operator (llm-provider-claude-code), one active run at a time on the shared database."
+  },
+  {
+    "id": "questionnaire-length-and-context",
+    "area": "web",
+    "title": "Choose 15, 30 or 40 Statements and read each Statement's context",
+    "user_visible_behavior": "Before the first Statement the Voter picks the questionnaire length: 'Rápido (15)', 'Estándar (30)' or 'Completo (40)' (lengths from the Dataset Version's tiers), each with a line saying they are the issues most Parties address. Under each Statement a collapsed '¿Qué significa?' disclosure shows its context note. The Share Link carries the chosen length (a prefix of the priority order); the results and the Important cap follow the chosen length.",
+    "depends_on": [
+      "questionnaire-quick-answer",
+      "pipeline-statement-priority-tiers"
+    ],
+    "status": "not_started",
+    "verification": [
+      "Vitest: each length shows the first N Statements; Share Link round-trips the length; Important cap follows N; context disclosure is collapsed by default and accessible",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop with the new Dataset Version; console clean; no request carries answers"
+    ],
+    "evidence": [],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1')."
+  },
+  {
+    "id": "topic-catalog",
+    "area": "core",
+    "title": "Spanish topic names and a citizen-priority order",
+    "user_visible_behavior": "Each pipeline topic tag (housing, employment, ...) has a Spanish display name and a display order that follows the issues citizens rank as most important in the latest CIS barometer (source and date recorded in the docs). Used by the comparator and any topic grouping; no change to the matching rule.",
+    "depends_on": [],
+    "status": "not_started",
+    "verification": [
+      "Every topic tag in the pipeline taxonomy has a name and order (test fails on a missing one)",
+      "CIS source and date recorded in docs",
+      "CI=true ./init.sh passes"
+    ],
+    "evidence": [],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). The order is static configuration, not AI output; the spec must pick the CIS question used and how unmatched topics are ordered."
+  },
+  {
+    "id": "comparator-page",
+    "area": "web",
+    "title": "Comparador: Party Positions by topic with Evidence and a similarity score",
+    "user_visible_behavior": "A new page 'Comparador' in the sidebar and drawer, for the current Election's Published Dataset Version. It lists topics in topic-catalog order; choosing one shows its Statements with each selected Party's Position and Evidence (verbatim quote, page, link to the manifesto page). The Voter adds or removes Parties to compare (all Parties offered identically). A similarity score between the selected Parties (share of Statements where they take the same side, among those both address) is shown, with its rule explained. It takes over the Statement matrix and per-Statement breakdown now on the results. It never needs the Voter's Answers.",
+    "depends_on": [
+      "topic-catalog"
+    ],
+    "status": "not_started",
+    "verification": [
+      "Vitest: topic selection, add/remove Parties, similarity score computation, Evidence rendering, identical treatment of Parties",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, keyboard and pointer; console clean"
+    ],
+    "evidence": [],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). Deferred: AI prose summaries of each Party's proposals per topic and paragraph-level locators (only the page is stored)."
+  },
+  {
+    "id": "results-party-agreements",
+    "area": "web",
+    "title": "Results: '¿En qué coincido?' per Party instead of the Statement matrix",
+    "user_visible_behavior": "On the end screen and the shared result each ranking row shows 'N de M coincidencias' and an '¿En qué coincido?' control that expands the list of Statements where the Voter and that Party take the same side, each with the Party's Evidence (quote and page/link). The Statement matrix, its filters and the per-Statement breakdown are removed from the results (they live in the Comparador) and the results link to the Comparador. The Landing how-it-works step 3 recording is re-recorded.",
+    "depends_on": [
+      "comparator-page",
+      "three-option-scale"
+    ],
+    "status": "not_started",
+    "verification": [
+      "Vitest: expanding a Party lists exactly its coincidences with Evidence; collapsed by default; same markup for every Party",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, end screen and shared result; console clean; no request carries answers"
+    ],
+    "evidence": [],
+    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1')."
   }
 ]

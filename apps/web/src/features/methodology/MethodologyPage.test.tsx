@@ -40,7 +40,8 @@ const SHARE_TEXT =
   "dirección, tras el símbolo «#». Los navegadores no envían esa parte de la dirección al " +
   "servidor y el enlace no se guarda en ningún sitio: quien lo tenga puede ver tus respuestas. " +
   "Al abrir el enlace se ve el mismo resultado, calculado de nuevo en el navegador con la misma " +
-  "versión del cuestionario; si después se ha publicado una más reciente, se avisa.";
+  "versión del cuestionario; si después se ha publicado una más reciente, se avisa. Los enlaces " +
+  "creados antes del cuestionario de tres opciones muestran un aviso en lugar del resultado.";
 
 const FEEDBACK_TEXT =
   "Si nos envías tu opinión sobre la herramienta, se guarda solo el texto que escribas, desde " +
@@ -188,6 +189,28 @@ describe("MethodologyPage", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/Podrás consultar la cita/)).toBeNull();
+  });
+
+  test("explains the three-option affinity rule: sides, 1/0, exclusions, Important and N de M", () => {
+    renderMethodology();
+    const section = screen.getByRole("region", { name: "Cómo se calcula la afinidad" });
+    const text = (section.textContent ?? "").replace(/\s+/g, " ");
+    for (const phrase of [
+      "«De acuerdo», «En desacuerdo» o «Neutral / No lo sé»",
+      "se lee por su lado",
+      "cuenta como una coincidencia (1)",
+      "no coincide (0)",
+      "No cuentan las afirmaciones en las que respondes «Neutral / No lo sé»",
+      "no tiene posición o tiene una posición neutral",
+      "cuentan el doble",
+      "«N de M coincidencias»",
+      "menos de 5 afirmaciones",
+    ]) {
+      expect(text).toContain(phrase);
+    }
+    expect(text).not.toMatch(/25 puntos|saltes|cinco puntos/);
+    const positions = screen.getByRole("region", { name: "Cómo se sitúa a cada partido" });
+    expect(positions.textContent).toContain("solo cuenta de qué lado está la posición");
   });
 
   test("lists the six Validation checks with the default coverage threshold", () => {

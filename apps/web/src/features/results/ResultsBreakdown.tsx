@@ -9,7 +9,7 @@ import { EvidenceInspector, type InspectorTarget } from "./EvidenceInspector";
 import { PartyLogo } from "./PartyLogo";
 import { ResultsMatrix } from "./ResultsMatrix";
 
-export { IMPORTANT_MARK, NO_STANCE_LABEL, SKIPPED_LABEL, UNANSWERED_LABEL } from "./Evidence";
+export { IMPORTANT_MARK, NEUTRAL_LABEL, NO_STANCE_LABEL, UNANSWERED_LABEL } from "./Evidence";
 
 const INTRO =
   "Pulsa sobre una afirmación o posición para ver las citas coincidentes extraídas de los " +
@@ -60,6 +60,12 @@ export const MATRIX_QUERY = "(min-width: 1024px)";
  */
 export type AnswerOwner = "voter" | "link";
 
+/** How a cell's coincidence reads, in the owner's voice. */
+export interface CoincidenceCopy {
+  readonly yes: string;
+  readonly no: string;
+}
+
 const OWNER_COPY: Readonly<
   Record<
     AnswerOwner,
@@ -67,7 +73,7 @@ const OWNER_COPY: Readonly<
       readonly title: string;
       readonly answer: string;
       readonly answerHeading: string;
-      readonly coincidence: string;
+      readonly coincidence: CoincidenceCopy;
     }
   >
 > = {
@@ -75,13 +81,13 @@ const OWNER_COPY: Readonly<
     title: "Comprueba de dónde salen tus coincidencias",
     answer: "Tu respuesta:",
     answerHeading: "Tú",
-    coincidence: "coincidencia contigo",
+    coincidence: { yes: "coincide contigo", no: "no coincide contigo" },
   },
   link: {
     title: "Comprueba de dónde salen las coincidencias del enlace",
     answer: "Respuesta del enlace:",
     answerHeading: "Enlace",
-    coincidence: "coincidencia con el enlace",
+    coincidence: { yes: "coincide con el enlace", no: "no coincide con el enlace" },
   },
 };
 
@@ -151,6 +157,7 @@ export function ResultsBreakdown({
         <ResultsMatrix
           rows={shown}
           answerHeading={copy.answerHeading}
+          coincidenceCopy={copy.coincidence}
           onOpenPosition={(row, partyId, from) => open({ kind: "position", row, partyId }, from)}
           onOpenStatement={(row, from) => open({ kind: "statement", row }, from)}
         />
@@ -165,7 +172,7 @@ export function ResultsBreakdown({
         <EvidenceInspector
           target={inspector}
           answerPrefix={copy.answer}
-          coincidencePrefix={copy.coincidence}
+          coincidenceCopy={copy.coincidence}
           onClosed={() => {
             setInspector(null);
             // The opener is gone if the layout switched (matrix <-> cards)

@@ -1,28 +1,34 @@
 // Share Link codec: the payload after "#" in a Share Link. Pure: no React,
 // DOM, `URL`, storage or network; string operations and regexes only.
 //
-// Format v1: `v1-<datasetVersionId>-<answers>`, e.g. `v1-7-ddddddASssss`.
+// Format v2: `v2-<datasetVersionId>-<answers>`, e.g. `v2-7-ddnnaAAN`.
 // - `<datasetVersionId>`: 1..2147483647, no leading zero (the API id bound).
 // - `<answers>`: one letter per Statement in the Dataset Version's Statement
-//   order: -2..2 → a..e, skip → s; upper case means marked Important (a
-//   flagged skip keeps its flag). 1..500 letters.
+//   order: d = -1 (En desacuerdo), n = Neutral / No lo sé, a = 1 (De acuerdo);
+//   upper case means marked Important (a flagged Neutral Answer keeps its
+//   flag). 1..500 letters.
 // Keyed by position, not by Statement id: Dataset Versions are immutable, so
 // the version id fixes the order. A truncated link has too few letters and
 // fails `restoreQuestionnaire` with `statement_count_mismatch`.
 //
-// Versioning: any layout change gets a new marker (`v2`...). Decoders keep
-// accepting every earlier version, because old links pin old Dataset
-// Versions (CONSTRAINTS.md, Client-side Matching).
-import { SKIP } from "../../domain/match-score";
+// Versioning: any layout change gets a new marker (`v3`...). Decoders keep
+// accepting every earlier marker unless a user decision retires it; a retired
+// marker is recognised and reported as `outdated_version`, never a generic
+// error (CONSTRAINTS.md, Client-side Matching). `v1` (five-point scale plus
+// skip) was retired on 2026-11-21 by `three-option-scale`: its result cannot
+// be shown the same way under the three-option rule, so it is not decoded.
+import { NEUTRAL } from "../../domain/match-score";
 import type { AnswerValue, QuestionnaireState } from "../../domain/questionnaire";
 
-export const SHARE_LINK_FORMAT_VERSION = 1;
+export const SHARE_LINK_FORMAT_VERSION = 2;
 export const MAX_SHARE_LINK_STATEMENTS = 500;
 
 const MAX_DATASET_VERSION_ID = 2147483647;
 const MAX_FRAGMENT_LENGTH = 1024;
 const VERSION_MARKER_PATTERN = /^v([1-9][0-9]{0,2})-/;
-const V1_PATTERN = /^v1-([1-9][0-9]{0,9})-([a-esA-ES]{1,500})$/;
+const V2_PATTERN = /^v2-([1-9][0-9]{0,9})-([dnaDNA]{1,500})$/;
+const RETIRED_MARKERS: ReadonlySet<string> = new Set(["1"]);
+const V1_ID_PATTERN = /^v1-([1-9][0-9]{0,9})-/;
 
 export interface ShareLinkEntry {
   readonly value: AnswerValue;
@@ -30,31 +36,35 @@ export interface ShareLinkEntry {
 }
 
 export interface ShareLink {
-  readonly formatVersion: 1;
+  readonly formatVersion: 2;
   readonly datasetVersionId: number;
   readonly entries: readonly ShareLinkEntry[];
 }
 
-export type ShareLinkErrorKind = "malformed" | "unsupported_version" | "statement_count_mismatch";
+export type ShareLinkErrorKind =
+  | "malformed"
+  | "unsupported_version"
+  | "outdated_version"
+  | "statement_count_mismatch";
 
 export class ShareLinkError extends Error {
   readonly kind: ShareLinkErrorKind;
+  /** For `outdated_version`: the Dataset Version id when the old link names a valid one. */
+  readonly datasetVersionId: number | undefined;
 
-  constructor(kind: ShareLinkErrorKind, message: string) {
+  constructor(kind: ShareLinkErrorKind, message: string, datasetVersionId?: number) {
     super(`share link: ${message}`);
     this.name = "ShareLinkError";
     this.kind = kind;
+    this.datasetVersionId = datasetVersionId;
   }
 }
 
 // Fixed lookup tables: decoded values are valid by construction.
 const LETTER_BY_VALUE: ReadonlyMap<AnswerValue, string> = new Map<AnswerValue, string>([
-  [-2, "a"],
-  [-1, "b"],
-  [0, "c"],
-  [1, "d"],
-  [2, "e"],
-  [SKIP, "s"],
+  [-1, "d"],
+  [NEUTRAL, "n"],
+  [1, "a"],
 ]);
 
 const VALUE_BY_LETTER: ReadonlyMap<string, AnswerValue> = new Map(
@@ -94,17 +104,26 @@ export function encodeShareLink(state: QuestionnaireState, datasetVersionId: num
 
 /**
  * Parses the text after "#" (untrusted input). Strict: anything but an exact
- * v1 payload throws `ShareLinkError`; it never returns partial data.
+ * v2 payload throws `ShareLinkError`; it never returns partial data. Any
+ * fragment with the retired `v1` marker throws `outdated_version`, carrying
+ * the Dataset Version id when one parses within range.
  */
 export function decodeShareLink(fragment: string): ShareLink {
   if (fragment.length > MAX_FRAGMENT_LENGTH) {
     throw new ShareLinkError("malformed", "the link is too long");
   }
   const marker = VERSION_MARKER_PATTERN.exec(fragment);
+  if (marker !== null && RETIRED_MARKERS.has(marker[1]!)) {
+    throw new ShareLinkError(
+      "outdated_version",
+      `format version v${marker[1]} belongs to an earlier version of the questionnaire`,
+      outdatedDatasetVersionId(fragment),
+    );
+  }
   if (marker !== null && marker[1] !== String(SHARE_LINK_FORMAT_VERSION)) {
     throw new ShareLinkError("unsupported_version", `unsupported format version v${marker[1]}`);
   }
-  const match = V1_PATTERN.exec(fragment);
+  const match = V2_PATTERN.exec(fragment);
   if (match === null) {
     throw new ShareLinkError("malformed", "answers contain an invalid character or the layout is wrong");
   }
@@ -121,7 +140,16 @@ export function decodeShareLink(fragment: string): ShareLink {
     }
     entries.push({ value, important: char !== lower });
   }
-  return { formatVersion: 1, datasetVersionId, entries };
+  return { formatVersion: 2, datasetVersionId, entries };
+}
+
+function outdatedDatasetVersionId(fragment: string): number | undefined {
+  const match = V1_ID_PATTERN.exec(fragment);
+  if (match === null) {
+    return undefined;
+  }
+  const id = Number(match[1]);
+  return isValidDatasetVersionId(id) ? id : undefined;
 }
 
 /**

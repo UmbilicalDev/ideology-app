@@ -8,7 +8,7 @@ import {
   type Answer,
   type FetchLike,
   type HttpResponseLike,
-  type ScaleValue,
+  type AnswerValue,
 } from "@ideology-app/core";
 
 import { App } from "../../app/App";
@@ -82,19 +82,13 @@ function checkedRadios() {
   return screen.getAllByRole("radio").filter((r) => (r as HTMLInputElement).checked);
 }
 
-// From most to least favourable (questionnaire-scale-order).
-const LABELS = [
-  "Muy de acuerdo",
-  "De acuerdo",
-  "Ni de acuerdo ni en desacuerdo",
-  "En desacuerdo",
-  "Muy en desacuerdo",
-];
+// The three options (three-option-scale): De acuerdo, Neutral / No lo sé, En desacuerdo.
+const LABELS = ["De acuerdo", "Neutral / No lo sé", "En desacuerdo"];
 
 const LOSS_NOTE = /Tus respuestas siguen solo en este navegador/;
 
 describe("QuestionnairePage", () => {
-  test("Scenario 1: loading, then the first Statement with five unchecked radios", async () => {
+  test("Scenario 1: loading, then the first Statement with three unchecked radios and no Saltar", async () => {
     const fetch = happyFetch();
     renderAt("/elecciones/1/cuestionario", fetch);
     // Focus shell: no sidebar, only the brand and Salir.
@@ -113,10 +107,10 @@ describe("QuestionnairePage", () => {
     expect(progress.getAttribute("max")).toBe("3");
     const radios = within(group).getAllByRole("radio");
     expect(radios.map((r) => r.closest("label")?.textContent?.trim())).toEqual(LABELS);
-    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["2", "1", "0", "-1", "-2"]);
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["1", "neutral", "-1"]);
     expect(checkedRadios()).toHaveLength(0);
     expect(button("Siguiente").disabled).toBe(true);
-    expect(button("Saltar").disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Saltar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Anterior" })).toBeNull();
     expect(screen.getByText(/Tus respuestas se quedan en este navegador/).className).toBe(
       "questionnaire__note",
@@ -126,7 +120,7 @@ describe("QuestionnairePage", () => {
     expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
   });
 
-  test("Scenarios 2-5: answer, skip, go back, change and reach the end", async () => {
+  test("Scenarios 2-5: answer, Neutral, go back, change and reach the end", async () => {
     const fetch = happyFetch();
     await openQuestionnaire(fetch);
 
@@ -142,58 +136,65 @@ describe("QuestionnairePage", () => {
     expect(button("Anterior")).toBeTruthy();
     expect(document.activeElement).toBe(heading2());
 
-    // Scenario 3: skip.
-    fireEvent.click(button("Saltar"));
+    // Scenario 3: Neutral / No lo sé, then Siguiente (there is no Saltar).
+    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+    expect(button("Siguiente").disabled).toBe(false);
+    fireEvent.click(button("Siguiente"));
     expect(heading2().textContent).toBe("Afirmación de prueba 3");
     expect(screen.getByText("Afirmación 3 de 3")).toBeTruthy();
     expect(document.activeElement).toBe(heading2());
 
-    // Scenario 4: back to the skipped one, then to the answered one, and change it.
+    // Scenario 4: back to the Neutral one, then to the answered one, and change it.
     fireEvent.click(button("Anterior"));
     expect(heading2().textContent).toBe("Afirmación de prueba 2");
-    expect(checkedRadios()).toHaveLength(0);
-    expect(screen.getByText("Has saltado esta afirmación.")).toBeTruthy();
+    expect(checkedRadios()).toHaveLength(1);
+    expect(radio("Neutral / No lo sé").checked).toBe(true);
+    expect(screen.queryByText("Has saltado esta afirmación.")).toBeNull();
     expect(button("Siguiente").disabled).toBe(false);
     expect(document.activeElement).toBe(heading2());
     fireEvent.click(button("Anterior"));
     expect(heading2().textContent).toBe("Afirmación de prueba 1");
     expect(radio("De acuerdo").checked).toBe(true);
     expect(screen.queryByRole("button", { name: "Anterior" })).toBeNull();
-    fireEvent.click(radio("Muy de acuerdo"));
-    expect(radio("Muy de acuerdo").checked).toBe(true);
+    fireEvent.click(radio("De acuerdo"));
+    expect(radio("De acuerdo").checked).toBe(true);
     expect(checkedRadios()).toHaveLength(1);
     fireEvent.click(button("Siguiente"));
     expect(heading2().textContent).toBe("Afirmación de prueba 2");
-    expect(screen.getByText("Has saltado esta afirmación.")).toBeTruthy();
+    expect(radio("Neutral / No lo sé").checked).toBe(true);
 
-    // A value replaces a skip.
+    // A side replaces Neutral.
     fireEvent.click(radio("En desacuerdo"));
-    expect(screen.queryByText("Has saltado esta afirmación.")).toBeNull();
+    expect(radio("Neutral / No lo sé").checked).toBe(false);
     fireEvent.click(button("Siguiente"));
 
-    // Scenario 5: leave the last Statement with Saltar and reach the end screen.
+    // Scenario 5: leave the last Statement with Neutral and reach the end screen.
     expect(heading2().textContent).toBe("Afirmación de prueba 3");
-    fireEvent.click(button("Saltar"));
+    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+    fireEvent.click(button("Siguiente"));
     expect(heading2().textContent).toBe("Tus resultados");
     expect(document.activeElement).toBe(heading2());
-    expect(screen.getByText("Muestra evaluada: 2/3 afirmaciones contestadas")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 2/3 afirmaciones con opinión")).toBeTruthy();
     expect(screen.queryByText(/muy pronto/)).toBeNull();
     expect(screen.queryByRole("radiogroup")).toBeNull();
     expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Volver a la última afirmación" })).toBeNull();
     expect(screen.getByRole("link", { name: "IdeologiApp, ir al inicio" }).getAttribute("href")).toBe("/");
 
+    expect(screen.getByText("Has respondido «Neutral / No lo sé» en 1 afirmación.")).toBeTruthy();
+
     backToLast(3);
     expect(heading2().textContent).toBe("Afirmación de prueba 3");
-    expect(screen.getByText("Has saltado esta afirmación.")).toBeTruthy();
+    expect(radio("Neutral / No lo sé").checked).toBe(true);
     expect(document.activeElement).toBe(heading2());
 
-    // Saltar on an answered Statement replaces the value with a skip.
+    // Neutral on an answered Statement replaces its side.
     fireEvent.click(button("Anterior"));
-    fireEvent.click(button("Saltar"));
+    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+    fireEvent.click(button("Siguiente"));
     fireEvent.click(button("Anterior"));
-    expect(screen.getByText("Has saltado esta afirmación.")).toBeTruthy();
-    expect(checkedRadios()).toHaveLength(0);
+    expect(radio("Neutral / No lo sé").checked).toBe(true);
+    expect(checkedRadios()).toHaveLength(1);
 
     // Scenario 8 (jsdom part): only the two loads, and nothing stored.
     expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
@@ -205,29 +206,27 @@ describe("QuestionnairePage", () => {
   test("Scenario 5: leaving the last Statement with Siguiente counts it as answered", async () => {
     await openQuestionnaire(happyFetch(1));
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
-    fireEvent.click(radio("Ni de acuerdo ni en desacuerdo"));
+    fireEvent.click(radio("En desacuerdo"));
     fireEvent.click(button("Siguiente"));
-    expect(screen.getByText("Muestra evaluada: 1/1 afirmaciones contestadas")).toBeTruthy();
+    expect(screen.getByText("Muestra evaluada: 1/1 afirmaciones con opinión")).toBeTruthy();
+    expect(screen.getByText("No has respondido «Neutral / No lo sé» en ninguna afirmación.")).toBeTruthy();
     backToLast(1);
-    expect(radio("Ni de acuerdo ni en desacuerdo").checked).toBe(true);
+    expect(radio("En desacuerdo").checked).toBe(true);
   });
 
-  test("the controls read Anterior, Saltar, Siguiente and every option has a leading icon", async () => {
+  test("the controls read Anterior, Siguiente and every option has a leading icon", async () => {
     await openQuestionnaire();
     const controls = () =>
       Array.from(document.querySelectorAll<HTMLButtonElement>(".step-controls button")).map(
         (b) => [b.textContent, b.className, b.firstElementChild?.tagName.toLowerCase()],
       );
-    // First Statement: no Anterior, so Saltar and Siguiente share the row.
-    expect(controls()).toEqual([
-      ["Saltar", "button-secondary", "svg"],
-      ["Siguiente", "button-primary", "span"],
-    ]);
+    // First Statement: no Anterior, so Siguiente takes the row.
+    expect(controls()).toEqual([["Siguiente", "button-primary", "span"]]);
     expect(button("Siguiente").lastElementChild?.tagName.toLowerCase()).toBe("svg");
-    fireEvent.click(button("Saltar"));
+    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+    fireEvent.click(button("Siguiente"));
     expect(controls()).toEqual([
       ["Anterior", "button-secondary", "svg"],
-      ["Saltar", "button-secondary", "svg"],
       ["Siguiente", "button-primary", "span"],
     ]);
     for (const label of LABELS) {
@@ -242,7 +241,8 @@ describe("QuestionnairePage", () => {
     const progress = document.querySelector("progress");
     // No transition on the initial load.
     expect(step().hasAttribute("data-enter")).toBe(false);
-    fireEvent.click(button("Saltar"));
+    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+    fireEvent.click(button("Siguiente"));
     expect(step().getAttribute("data-enter")).toBe("forward");
     fireEvent.click(radio("De acuerdo"));
     fireEvent.click(button("Siguiente"));
@@ -296,7 +296,8 @@ describe("QuestionnairePage", () => {
     expect(group.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     for (let i = 0; i < 3; i += 1) {
-      fireEvent.click(button("Saltar"));
+      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+      fireEvent.click(button("Siguiente"));
     }
     expect(heading2().textContent).toBe("Tus resultados");
     expect(
@@ -346,7 +347,7 @@ describe("QuestionnairePage", () => {
       expect(document.activeElement).toBe(toggle());
     });
 
-    test("Scenarios 2-4: the flag survives Siguiente, Anterior and Saltar, and works before rating", async () => {
+    test("Scenarios 2-4: the flag survives Siguiente, Anterior and Neutral, and works before answering", async () => {
       await openQuestionnaire();
 
       // Scenario 2.
@@ -363,13 +364,14 @@ describe("QuestionnairePage", () => {
       // Scenario 3.
       fireEvent.click(button("Siguiente"));
       fireEvent.click(toggle());
-      fireEvent.click(button("Saltar"));
+      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+      fireEvent.click(button("Siguiente"));
       expect(heading2().textContent).toBe("Afirmación de prueba 3");
       expect(pressed()).toBe("false");
       fireEvent.click(button("Anterior"));
-      expect(screen.getByText("Has saltado esta afirmación.")).toBeTruthy();
+      expect(radio("Neutral / No lo sé").checked).toBe(true);
       expect(pressed()).toBe("true");
-      fireEvent.click(radio("Muy de acuerdo"));
+      fireEvent.click(radio("De acuerdo"));
       expect(pressed()).toBe("true");
       fireEvent.click(button("Siguiente"));
 
@@ -384,12 +386,12 @@ describe("QuestionnairePage", () => {
       expect(button("Siguiente").disabled).toBe(true);
     });
 
-    test("Scenario 5: the end screen counts rated Important Statements; Scenario 7 in jsdom", async () => {
+    test("Scenario 5: the end screen counts sided Important Statements; Scenario 7 in jsdom", async () => {
       const fetch = happyFetch();
       await openQuestionnaire(fetch);
-      const answered = "Muestra evaluada: 2/3 afirmaciones contestadas";
+      const answered = "Muestra evaluada: 2/3 afirmaciones con opinión";
 
-      // 1: rated + Important. 2: rated + Important. 3: skipped + Important.
+      // 1: sided + Important. 2: sided + Important. 3: Neutral + Important (not counted).
       fireEvent.click(toggle());
       fireEvent.click(radio("De acuerdo"));
       fireEvent.click(button("Siguiente"));
@@ -397,9 +399,10 @@ describe("QuestionnairePage", () => {
       fireEvent.click(radio("En desacuerdo"));
       fireEvent.click(button("Siguiente"));
       fireEvent.click(toggle());
-      fireEvent.click(button("Saltar"));
+      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+      fireEvent.click(button("Siguiente"));
       const summary = screen.getByRole("region", { name: answered });
-      expect(within(summary).getByText("Has saltado 1 afirmación.")).toBeTruthy();
+      expect(within(summary).getByText("Has respondido «Neutral / No lo sé» en 1 afirmación.")).toBeTruthy();
       const sentence = within(summary).getByText("Has marcado 2 afirmaciones como importantes.");
       expect(sentence.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
       expect(sentence.getAttribute("data-marked")).toBe("true");
@@ -539,7 +542,7 @@ describe("QuestionnairePage", () => {
 
     // Disagreeing with everything ranks Partido Dos first.
     for (let i = 0; i < 3; i += 1) {
-      fireEvent.click(radio("Muy en desacuerdo"));
+      fireEvent.click(radio("En desacuerdo"));
       fireEvent.click(button("Siguiente"));
     }
     const ranking = Array.from(document.querySelectorAll(".ranking-row img"), (img) =>
@@ -553,8 +556,8 @@ describe("QuestionnairePage", () => {
   describe("results", () => {
     const NBSP = " ";
     const LEGEND =
-      "Compartes menos de 5 afirmaciones con este partido, así que su afinidad se basa en pocos " +
-      "datos.";
+      "Se pueden comparar menos de 5 afirmaciones con este partido, así que su afinidad se basa " +
+      "en pocos datos.";
     const PROMPT =
       "Todavía no se puede calcular tu afinidad: no has respondido ninguna afirmación en la que " +
       "los partidos tengan posición. Responde al menos una para ver los resultados.";
@@ -593,12 +596,13 @@ describe("QuestionnairePage", () => {
       return view;
     }
 
-    type Step = { readonly label: string; readonly important?: boolean } | "skip";
+    type Step = { readonly label: string; readonly important?: boolean } | "neutral";
 
     function walk(steps: readonly Step[]) {
       for (const step of steps) {
-        if (step === "skip") {
-          fireEvent.click(button("Saltar"));
+        if (step === "neutral") {
+          fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+          fireEvent.click(button("Siguiente"));
           continue;
         }
         if (step.important === true) {
@@ -624,7 +628,7 @@ describe("QuestionnairePage", () => {
       ]);
     }
 
-    function engineAnswers(values: readonly (ScaleValue | "skip")[], important: readonly number[] = []) {
+    function engineAnswers(values: readonly AnswerValue[], important: readonly number[] = []) {
       return values.map((value, i) => ({
         statementId: IDS[i]!,
         value,
@@ -637,17 +641,17 @@ describe("QuestionnairePage", () => {
     test("Scenario 1: ranking ordered by score, focus on Tus resultados, badge and legend", async () => {
       const fetch = happyFetch(6);
       await openSix(fetch);
-      walk([AGREE, AGREE, AGREE, AGREE, AGREE, "skip"]);
+      walk([AGREE, AGREE, AGREE, AGREE, AGREE, "neutral"]);
 
       expect(heading2().textContent).toBe("Tus resultados");
       expect(document.activeElement).toBe(heading2());
-      expect(screen.getByText("Muestra evaluada: 5/6 afirmaciones contestadas")).toBeTruthy();
+      expect(screen.getByText("Muestra evaluada: 5/6 afirmaciones con opinión")).toBeTruthy();
       expect(
         screen.getByText("Afinidad entre tus respuestas y el programa de cada partido, de mayor a menor."),
       ).toBeTruthy();
       expect(rowTexts()).toEqual([
-        `Partido Uno P1 100${NBSP}%5 afirmaciones en común`,
-        `Partido Dos P2 50${NBSP}%4 afirmaciones en común Baja cobertura${LEGEND}`,
+        `Partido Uno P1 100${NBSP}%5 de 5 coincidencias`,
+        `Partido Dos P2 0${NBSP}%0 de 4 coincidencias Baja cobertura${LEGEND}`,
       ]);
       const chip = within(rankingRows()[1]!).getByRole("button", { name: "Baja cobertura" });
       expect(chip.className).toBe("coverage-badge");
@@ -658,9 +662,9 @@ describe("QuestionnairePage", () => {
       for (const li of rankingRows()) {
         expect(li.querySelector(".ranking-bar")?.getAttribute("aria-hidden")).toBe("true");
       }
-      expect(enginePercent(engineAnswers([1, 1, 1, 1, 1, "skip"]))).toEqual([
+      expect(enginePercent(engineAnswers([1, 1, 1, 1, 1, "neutral"]))).toEqual([
         ["Uno", 100],
-        ["Dos", 50],
+        ["Dos", 0],
       ]);
       expect(screen.queryByText(PROMPT)).toBeNull();
       expect(button("Revisar mis respuestas").className).toBe("button-primary");
@@ -694,36 +698,35 @@ describe("QuestionnairePage", () => {
 
     test("Scenario 2: a tie on the displayed percentage is ordered by name", async () => {
       await openSix();
-      const neutral = { label: "Ni de acuerdo ni en desacuerdo" } as const;
-      walk([neutral, neutral, neutral, neutral, neutral, neutral]);
+      const disagree = { label: "En desacuerdo" } as const;
+      walk(["neutral", "neutral", AGREE, AGREE, disagree, disagree]);
       expect(rowTexts()).toEqual([
-        `Partido Dos P2 75${NBSP}%5 afirmaciones en común`,
-        `Partido Uno P1 75${NBSP}%6 afirmaciones en común`,
+        `Partido Dos P2 50${NBSP}%2 de 4 coincidencias Baja cobertura${LEGEND}`,
+        `Partido Uno P1 50${NBSP}%2 de 4 coincidencias Baja cobertura${LEGEND}`,
       ]);
-      expect(screen.queryByText(LEGEND)).toBeNull();
-      expect(enginePercent(engineAnswers([0, 0, 0, 0, 0, 0]))).toEqual([
-        ["Uno", 75],
-        ["Dos", 75],
+      expect(enginePercent(engineAnswers(["neutral", "neutral", 1, 1, -1, -1]))).toEqual([
+        ["Uno", 50],
+        ["Dos", 50],
       ]);
     });
 
     test("Scenario 3: an Important Statement weighs double", async () => {
       await openSix();
-      walk([AGREE, AGREE, AGREE, AGREE, AGREE, { label: "Muy en desacuerdo", important: true }]);
+      walk([AGREE, AGREE, AGREE, AGREE, AGREE, { label: "En desacuerdo", important: true }]);
       expect(rowTexts()).toEqual([
-        `Partido Uno P1 79${NBSP}%6 afirmaciones en común`,
-        `Partido Dos P2 58${NBSP}%5 afirmaciones en común`,
+        `Partido Uno P1 71${NBSP}%5 de 6 coincidencias`,
+        `Partido Dos P2 33${NBSP}%1 de 5 coincidencias`,
       ]);
       expect(screen.getByText("Has marcado 1 afirmación como importante.")).toBeTruthy();
-      expect(enginePercent(engineAnswers([1, 1, 1, 1, 1, -2], [106]))).toEqual([
-        ["Uno", 79],
-        ["Dos", 58],
+      expect(enginePercent(engineAnswers([1, 1, 1, 1, 1, -1], [106]))).toEqual([
+        ["Uno", 71],
+        ["Dos", 33],
       ]);
     });
 
-    test("Scenario 4: everything skipped shows the prompt; rating one shows a ranking", async () => {
+    test("Scenario 4: everything Neutral shows the prompt; answering one shows a ranking", async () => {
       await openSix();
-      walk(["skip", "skip", "skip", "skip", "skip", "skip"]);
+      walk(["neutral", "neutral", "neutral", "neutral", "neutral", "neutral"]);
       expect(heading2().textContent).toBe("Tus resultados");
       expect(screen.getByText(PROMPT)).toBeTruthy();
       expect(screen.queryByRole("list", { name: "Tus resultados" })).toBeNull();
@@ -740,15 +743,15 @@ describe("QuestionnairePage", () => {
       fireEvent.click(button("Revisar mis respuestas"));
       expect(heading2().textContent).toBe("Afirmación de prueba 1");
       expect(document.activeElement).toBe(heading2());
-      expect(screen.getByText("Has saltado esta afirmación.")).toBeTruthy();
-      fireEvent.click(radio("Muy de acuerdo"));
+      expect(radio("Neutral / No lo sé").checked).toBe(true);
+      fireEvent.click(radio("De acuerdo"));
       fireEvent.click(button("Siguiente"));
-      walk(["skip", "skip", "skip", "skip", "skip"]);
+      walk(["neutral", "neutral", "neutral", "neutral", "neutral"]);
       expect(screen.queryByText(PROMPT)).toBeNull();
-      // Statement 1: Uno +1 (agreement 0.75); Dos has no stance there, so no score.
+      // Statement 1: Uno +1, same side; Dos has no stance there, so no score.
       expect(rowTexts()).toEqual([
-        `Partido Uno P1 75${NBSP}%1 afirmación en común Baja cobertura${LEGEND}`,
-        `Partido Dos P2 Sin afirmaciones en común0 afirmaciones en común Baja cobertura${LEGEND}`,
+        `Partido Uno P1 100${NBSP}%1 de 1 coincidencia Baja cobertura${LEGEND}`,
+        `Partido Dos P2 Sin afirmaciones comparables0 de 0 coincidencias Baja cobertura${LEGEND}`,
       ]);
     });
 
@@ -760,14 +763,14 @@ describe("QuestionnairePage", () => {
         AGREE,
         AGREE,
         AGREE,
-        { label: "Muy en desacuerdo", important: true },
+        { label: "En desacuerdo", important: true },
       ]);
       const before = rowTexts();
 
       backToLast(6);
       expect(heading2().textContent).toBe("Afirmación de prueba 6");
       expect(document.activeElement).toBe(heading2());
-      expect(radio("Muy en desacuerdo").checked).toBe(true);
+      expect(radio("En desacuerdo").checked).toBe(true);
       expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("true");
       fireEvent.click(button("Siguiente"));
       expect(rowTexts()).toEqual(before);
@@ -786,12 +789,12 @@ describe("QuestionnairePage", () => {
 
     test("Scenario 6: the methodology link opens METHODOLOGY_PATH in a new tab, on results and prompt", async () => {
       await openSix();
-      walk([AGREE, "skip", "skip", "skip", "skip", "skip"]);
+      walk([AGREE, "neutral", "neutral", "neutral", "neutral", "neutral"]);
       const name = "Cómo se calcula la afinidad (se abre en una pestaña nueva)";
       for (const pass of ["ranking", "prompt"]) {
         if (pass === "prompt") {
           fireEvent.click(button("Revisar mis respuestas"));
-          walk(["skip", "skip", "skip", "skip", "skip", "skip"]);
+          walk(["neutral", "neutral", "neutral", "neutral", "neutral", "neutral"]);
           expect(screen.getByText(PROMPT)).toBeTruthy();
         } else {
           expect(screen.getByRole("list", { name: "Tus resultados" })).toBeTruthy();
@@ -807,7 +810,7 @@ describe("QuestionnairePage", () => {
     test("Scenario 7: Answers never leave the component; a reload starts over", async () => {
       const fetch = happyFetch(6);
       const view = await openSix(fetch);
-      walk([AGREE, { label: "Muy de acuerdo", important: true }, "skip", AGREE, AGREE, AGREE]);
+      walk([AGREE, { label: "De acuerdo", important: true }, "neutral", AGREE, AGREE, AGREE]);
       expect(screen.getByRole("list", { name: "Tus resultados" })).toBeTruthy();
       expect(currentUrl).toBe("/elecciones/1/cuestionario");
       expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
@@ -829,7 +832,7 @@ describe("QuestionnairePage", () => {
         "/api/v1/feedback": () => jsonResponse({ status: "ok" }, 201),
       });
       await openSix(fetch);
-      walk([AGREE, AGREE, AGREE, AGREE, AGREE, { label: "Muy de acuerdo", important: true }]);
+      walk([AGREE, AGREE, AGREE, AGREE, AGREE, { label: "De acuerdo", important: true }]);
       const before = {
         ranking: rowTexts(),
         summary: screen.getByText(/Muestra evaluada:/).textContent,
@@ -877,7 +880,7 @@ describe("QuestionnairePage", () => {
 
       backToLast(6);
       expect(heading2().textContent).toBe("Afirmación de prueba 6");
-      expect(radio("Muy de acuerdo").checked).toBe(true);
+      expect(radio("De acuerdo").checked).toBe(true);
       expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("true");
     });
   });

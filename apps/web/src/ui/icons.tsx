@@ -108,17 +108,6 @@ export function ArrowBackIcon() {
   );
 }
 
-// "Step over": an arrow arcing over a dot, for a skipped Statement.
-export function StepOverIcon({ className }: { readonly className?: string }) {
-  return (
-    <Icon className={className}>
-      <path d="M4.5 14.5a7.5 7.5 0 0 1 14-3.5" />
-      <path d="M19.5 6v5h-5" />
-      <circle cx="12" cy="18.5" r="1.75" />
-    </Icon>
-  );
-}
-
 export function HomeIcon() {
   return (
     <Icon>
@@ -127,9 +116,9 @@ export function HomeIcon() {
   );
 }
 
-// The answer scale (DESIGN.md "Icons"): one thumb per grade, a double thumb
-// for "Muy", up and down together for the neutral point. Drawn on a wider
-// 32x24 canvas (`icon--wide`) so the pairs stay legible; each glyph is drawn
+// The answer sides (DESIGN.md "Icons"): thumb up for De acuerdo, thumb down
+// for En desacuerdo, up and down together for Neutral. Drawn on a wider
+// 32x24 canvas (`icon--wide`) so the pair stays legible; each glyph is drawn
 // pointing up and flipped vertically for "down". The label next to it always
 // carries the meaning.
 const THUMB = (
@@ -138,15 +127,6 @@ const THUMB = (
     <path d="M6.5 10.5L10 3.5c1.5 0 2.6 1.2 2.3 2.7l-.6 3.3H18a2 2 0 0 1 2 2.3l-1.2 6.5a2 2 0 0 1-2 1.7H6.5" />
   </>
 );
-
-// The "Muy" glyph, supplied by the product owner (a filled 24x24 shape).
-const DOUBLE_THUMB =
-  "M17.83,17L21,9.57q0-0.07 0-0.29T21,9q-0.4,0-1.29,0T17.85,9T16,9T14.7,9l0.47-3.35L13.8,7.02" +
-  "q-0.2-0.2-0.7-0.71T12.4,5.6L16,2l0.8,0.8q0.35,0.35 0.49,0.79T17.35,4.5L17,7h4q0.83,0 1.41,0.59" +
-  "T23,9V9.57q0,0.2-0.04,0.4q-0.04,0.2-0.11,0.4l-2.32,5.4q-0.25,0.55-0.75,0.89T18.68,17H17.83Z" +
-  "M6,21H1V11H6v2H3v6H6v2Zm6.68,0H4V12l6-6l0.8,0.8q0.35,0.35 0.49,0.79T11.35,8.5L11,11h4" +
-  "q0.83,0 1.41,0.59Q17,12.18 17,13v0.6q0,0.2-0.04,0.39t-0.11,0.39L14.53,19.8q-0.25,0.55-0.75,0.88" +
-  "T12.68,21Zm0-2L15,13.6V13H8.7L9.18,9.65L6,12.83V19h6.68ZM6,19V12.83V13v0.6V19Z";
 
 type ThumbProps = { readonly className?: string };
 
@@ -177,8 +157,6 @@ const UP = "translate(4.5 0)";
 const DOWN = "matrix(1 0 0 -1 4.5 24)";
 const PAIR_UP_LEFT = `matrix(${PAIR_SCALE} 0 0 ${PAIR_SCALE} -1.75 3.2)`;
 const PAIR_DOWN_RIGHT = `matrix(${PAIR_SCALE} 0 0 -${PAIR_SCALE} 14.25 20.8)`;
-const DOUBLE_UP = "translate(4 0)";
-const DOUBLE_DOWN = "matrix(1 0 0 -1 4 24)";
 
 function Thumbs({ className, marks }: ThumbProps & { readonly marks: readonly string[] }) {
   const strokeWidth = marks.length > 1 ? 1.75 / PAIR_SCALE : undefined;
@@ -193,28 +171,12 @@ function Thumbs({ className, marks }: ThumbProps & { readonly marks: readonly st
   );
 }
 
-function DoubleThumb({ className, transform }: ThumbProps & { readonly transform: string }) {
-  return (
-    <WideIcon className={className}>
-      <path d={DOUBLE_THUMB} transform={transform} fill="currentColor" stroke="none" />
-    </WideIcon>
-  );
-}
-
 export function ThumbUpIcon({ className }: ThumbProps) {
   return <Thumbs className={className} marks={[UP]} />;
 }
 
 export function ThumbDownIcon({ className }: ThumbProps) {
   return <Thumbs className={className} marks={[DOWN]} />;
-}
-
-export function DoubleThumbUpIcon({ className }: ThumbProps) {
-  return <DoubleThumb className={className} transform={DOUBLE_UP} />;
-}
-
-export function DoubleThumbDownIcon({ className }: ThumbProps) {
-  return <DoubleThumb className={className} transform={DOUBLE_DOWN} />;
 }
 
 export function ThumbUpDownIcon({ className }: ThumbProps) {

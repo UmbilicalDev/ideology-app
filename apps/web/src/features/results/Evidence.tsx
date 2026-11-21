@@ -1,11 +1,11 @@
-import { NO_STANCE, SKIP, type BreakdownPosition, type BreakdownRow } from "@ideology-app/core";
+import { NEUTRAL, NO_STANCE, type BreakdownPosition, type BreakdownRow } from "@ideology-app/core";
 
-import { StarIcon, StepOverIcon } from "../../ui/icons";
-import { ScaleIcon } from "../scale-icons";
-import { SCALE_LABELS } from "../scale-labels";
+import { StarIcon } from "../../ui/icons";
+import { SideIcon } from "../scale-icons";
+import { answerLabel as scaleAnswerLabel } from "../scale-labels";
 
 export const NO_STANCE_LABEL = "Sin posición en el programa";
-export const SKIPPED_LABEL = "Saltada (no cuenta para la afinidad)";
+export const NEUTRAL_LABEL = "Neutral / No lo sé (no cuenta para la afinidad)";
 export const UNANSWERED_LABEL = "Sin responder";
 export const IMPORTANT_MARK = "Importante (cuenta el doble)";
 
@@ -14,15 +14,19 @@ const NO_STANCE_SENTENCE =
 
 export function answerLabel(answer: BreakdownRow["answer"]): string {
   if (answer === null) return UNANSWERED_LABEL;
-  if (answer === SKIP) return SKIPPED_LABEL;
-  return SCALE_LABELS[answer];
+  if (answer === NEUTRAL) return NEUTRAL_LABEL;
+  return scaleAnswerLabel(answer);
 }
 
-/** The decorative icon of an Answer or stance: its scale icon, step-over when skipped, none otherwise. */
+/**
+ * The decorative icon of an Answer or stance: its side icon (a Position is
+ * read by its sign; Neutral and 0 show the up-down pair), none for no Answer
+ * or no stance.
+ */
 export function ValueIcon({ value }: { readonly value: BreakdownRow["answer"] | BreakdownPosition["value"] }) {
   if (value === null || value === NO_STANCE) return null;
-  if (value === SKIP) return <StepOverIcon className="value-icon" />;
-  return <ScaleIcon value={value} className="value-icon" />;
+  const side = value === NEUTRAL ? 0 : (Math.sign(value) as -1 | 0 | 1);
+  return <SideIcon side={side} className="value-icon" />;
 }
 
 /** `Tu respuesta: <label>` plus the Important mark, as on every breakdown view. */

@@ -4,6 +4,9 @@
 // `buildResults`, the same path as the end screen. Pure apart from the port:
 // no React, DOM, storage or logging. Requests carry only the Dataset Version
 // id and the Election id (path parameters), never Answers.
+//
+// A link with a retired layout marker (`v1`) gives `outdated`, with the
+// Election whose current Questionnaire can be offered instead, if any.
 import type { DatasetVersion } from "../domain/dataset-version";
 import type { Election } from "../domain/election";
 import type { QuestionnaireState } from "../domain/questionnaire";
@@ -26,6 +29,11 @@ import type { PublicApi } from "./public-api";
 export type OpenShareLinkResult =
   | { readonly kind: "missing" }
   | { readonly kind: "invalid"; readonly reason: ShareLinkErrorKind }
+  | {
+      readonly kind: "outdated";
+      /** The old link's Election when its Questionnaire is available now, else `null`. */
+      readonly questionnaireElectionId: number | null;
+    }
   | { readonly kind: "not_found" }
   | { readonly kind: "error" }
   | {
@@ -57,6 +65,9 @@ export async function openShareLink(api: PublicApi, fragment: string): Promise<O
   try {
     link = decodeShareLink(fragment);
   } catch (error) {
+    if (error instanceof ShareLinkError && error.kind === "outdated_version") {
+      return outdated(api, error.datasetVersionId);
+    }
     return error instanceof ShareLinkError ? { kind: "invalid", reason: error.kind } : ERROR;
   }
   try {
@@ -64,6 +75,27 @@ export async function openShareLink(api: PublicApi, fragment: string): Promise<O
   } catch {
     // e.g. an engine RangeError on unexpected data.
     return ERROR;
+  }
+}
+
+async function outdated(
+  api: PublicApi,
+  datasetVersionId: number | undefined,
+): Promise<OpenShareLinkResult> {
+  const none: OpenShareLinkResult = { kind: "outdated", questionnaireElectionId: null };
+  if (datasetVersionId === undefined) {
+    return none;
+  }
+  try {
+    const datasetVersion = await api.getDatasetVersion(datasetVersionId);
+    const election = await api.getElection(datasetVersion.electionId);
+    if (election.id !== datasetVersion.electionId || !isQuestionnaireAvailable(election)) {
+      return none;
+    }
+    return { kind: "outdated", questionnaireElectionId: election.id };
+  } catch {
+    // A 404, a network error or unexpected data: the notice still shows.
+    return none;
   }
 }
 

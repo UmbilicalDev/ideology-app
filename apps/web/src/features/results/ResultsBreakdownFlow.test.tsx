@@ -82,15 +82,16 @@ function button(name: string) {
   return screen.getByRole("button", { name }) as HTMLButtonElement;
 }
 
-type Step = { readonly label: string; readonly important?: boolean } | "skip" | "flag-skip";
+type Step = { readonly label: string; readonly important?: boolean } | "neutral" | "flag-neutral";
 
 function walk(steps: readonly Step[]) {
   for (const step of steps) {
-    if (step === "skip" || step === "flag-skip") {
-      if (step === "flag-skip") {
+    if (step === "neutral" || step === "flag-neutral") {
+      if (step === "flag-neutral") {
         fireEvent.click(button("Importante para mí"));
       }
-      fireEvent.click(button("Saltar"));
+      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+      fireEvent.click(button("Siguiente"));
       continue;
     }
     if (step.important === true) {
@@ -102,8 +103,8 @@ function walk(steps: readonly Step[]) {
 }
 
 const AGREE = { label: "De acuerdo" } as const;
-// Scenario 1's walk: 1-4 De acuerdo (2 Important), skip 5, flag then skip 6.
-const SCENARIO_1: readonly Step[] = [AGREE, { label: "De acuerdo", important: true }, AGREE, AGREE, "skip", "flag-skip"];
+// Scenario 1's walk: 1-4 De acuerdo (2 Important), Neutral on 5, flag then Neutral on 6.
+const SCENARIO_1: readonly Step[] = [AGREE, { label: "De acuerdo", important: true }, AGREE, AGREE, "neutral", "flag-neutral"];
 
 function breakdownRows(): HTMLElement[] {
   return Array.from(screen.getByRole("list", { name: "Comprueba de dónde salen tus coincidencias" }).children) as HTMLElement[];
@@ -137,7 +138,7 @@ function open(details: HTMLDetailsElement) {
 }
 
 describe("results breakdown", () => {
-  test("Scenario 1: one row per Statement with the Voter's Answer, skip and Important", async () => {
+  test("Scenario 1: one row per Statement with the Voter's Answer, Neutral and Important", async () => {
     await openSix();
     walk(SCENARIO_1);
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
@@ -153,8 +154,8 @@ describe("results breakdown", () => {
     const answer = (i: number) => rows[i]!.querySelector(".breakdown-row__answer")!.textContent;
     expect(answer(0)).toBe("Tu respuesta: De acuerdo");
     expect(answer(1)).toBe("Tu respuesta: De acuerdo Importante (cuenta el doble)");
-    expect(answer(4)).toBe("Tu respuesta: Saltada (no cuenta para la afinidad)");
-    expect(answer(5)).toBe("Tu respuesta: Saltada (no cuenta para la afinidad)");
+    expect(answer(4)).toBe("Tu respuesta: Neutral / No lo sé (no cuenta para la afinidad)");
+    expect(answer(5)).toBe("Tu respuesta: Neutral / No lo sé (no cuenta para la afinidad)");
     expect(screen.getAllByText("Importante (cuenta el doble)")).toHaveLength(1);
     // The section sits after the methodology link; the old privacy note is gone.
     const section = screen.getByRole("region", { name: "Comprueba de dónde salen tus coincidencias" });
@@ -174,12 +175,12 @@ describe("results breakdown", () => {
     }
 
     fireEvent.click(button("Revisar mis respuestas"));
-    walk(Array.from({ length: 6 }, () => ({ label: "Muy en desacuerdo" })));
+    walk(Array.from({ length: 6 }, () => ({ label: "En desacuerdo" })));
     expect(rankingNames()).toEqual(["Partido Dos", "Partido Uno"]);
     for (const row of breakdownRows()) {
       expect(partyNames(row)).toEqual(["Partido Dos", "Partido Uno"]);
       expect(row.querySelector(".breakdown-row__answer")?.textContent).toMatch(
-        /^Tu respuesta: Muy en desacuerdo/,
+        /^Tu respuesta: En desacuerdo/,
       );
     }
   });
@@ -221,9 +222,9 @@ describe("results breakdown", () => {
     expect(dos.querySelector("a")).toBeNull();
   });
 
-  test("Scenario 6: everything skipped shows the prompt and still the breakdown, Parties by name", async () => {
+  test("Scenario 6: everything Neutral shows the prompt and still the breakdown, Parties by name", async () => {
     await openSix();
-    walk(["skip", "skip", "skip", "skip", "skip", "skip"]);
+    walk(["neutral", "neutral", "neutral", "neutral", "neutral", "neutral"]);
     expect(screen.getByText(PROMPT)).toBeTruthy();
     expect(screen.queryByRole("list", { name: "Tus resultados" })).toBeNull();
     const rows = breakdownRows();
@@ -231,7 +232,7 @@ describe("results breakdown", () => {
     for (const row of rows) {
       expect(partyNames(row)).toEqual(["Partido Dos", "Partido Uno"]);
       expect(row.querySelector(".breakdown-row__answer")?.textContent).toBe(
-        "Tu respuesta: Saltada (no cuenta para la afinidad)",
+        "Tu respuesta: Neutral / No lo sé (no cuenta para la afinidad)",
       );
     }
   });

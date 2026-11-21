@@ -5,11 +5,12 @@
 //
 // `currentIndex` runs from 0 to `statementIds.length`; `length` is the end
 // screen. Invariant: every Statement before `currentIndex` has an Answer
-// (a ScaleValue or SKIP). The Important flag is kept apart from the Answer,
-// so a Statement can be marked before it is rated, and a skip keeps it.
-import { SKIP, type Answer, type ScaleValue } from "./match-score";
+// (-1, 1 or NEUTRAL). The Important flag is kept apart from the Answer, so a
+// Statement can be marked before it is answered, and a Neutral Answer keeps
+// it (the engine ignores it).
+import { NEUTRAL, type Answer, type AnswerSide } from "./match-score";
 
-export type AnswerValue = ScaleValue | typeof SKIP;
+export type AnswerValue = AnswerSide | typeof NEUTRAL;
 
 export interface QuestionnaireState {
   readonly statementIds: readonly number[];
@@ -21,17 +22,18 @@ export interface QuestionnaireState {
 }
 
 export type QuestionnaireAction =
-  | { readonly type: "select"; readonly value: ScaleValue }
-  | { readonly type: "skip" }
+  | { readonly type: "select"; readonly value: AnswerValue }
   | { readonly type: "next" }
   | { readonly type: "back" }
   | { readonly type: "first" }
   | { readonly type: "toggleImportant" };
 
 export interface QuestionnaireSummary {
+  /** Statements answered De acuerdo or En desacuerdo (with an opinion). */
   readonly answered: number;
-  readonly skipped: number;
-  /** Rated (not skipped) Statements marked Important: the ones that count double. */
+  /** Statements answered Neutral / No lo sé. */
+  readonly neutral: number;
+  /** Sided (not Neutral) Statements marked Important: the ones that count double. */
   readonly important: number;
   readonly total: number;
 }
@@ -104,8 +106,6 @@ export function reduceQuestionnaire(
   switch (action.type) {
     case "select":
       return withAnswer(state, statementId, action.value, false);
-    case "skip":
-      return withAnswer(state, statementId, SKIP, true);
     case "toggleImportant":
       return withToggledImportant(state, statementId);
     case "next":
@@ -113,17 +113,20 @@ export function reduceQuestionnaire(
         return state;
       }
       return { ...state, currentIndex: state.currentIndex + 1, answers: new Map(state.answers) };
+    default:
+      // Unknown actions (e.g. the retired `skip`) change nothing.
+      return state;
   }
 }
 
 export function summarize(state: QuestionnaireState): QuestionnaireSummary {
   let answered = 0;
-  let skipped = 0;
+  let neutral = 0;
   let important = 0;
   for (const id of state.statementIds) {
     const value = state.answers.get(id);
-    if (value === SKIP) {
-      skipped += 1;
+    if (value === NEUTRAL) {
+      neutral += 1;
     } else if (value !== undefined) {
       answered += 1;
       if (state.important.has(id)) {
@@ -131,14 +134,15 @@ export function summarize(state: QuestionnaireState): QuestionnaireSummary {
       }
     }
   }
-  return { answered, skipped, important, total: state.statementIds.length };
+  return { answered, neutral, important, total: state.statementIds.length };
 }
 
 /**
  * The Answers in the shape the Match Score engine takes, in Statement order:
  * one entry per Statement with an Answer, `important` always a boolean.
- * Unanswered Statements are left out (the engine treats them like a skip),
- * even when flagged. A flagged skip keeps its flag; the engine ignores it.
+ * Unanswered Statements are left out (the engine treats them like Neutral),
+ * even when flagged. A flagged Neutral Answer keeps its flag; the engine
+ * ignores it.
  */
 export function toMatchScoreAnswers(state: QuestionnaireState): Answer[] {
   const result: Answer[] = [];

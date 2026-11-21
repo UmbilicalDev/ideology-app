@@ -7,7 +7,8 @@
 // the results screen), so a Party sits in the same place in every row and in
 // the ranking (CONSTRAINTS.md, Client-side Matching).
 import type { Party, Statement } from "./dataset-version";
-import { NO_STANCE, SKIP, type Answer, type ScaleValue } from "./match-score";
+import { NEUTRAL, NO_STANCE, type Answer, type ScaleValue } from "./match-score";
+import type { AnswerValue } from "./questionnaire";
 
 export interface EvidenceView {
   readonly quote: string;
@@ -32,8 +33,8 @@ export interface BreakdownRow {
   readonly position: number;
   readonly text: string;
   /** The Voter's Answer, or `null` when the Statement has none. */
-  readonly answer: ScaleValue | typeof SKIP | null;
-  /** `true` only for a rated (not skipped) Answer flagged Important. */
+  readonly answer: AnswerValue | null;
+  /** `true` only for a sided (not Neutral) Answer flagged Important. */
   readonly important: boolean;
   readonly positions: readonly BreakdownPosition[];
 }
@@ -112,7 +113,7 @@ export function buildBreakdown(
       position: statement.position,
       text: statement.text,
       answer: value,
-      important: value !== null && value !== SKIP && answer?.important === true,
+      important: value !== null && value !== NEUTRAL && answer?.important === true,
       positions: ordered.map((party) => toPosition(party, statement.id)),
     };
   });
