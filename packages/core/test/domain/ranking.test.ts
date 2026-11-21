@@ -205,10 +205,8 @@ describe("rankParties", () => {
     // Statement 1: Voter 1 vs party 2 (agreement 1); Statement 2: Voter -1 vs party 2 (agreement 0).
     const parties = [party(1, "Uno", [2, 2])];
     const plain = [
-      { type: "select", value: 1 },
-      { type: "next" },
-      { type: "select", value: -1 },
-      { type: "next" },
+      { type: "answer", value: 1 },
+      { type: "answer", value: -1 },
     ] as const;
     const unflagged = plain.reduce(reduceQuestionnaire, startQuestionnaire([1, 2]));
     expect(rankParties(toMatchScoreAnswers(unflagged), parties)[0]?.percent).toBe(50);

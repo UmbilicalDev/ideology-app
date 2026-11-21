@@ -15,6 +15,7 @@ import {
   textResponse,
 } from "../../test/fetch-mocks";
 import { SHARED_RESULTS_TITLE } from "./SharedResultsPage";
+import { answerButton, findAnswerButtons } from "../../test/questionnaire";
 
 const ELECTION_URL = "/api/v1/elections/1";
 const VERSION_URL = "/api/v1/dataset-versions/1";
@@ -107,14 +108,12 @@ describe("SharedResultsPage", () => {
   test("Scenario 1: the shared link shows the end screen's ranking and breakdown", async () => {
     // The end screen after answering De acuerdo ×5, then En desacuerdo marked Important.
     const endScreen = renderAt("/elecciones/1/cuestionario", sixStatements());
-    await screen.findByRole("radiogroup");
+    await findAnswerButtons();
     for (let i = 0; i < 5; i += 1) {
-      fireEvent.click(screen.getByRole("radio", { name: "De acuerdo" }));
-      fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+      fireEvent.click(answerButton("De acuerdo"));
     }
     fireEvent.click(screen.getByRole("button", { name: "Importante para mí" }));
-    fireEvent.click(screen.getByRole("radio", { name: "En desacuerdo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    fireEvent.click(answerButton("En desacuerdo"));
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("Tus resultados");
     const endRanking = rankingTexts();
     const endBreakdown = breakdownTexts();
@@ -193,7 +192,7 @@ describe("SharedResultsPage", () => {
     renderAt(LINK, fetch);
     await ready();
     fireEvent.click(screen.getByRole("link", { name: "Haz tú el cuestionario" }));
-    expect(await screen.findByRole("radiogroup")).toBeTruthy();
+    expect(await findAnswerButtons()).toBeTruthy();
     expect(currentLocation).toBe("/elecciones/1/cuestionario");
   });
 
@@ -462,9 +461,9 @@ describe("SharedResultsPage", () => {
     expect(document.activeElement).toBe(h1);
     expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Comparte tu resultado" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Revisar mis respuestas" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Repetir cuestionario" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Volver a la última afirmación" })).toBeNull();
-    expect(screen.queryByRole("radio")).toBeNull();
+    expect(document.querySelector(".answer-controls")).toBeNull();
     view.unmount();
     expect(document.title).toBe("IdeologiApp");
   });

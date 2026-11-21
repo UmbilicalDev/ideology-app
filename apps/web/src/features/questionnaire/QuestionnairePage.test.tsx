@@ -21,8 +21,17 @@ import {
   recordImageRequests,
   textResponse,
 } from "../../test/fetch-mocks";
+import {
+  ANSWER_NAMES,
+  answerAll,
+  answerButton,
+  findAnswerButtons,
+  restartQuestionnaire,
+  type AnswerName,
+} from "../../test/questionnaire";
 import { textWithoutLogos } from "../../test/text";
 import { METHODOLOGY_PATH } from "../paths";
+import { ANSWER_LOCK } from "./answer-lock";
 
 const ELECTION_URL = "/api/v1/elections/1";
 const VERSION_URL = "/api/v1/dataset-versions/1";
@@ -54,41 +63,34 @@ function renderAt(path: string, fetch: FetchLike) {
 
 async function openQuestionnaire(fetch: FetchLike = happyFetch()) {
   renderAt("/elecciones/1/cuestionario", fetch);
-  await screen.findByRole("radiogroup");
+  await findAnswerButtons();
 }
 
 function heading2() {
   return screen.getByRole("heading", { level: 2 });
 }
 
-function radio(name: string) {
-  return screen.getByRole("radio", { name }) as HTMLInputElement;
-}
-
 function button(name: string) {
   return screen.getByRole("button", { name }) as HTMLButtonElement;
 }
 
-// The end screen has no shortcut to the last Statement: review from the
-// first and step forward to the last of `count`.
-function backToLast(count: number) {
-  fireEvent.click(button("Revisar mis respuestas"));
-  for (let i = 1; i < count; i += 1) {
-    fireEvent.click(button("Siguiente"));
-  }
+function toggle() {
+  return button("Importante para mí");
 }
 
-function checkedRadios() {
-  return screen.getAllByRole("radio").filter((r) => (r as HTMLInputElement).checked);
+function pressed() {
+  return toggle().getAttribute("aria-pressed");
 }
 
-// The three options (three-option-scale): De acuerdo, Neutral / No lo sé, En desacuerdo.
-const LABELS = ["De acuerdo", "Neutral / No lo sé", "En desacuerdo"];
+/** The polite status line of the Questionnaire (outside the step and end screen). */
+function moveStatus() {
+  return document.querySelector(".focus-shell__content [role='status'].visually-hidden")?.textContent;
+}
 
 const LOSS_NOTE = /Tus respuestas siguen solo en este navegador/;
 
 describe("QuestionnairePage", () => {
-  test("Scenario 1: loading, then the first Statement with three unchecked radios and no Saltar", async () => {
+  test("Scenario 1: loading, then the first Statement with three answer buttons and no Anterior", async () => {
     const fetch = happyFetch();
     renderAt("/elecciones/1/cuestionario", fetch);
     // Focus shell: no sidebar, only the brand and Salir.
@@ -97,7 +99,7 @@ describe("QuestionnairePage", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Cuestionario");
     expect(screen.getByRole("status").textContent).toBe("Cargando cuestionario…");
 
-    const group = await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" });
+    const group = await screen.findByRole("group", { name: "Afirmación de prueba 1" });
     const h1 = screen.getByRole("heading", { level: 1 });
     expect(h1.textContent).toBe("Generales 2023");
     expect(h1.className).toBe("questionnaire__election");
@@ -105,176 +107,206 @@ describe("QuestionnairePage", () => {
     const progress = screen.getByRole("progressbar", { name: "Afirmación 1 de 3" });
     expect(progress.getAttribute("value")).toBe("1");
     expect(progress.getAttribute("max")).toBe("3");
-    const radios = within(group).getAllByRole("radio");
-    expect(radios.map((r) => r.closest("label")?.textContent?.trim())).toEqual(LABELS);
-    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["1", "neutral", "-1"]);
-    expect(checkedRadios()).toHaveLength(0);
-    expect(button("Siguiente").disabled).toBe(true);
+
+    const buttons = within(group).getAllByRole("button") as HTMLButtonElement[];
+    expect(buttons.map((b) => b.textContent)).toEqual(["En desacuerdo", "Neutral / No lo sé", "De acuerdo"]);
+    expect(buttons.map((b) => b.getAttribute("data-answer"))).toEqual(["-1", "neutral", "1"]);
+    for (const [i, b] of buttons.entries()) {
+      expect(within(group).getByRole("button", { name: ANSWER_NAMES[i] })).toBe(b);
+      expect(b.type).toBe("button");
+      expect(b.className).toBe("answer-button");
+      expect(b.querySelector("svg.answer-button__icon")?.getAttribute("aria-hidden")).toBe("true");
+    }
+    // The Neutral button shows No lo sé on a smaller second line.
+    expect(buttons[1]!.querySelector(".answer-button__sub")?.textContent).toBe("No lo sé");
+
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Siguiente" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Saltar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Anterior" })).toBeNull();
+    // The top row keeps its height with an empty placeholder.
+    expect(document.querySelector(".statement-card__top .step-back-placeholder")).toBeTruthy();
     expect(screen.getByText(/Tus respuestas se quedan en este navegador/).className).toBe(
       "questionnaire__note",
     );
-    // Initial load does not move focus.
+    // Initial load does not move focus; the status line is empty.
     expect(document.activeElement).toBe(document.body);
+    expect(moveStatus()).toBe("");
     expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
   });
 
-  test("Scenarios 2-5: answer, Neutral, go back, change and reach the end", async () => {
+  test("Scenarios 1-3: each tap answers and advances, and the last one reaches the end screen", async () => {
     const fetch = happyFetch();
     await openQuestionnaire(fetch);
 
-    // Scenario 2: selecting does not advance; Siguiente does, and focuses the heading.
-    fireEvent.click(radio("De acuerdo"));
-    expect(radio("De acuerdo").checked).toBe(true);
-    expect(heading2().textContent).toBe("Afirmación de prueba 1");
-    expect(button("Siguiente").disabled).toBe(false);
-    fireEvent.click(button("Siguiente"));
+    // Scenario 1.
+    fireEvent.click(answerButton("De acuerdo"));
     expect(heading2().textContent).toBe("Afirmación de prueba 2");
     expect(screen.getByText("Afirmación 2 de 3")).toBeTruthy();
-    expect(checkedRadios()).toHaveLength(0);
-    expect(button("Anterior")).toBeTruthy();
     expect(document.activeElement).toBe(heading2());
+    expect(heading2().getAttribute("aria-describedby")).toBe("questionnaire-progress");
+    expect(moveStatus()).toBe("Respuesta guardada: De acuerdo.");
+    // No button looks chosen on the new Statement: the three are identical.
+    expect(
+      Array.from(document.querySelectorAll(".answer-button"), (b) => [b.className, b.getAttribute("aria-pressed")]),
+    ).toEqual([
+      ["answer-button", null],
+      ["answer-button", null],
+      ["answer-button", null],
+    ]);
 
-    // Scenario 3: Neutral / No lo sé, then Siguiente (there is no Saltar).
-    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-    expect(button("Siguiente").disabled).toBe(false);
-    fireEvent.click(button("Siguiente"));
+    // Scenario 2.
+    fireEvent.click(answerButton("Neutral / No lo sé"));
     expect(heading2().textContent).toBe("Afirmación de prueba 3");
-    expect(screen.getByText("Afirmación 3 de 3")).toBeTruthy();
     expect(document.activeElement).toBe(heading2());
+    expect(moveStatus()).toBe("Respuesta guardada: Neutral / No lo sé.");
 
-    // Scenario 4: back to the Neutral one, then to the answered one, and change it.
-    fireEvent.click(button("Anterior"));
-    expect(heading2().textContent).toBe("Afirmación de prueba 2");
-    expect(checkedRadios()).toHaveLength(1);
-    expect(radio("Neutral / No lo sé").checked).toBe(true);
-    expect(screen.queryByText("Has saltado esta afirmación.")).toBeNull();
-    expect(button("Siguiente").disabled).toBe(false);
-    expect(document.activeElement).toBe(heading2());
-    fireEvent.click(button("Anterior"));
-    expect(heading2().textContent).toBe("Afirmación de prueba 1");
-    expect(radio("De acuerdo").checked).toBe(true);
-    expect(screen.queryByRole("button", { name: "Anterior" })).toBeNull();
-    fireEvent.click(radio("De acuerdo"));
-    expect(radio("De acuerdo").checked).toBe(true);
-    expect(checkedRadios()).toHaveLength(1);
-    fireEvent.click(button("Siguiente"));
-    expect(heading2().textContent).toBe("Afirmación de prueba 2");
-    expect(radio("Neutral / No lo sé").checked).toBe(true);
-
-    // A side replaces Neutral.
-    fireEvent.click(radio("En desacuerdo"));
-    expect(radio("Neutral / No lo sé").checked).toBe(false);
-    fireEvent.click(button("Siguiente"));
-
-    // Scenario 5: leave the last Statement with Neutral and reach the end screen.
-    expect(heading2().textContent).toBe("Afirmación de prueba 3");
-    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-    fireEvent.click(button("Siguiente"));
+    // Scenario 3.
+    fireEvent.click(answerButton("En desacuerdo"));
     expect(heading2().textContent).toBe("Tus resultados");
     expect(document.activeElement).toBe(heading2());
+    expect(moveStatus()).toBe("Respuesta guardada: En desacuerdo.");
     expect(screen.getByText("Muestra evaluada: 2/3 afirmaciones con opinión")).toBeTruthy();
+    expect(screen.getByText("Has respondido «Neutral / No lo sé» en 1 afirmación.")).toBeTruthy();
     expect(screen.queryByText(/muy pronto/)).toBeNull();
-    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(document.querySelector(".answer-controls")).toBeNull();
     expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Volver a la última afirmación" })).toBeNull();
     expect(screen.getByRole("link", { name: "IdeologiApp, ir al inicio" }).getAttribute("href")).toBe("/");
 
-    expect(screen.getByText("Has respondido «Neutral / No lo sé» en 1 afirmación.")).toBeTruthy();
-
-    backToLast(3);
-    expect(heading2().textContent).toBe("Afirmación de prueba 3");
-    expect(radio("Neutral / No lo sé").checked).toBe(true);
-    expect(document.activeElement).toBe(heading2());
-
-    // Neutral on an answered Statement replaces its side.
-    fireEvent.click(button("Anterior"));
-    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-    fireEvent.click(button("Siguiente"));
-    fireEvent.click(button("Anterior"));
-    expect(radio("Neutral / No lo sé").checked).toBe(true);
-    expect(checkedRadios()).toHaveLength(1);
-
-    // Scenario 8 (jsdom part): only the two loads, and nothing stored.
+    // Only the two loads, and nothing stored.
     expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
     expect(document.cookie).toBe("");
   });
 
-  test("Scenario 5: leaving the last Statement with Siguiente counts it as answered", async () => {
+  test("a one-Statement questionnaire goes straight to the end screen", async () => {
     await openQuestionnaire(happyFetch(1));
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
-    fireEvent.click(radio("En desacuerdo"));
-    fireEvent.click(button("Siguiente"));
+    fireEvent.click(answerButton("En desacuerdo"));
     expect(screen.getByText("Muestra evaluada: 1/1 afirmaciones con opinión")).toBeTruthy();
     expect(screen.getByText("No has respondido «Neutral / No lo sé» en ninguna afirmación.")).toBeTruthy();
-    backToLast(1);
-    expect(radio("En desacuerdo").checked).toBe(true);
   });
 
-  test("the controls read Anterior, Siguiente and every option has a leading icon", async () => {
+  test("Scenario 4: Anterior goes back and clears that Answer, keeping its flag", async () => {
     await openQuestionnaire();
-    const controls = () =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>(".step-controls button")).map(
-        (b) => [b.textContent, b.className, b.firstElementChild?.tagName.toLowerCase()],
-      );
-    // First Statement: no Anterior, so Siguiente takes the row.
-    expect(controls()).toEqual([["Siguiente", "button-primary", "span"]]);
-    expect(button("Siguiente").lastElementChild?.tagName.toLowerCase()).toBe("svg");
-    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-    fireEvent.click(button("Siguiente"));
-    expect(controls()).toEqual([
-      ["Anterior", "button-secondary", "svg"],
-      ["Siguiente", "button-primary", "span"],
-    ]);
-    for (const label of LABELS) {
-      const option = radio(label).closest("label")!;
-      expect(option.querySelector("svg.scale-option__icon")?.getAttribute("aria-hidden")).toBe("true");
-    }
+    fireEvent.click(answerButton("De acuerdo"));
+    // Anterior is in the top row from Statement 2 on, before the progress label.
+    const back = button("Anterior");
+    expect(back.className).toBe("step-back");
+    expect(back.closest(".statement-card__top")?.lastElementChild?.id).toBe("questionnaire-progress");
+    expect(back.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector(".step-back-placeholder")).toBeNull();
+
+    fireEvent.click(toggle());
+    fireEvent.click(answerButton("Neutral / No lo sé"));
+    expect(heading2().textContent).toBe("Afirmación de prueba 3");
+    // Neutral dropped Statement 2's flag (Decision 3).
+
+    fireEvent.click(button("Anterior"));
+    expect(heading2().textContent).toBe("Afirmación de prueba 2");
+    expect(document.activeElement).toBe(heading2());
+    expect(moveStatus()).toBe("Respuesta borrada. Vuelve a responder esta afirmación.");
+    expect(pressed()).toBe("false");
+
+    // Press the flag, go back again, and come forward: it is still pressed.
+    fireEvent.click(toggle());
+    fireEvent.click(button("Anterior"));
+    expect(heading2().textContent).toBe("Afirmación de prueba 1");
+    expect(screen.queryByRole("button", { name: "Anterior" })).toBeNull();
+    expect(pressed()).toBe("false");
+    fireEvent.click(answerButton("En desacuerdo"));
+    expect(heading2().textContent).toBe("Afirmación de prueba 2");
+    expect(pressed()).toBe("true");
+    fireEvent.click(answerButton("De acuerdo"));
+    fireEvent.click(answerButton("De acuerdo"));
+
+    // Re-answered: 1 En desacuerdo, 2 De acuerdo (Important), 3 De acuerdo.
+    expect(screen.getByText("Muestra evaluada: 3/3 afirmaciones con opinión")).toBeTruthy();
+    expect(screen.getByText("No has respondido «Neutral / No lo sé» en ninguna afirmación.")).toBeTruthy();
+    expect(screen.getByText("Has marcado 1 afirmación como importante.")).toBeTruthy();
   });
 
-  test("the Statement slides in the way the Voter moved; the progress bar is kept", async () => {
+  test("Scenario 10: Tab order is Anterior, Importante para mí, then the three answers", async () => {
+    await openQuestionnaire();
+    fireEvent.click(answerButton("Neutral / No lo sé"));
+    const card = document.querySelector(".statement-card")!;
+    const tabbable = Array.from(card.querySelectorAll<HTMLElement>("button, [tabindex]")).filter(
+      (element) => element.tabIndex >= 0,
+    );
+    expect(tabbable.map((element) => element.textContent)).toEqual([
+      "Anterior",
+      "Importante para mí",
+      "En desacuerdo",
+      "Neutral / No lo sé",
+      "De acuerdo",
+    ]);
+    // The heading holds focus after a move but is not a Tab stop of its own.
+    expect(heading2().tabIndex).toBe(-1);
+  });
+
+  test("Scenario 9: a double tap answers one Statement; a tap after the lock answers the next", async () => {
+    await openQuestionnaire(happyFetch(6));
+    answerAll([1, 1, 1]);
+    expect(heading2().textContent).toBe("Afirmación de prueba 4");
+
+    ANSWER_LOCK.ms = 300;
+    // Times relative to now, after the unlocked taps above.
+    const t0 = performance.now() + 1000;
+    let now = t0;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    fireEvent.click(answerButton("De acuerdo"));
+    now = t0 + 150;
+    fireEvent.click(answerButton("De acuerdo"));
+    expect(heading2().textContent).toBe("Afirmación de prueba 5");
+    // Anterior is locked too.
+    fireEvent.click(button("Anterior"));
+    expect(heading2().textContent).toBe("Afirmación de prueba 5");
+
+    now = t0 + 400;
+    fireEvent.click(answerButton("En desacuerdo"));
+    expect(heading2().textContent).toBe("Afirmación de prueba 6");
+    now = t0 + 800;
+    fireEvent.click(button("Anterior"));
+    expect(heading2().textContent).toBe("Afirmación de prueba 5");
+    now = t0 + 1200;
+    fireEvent.click(answerButton("Neutral / No lo sé"));
+    fireEvent.click(answerButton("Neutral / No lo sé"));
+    now = t0 + 1600;
+    fireEvent.click(answerButton("De acuerdo"));
+    // 1-4 De acuerdo, 5 Neutral, 6 De acuerdo.
+    expect(heading2().textContent).toBe("Tus resultados");
+    expect(screen.getByText("Muestra evaluada: 5/6 afirmaciones con opinión")).toBeTruthy();
+  });
+
+  test("the Statement slides in the way the Voter moved; the bar and the answer row are kept", async () => {
     await openQuestionnaire();
     const step = () => document.querySelector(".statement-step")!;
     const progress = document.querySelector("progress");
-    // No transition on the initial load.
+    const answers = document.querySelector(".answer-controls");
+    // No transition on the initial load; only the Statement and Important row slide.
     expect(step().hasAttribute("data-enter")).toBe(false);
-    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-    fireEvent.click(button("Siguiente"));
+    expect(step().contains(toggle())).toBe(true);
+    expect(step().contains(answers)).toBe(false);
+    fireEvent.click(answerButton("Neutral / No lo sé"));
     expect(step().getAttribute("data-enter")).toBe("forward");
-    fireEvent.click(radio("De acuerdo"));
-    fireEvent.click(button("Siguiente"));
+    fireEvent.click(answerButton("De acuerdo"));
     expect(step().getAttribute("data-enter")).toBe("forward");
     const third = step();
     fireEvent.click(button("Anterior"));
     expect(step().getAttribute("data-enter")).toBe("back");
-    // A new block per Statement (so the animation replays), the same bar (so its width animates).
+    // A new block per Statement (so the animation replays), the same bar and buttons.
     expect(step()).not.toBe(third);
     expect(document.querySelector("progress")).toBe(progress);
+    expect(document.querySelector(".answer-controls")).toBe(answers);
+
+    answerAll([1, 1]);
+    restartQuestionnaire();
+    expect(step().hasAttribute("data-enter")).toBe(false);
   });
 
-  test("turning Importante para mí on glows once; turning it off does not", async () => {
-    await openQuestionnaire();
-    const star = button("Importante para mí");
-    fireEvent.click(star);
-    expect(star.classList.contains("important-toggle--flash")).toBe(true);
-    fireEvent.click(star);
-    expect(star.classList.contains("important-toggle--flash")).toBe(false);
-  });
-
-  test("Scenario 6: each Statement has its own radio name, so no checked state leaks", async () => {
-    await openQuestionnaire();
-    const firstName = radio("De acuerdo").name;
-    expect(firstName).toBe("answer-101");
-    fireEvent.click(radio("De acuerdo"));
-    fireEvent.click(button("Siguiente"));
-    expect(radio("De acuerdo").name).toBe("answer-102");
-    expect(screen.getAllByRole("radio").every((r) => r.getAttribute("name") === "answer-102")).toBe(true);
-  });
-
-  test("the AI/privacy disclosure card follows the scale and is absent on the end screen", async () => {
+  test("the AI/privacy disclosure card follows the answer buttons and is absent on the end screen", async () => {
     await openQuestionnaire();
     const disclosure = screen.getByRole("region", {
       name: "Transparencia algorítmica y privacidad garantizada",
@@ -292,13 +324,10 @@ describe("QuestionnairePage", () => {
     const icons = disclosure.querySelectorAll("svg");
     expect(icons).toHaveLength(1);
     expect(icons[0]?.getAttribute("aria-hidden")).toBe("true");
-    const group = screen.getByRole("radiogroup");
+    const group = screen.getByRole("group", { name: "Afirmación de prueba 1" });
     expect(group.compareDocumentPosition(disclosure) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    for (let i = 0; i < 3; i += 1) {
-      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-      fireEvent.click(button("Siguiente"));
-    }
+    answerAll(["neutral", "neutral", "neutral"]);
     expect(heading2().textContent).toBe("Tus resultados");
     expect(
       screen.queryByRole("region", { name: "Transparencia algorítmica y privacidad garantizada" }),
@@ -306,136 +335,220 @@ describe("QuestionnairePage", () => {
   });
 
   describe("Important flag", () => {
-    function toggle() {
-      return button("Importante para mí");
-    }
-
-    function pressed() {
-      return toggle().getAttribute("aria-pressed");
-    }
-
-    test("Scenario 1: the toggle flips on and off without advancing, focus stays on it", async () => {
+    test("the toggle flips on and off without advancing; focus stays on it; the hint names the cap", async () => {
       await openQuestionnaire();
       const star = toggle();
       expect(star.type).toBe("button");
       expect(pressed()).toBe("false");
+      expect(star.hasAttribute("aria-disabled")).toBe(false);
       const hint = document.getElementById(star.getAttribute("aria-describedby") ?? "");
       expect(hint?.textContent).toBe(
-        "Las afirmaciones importantes cuentan el doble al calcular la afinidad.",
+        "Las afirmaciones importantes cuentan el doble al calcular la afinidad. Puedes marcar hasta 1.",
       );
       // A tooltip on hover or keyboard focus (CSS), always the description.
       expect(hint?.className).toBe("questionnaire__hint important-hint");
       expect(hint?.getAttribute("role")).toBe("tooltip");
       expect(star.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
-      // The hint follows the toggle, and both come before the radiogroup.
-      const group = screen.getByRole("radiogroup");
+      // The toggle follows the heading and comes before the answer buttons.
+      const group = screen.getByRole("group", { name: "Afirmación de prueba 1" });
       expect(heading2().compareDocumentPosition(star) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(star.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
       star.focus();
       fireEvent.click(star);
       expect(pressed()).toBe("true");
+      expect(star.classList.contains("important-toggle--flash")).toBe(true);
       expect(toggle().textContent).toBe("Importante para mí");
       expect(document.activeElement).toBe(toggle());
       expect(heading2().textContent).toBe("Afirmación de prueba 1");
-      expect(screen.getByText("Afirmación 1 de 3")).toBeTruthy();
-      expect(button("Siguiente").disabled).toBe(true);
-      expect(checkedRadios()).toHaveLength(0);
 
       fireEvent.click(toggle());
       expect(pressed()).toBe("false");
+      expect(star.classList.contains("important-toggle--flash")).toBe(false);
       expect(document.activeElement).toBe(toggle());
     });
 
-    test("Scenarios 2-4: the flag survives Siguiente, Anterior and Neutral, and works before answering", async () => {
-      await openQuestionnaire();
-
-      // Scenario 2.
-      fireEvent.click(toggle());
-      fireEvent.click(radio("De acuerdo"));
-      fireEvent.click(button("Siguiente"));
-      expect(heading2().textContent).toBe("Afirmación de prueba 2");
+    test("Scenario 5: at the cap the toggle is aria-disabled, says why, and an already marked one can be unpressed", async () => {
+      await openQuestionnaire(happyFetch(32));
+      const HINT =
+        "Las afirmaciones importantes cuentan el doble al calcular la afinidad. Puedes marcar hasta 11.";
+      const CAP =
+        "Ya has marcado 11 afirmaciones como importantes, el máximo (un tercio del cuestionario).";
+      expect(document.getElementById("important-hint")?.textContent).toBe(HINT);
+      // Mark 11 of the first 19 Statements (1, 3, 5... 19 and 18), each before answering.
+      for (let i = 1; i <= 19; i += 1) {
+        expect(heading2().textContent).toBe(`Afirmación de prueba ${i}`);
+        if (i % 2 === 1 || i === 18) fireEvent.click(toggle());
+        fireEvent.click(answerButton("De acuerdo"));
+      }
+      expect(heading2().textContent).toBe("Afirmación de prueba 20");
+      const star = toggle();
+      expect(star.getAttribute("aria-disabled")).toBe("true");
       expect(pressed()).toBe("false");
-      fireEvent.click(button("Anterior"));
-      expect(heading2().textContent).toBe("Afirmación de prueba 1");
-      expect(radio("De acuerdo").checked).toBe(true);
-      expect(pressed()).toBe("true");
-
-      // Scenario 3.
-      fireEvent.click(button("Siguiente"));
-      fireEvent.click(toggle());
-      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-      fireEvent.click(button("Siguiente"));
-      expect(heading2().textContent).toBe("Afirmación de prueba 3");
+      expect(star.disabled).toBe(false);
+      expect(star.getAttribute("aria-describedby")).toBe("important-hint important-cap");
+      const cap = document.getElementById("important-cap");
+      expect(cap?.textContent).toBe(CAP);
+      expect(cap?.className).toBe("important-cap");
+      star.focus();
+      fireEvent.click(star);
       expect(pressed()).toBe("false");
-      fireEvent.click(button("Anterior"));
-      expect(radio("Neutral / No lo sé").checked).toBe(true);
-      expect(pressed()).toBe("true");
-      fireEvent.click(radio("De acuerdo"));
-      expect(pressed()).toBe("true");
-      fireEvent.click(button("Siguiente"));
+      expect(star.classList.contains("important-toggle--flash")).toBe(false);
+      expect(document.activeElement).toBe(star);
 
-      // Scenario 4.
-      expect(heading2().textContent).toBe("Afirmación de prueba 3");
-      fireEvent.click(toggle());
+      // Back to Statement 19 (marked): the toggle stays enabled and can be unpressed.
       fireEvent.click(button("Anterior"));
-      fireEvent.click(button("Siguiente"));
-      expect(heading2().textContent).toBe("Afirmación de prueba 3");
-      expect(checkedRadios()).toHaveLength(0);
+      expect(heading2().textContent).toBe("Afirmación de prueba 19");
       expect(pressed()).toBe("true");
-      expect(button("Siguiente").disabled).toBe(true);
+      expect(toggle().hasAttribute("aria-disabled")).toBe(false);
+      expect(document.getElementById("important-cap")).toBeNull();
+      fireEvent.click(toggle());
+      expect(pressed()).toBe("false");
+      fireEvent.click(answerButton("De acuerdo"));
+      // A slot is free again on Statement 20.
+      expect(toggle().hasAttribute("aria-disabled")).toBe(false);
+      fireEvent.click(toggle());
+      expect(pressed()).toBe("true");
+      fireEvent.click(answerButton("De acuerdo"));
+      expect(toggle().getAttribute("aria-disabled")).toBe("true");
     });
 
-    test("Scenario 5: the end screen counts sided Important Statements; Scenario 7 in jsdom", async () => {
-      const fetch = happyFetch();
-      await openQuestionnaire(fetch);
-      const answered = "Muestra evaluada: 2/3 afirmaciones con opinión";
+    test("Scenario 5: the cap message is singular when the cap is 1", async () => {
+      await openQuestionnaire();
+      fireEvent.click(toggle());
+      fireEvent.click(answerButton("De acuerdo"));
+      expect(document.getElementById("important-cap")?.textContent).toBe(
+        "Ya has marcado 1 afirmación como importante, el máximo (un tercio del cuestionario).",
+      );
+    });
 
-      // 1: sided + Important. 2: sided + Important. 3: Neutral + Important (not counted).
+    test("Scenario 6: Neutral on the last free slot drops the flag and frees it", async () => {
+      await openQuestionnaire(happyFetch(32));
+      for (let i = 1; i <= 10; i += 1) {
+        fireEvent.click(toggle());
+        fireEvent.click(answerButton("De acuerdo"));
+      }
       fireEvent.click(toggle());
-      fireEvent.click(radio("De acuerdo"));
-      fireEvent.click(button("Siguiente"));
-      fireEvent.click(toggle());
-      fireEvent.click(radio("En desacuerdo"));
-      fireEvent.click(button("Siguiente"));
-      fireEvent.click(toggle());
-      fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-      fireEvent.click(button("Siguiente"));
-      const summary = screen.getByRole("region", { name: answered });
+      expect(pressed()).toBe("true");
+      fireEvent.click(answerButton("Neutral / No lo sé"));
+      expect(heading2().textContent).toBe("Afirmación de prueba 12");
+      expect(toggle().hasAttribute("aria-disabled")).toBe(false);
+      answerAll(Array.from({ length: 21 }, () => -1 as const));
+      expect(screen.getByText("Has marcado 10 afirmaciones como importantes.")).toBeTruthy();
+    });
+
+    test("the end screen counts sided Important Statements, and nothing leaves the page", async () => {
+      const fetch = happyFetch(6);
+      await openQuestionnaire(fetch);
+      answerAll([{ value: 1, important: true }, { value: -1, important: true }, "neutral", 1, 1, 1]);
+      const summary = screen.getByRole("region", { name: "Muestra evaluada: 5/6 afirmaciones con opinión" });
       expect(within(summary).getByText("Has respondido «Neutral / No lo sé» en 1 afirmación.")).toBeTruthy();
       const sentence = within(summary).getByText("Has marcado 2 afirmaciones como importantes.");
       expect(sentence.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
       expect(sentence.getAttribute("data-marked")).toBe("true");
-      // The donut shows the answered share, 2 of 3; the text carries the numbers.
       const donut = summary.querySelector(".summary-donut")!;
       expect(donut.getAttribute("aria-hidden")).toBe("true");
-      expect(donut.textContent).toBe("67\u00a0%");
-
-      backToLast(3);
-      expect(heading2().textContent).toBe("Afirmación de prueba 3");
-      expect(pressed()).toBe("true");
-
-      // Unmark Statement 2.
-      fireEvent.click(button("Anterior"));
-      fireEvent.click(toggle());
-      fireEvent.click(button("Siguiente"));
-      fireEvent.click(button("Siguiente"));
-      expect(screen.getByText("Has marcado 1 afirmación como importante.")).toBeTruthy();
-
-      // Unmark Statement 1 too.
-      fireEvent.click(button("Revisar mis respuestas"));
-      fireEvent.click(toggle());
-      fireEvent.click(button("Siguiente"));
-      fireEvent.click(button("Siguiente"));
-      fireEvent.click(button("Siguiente"));
-      expect(screen.getByText(answered)).toBeTruthy();
-      const none = screen.getByText("No has marcado ninguna afirmación como importante.");
-      expect(none.getAttribute("data-marked")).toBe("false");
+      expect(donut.textContent).toBe("83 %");
 
       expect(apiPaths(fetch)).toEqual([ELECTION_URL, VERSION_URL]);
       expect(localStorage.length).toBe(0);
       expect(sessionStorage.length).toBe(0);
       expect(document.cookie).toBe("");
+    });
+  });
+
+  describe("Repetir cuestionario", () => {
+    const TEXT =
+      "Se borrarán tus respuestas y el resultado. Copia antes el enlace si quieres guardarlo.";
+
+    async function reachEnd() {
+      await openQuestionnaire();
+      answerAll([{ value: 1, important: true }, "neutral", -1]);
+      expect(heading2().textContent).toBe("Tus resultados");
+      return {
+        summary: screen.getByText(/^Muestra evaluada:/).textContent,
+        ranking: textWithoutLogos(screen.getByRole("list", { name: "Tus resultados" })),
+      };
+    }
+
+    function openDialog() {
+      fireEvent.click(button("Repetir cuestionario"));
+      return screen.getByRole("dialog", { name: "¿Repetir el cuestionario?" });
+    }
+
+    test("Scenario 7: the dialog asks first; Sí, repetir starts over from Statement 1", async () => {
+      await reachEnd();
+      const dialog = openDialog();
+      expect(dialog.tagName).toBe("DIALOG");
+      expect(dialog.hasAttribute("open")).toBe(true);
+      expect(document.getElementById(dialog.getAttribute("aria-describedby")!)?.textContent).toBe(TEXT);
+      const buttons = within(dialog).getAllByRole("button");
+      expect(buttons.map((b) => [b.textContent, b.className])).toEqual([
+        ["Cancelar", "button-secondary"],
+        ["Sí, repetir", "button-primary"],
+      ]);
+      expect(document.activeElement).toBe(buttons[0]);
+
+      fireEvent.click(buttons[1]!);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(heading2().textContent).toBe("Afirmación de prueba 1");
+      expect(document.activeElement).toBe(heading2());
+      expect(moveStatus()).toBe("Cuestionario reiniciado.");
+      expect(pressed()).toBe("false");
+      expect(screen.queryByRole("button", { name: "Anterior" })).toBeNull();
+      expect(screen.getByText("Afirmación 1 de 3")).toBeTruthy();
+      // No Answers and no flags: answering everything Neutral gives 0/3 and no marks.
+      answerAll(["neutral", "neutral", "neutral"]);
+      expect(screen.getByText("Muestra evaluada: 0/3 afirmaciones con opinión")).toBeTruthy();
+      expect(screen.getByText("No has marcado ninguna afirmación como importante.")).toBeTruthy();
+    });
+
+    test.each<[string, (dialog: HTMLElement) => void]>([
+      ["Cancelar", (dialog) => fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }))],
+      ["Escape", (dialog) => fireEvent(dialog, new Event("cancel", { cancelable: true }))],
+      [
+        "a backdrop click",
+        (dialog) => {
+          fireEvent.pointerDown(dialog);
+          fireEvent.click(dialog);
+        },
+      ],
+    ])("Scenario 7b: %s closes it with the result unchanged and focus on the button", async (_label, cancel) => {
+      const before = await reachEnd();
+      const dialog = openDialog();
+      cancel(dialog);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(heading2().textContent).toBe("Tus resultados");
+      expect(document.activeElement).toBe(button("Repetir cuestionario"));
+      expect({
+        summary: screen.getByText(/^Muestra evaluada:/).textContent,
+        ranking: textWithoutLogos(screen.getByRole("list", { name: "Tus resultados" })),
+      }).toEqual(before);
+      expect(screen.getByRole("button", { name: "Copiar enlace" })).toBeTruthy();
+    });
+
+    test("Scenario 7b: a click inside the surface does not close it", async () => {
+      await reachEnd();
+      const dialog = openDialog();
+      const text = screen.getByText(TEXT);
+      fireEvent.pointerDown(text);
+      fireEvent.click(text);
+      expect(screen.getByRole("dialog")).toBe(dialog);
+    });
+
+    test("Scenario 7b: Tab cycles between Cancelar and Sí, repetir", async () => {
+      await reachEnd();
+      const dialog = openDialog();
+      const [cancel, confirm] = within(dialog).getAllByRole("button");
+      expect(document.activeElement).toBe(cancel);
+      fireEvent.keyDown(dialog, { key: "Tab" });
+      expect(document.activeElement).toBe(confirm);
+      fireEvent.keyDown(dialog, { key: "Tab" });
+      expect(document.activeElement).toBe(cancel);
+      fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(confirm);
+      fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(cancel);
     });
   });
 
@@ -461,7 +574,7 @@ describe("QuestionnairePage", () => {
     });
     renderAt("/elecciones/1/cuestionario", fetch);
     expect(await screen.findByText(/todavía no está disponible/)).toBeTruthy();
-    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(document.querySelector(".answer-controls")).toBeNull();
   });
 
   test("Scenario 7: an unknown Election renders Página no encontrada", async () => {
@@ -492,7 +605,7 @@ describe("QuestionnairePage", () => {
     fail = false;
     fireEvent.click(within(alert).getByRole("button", { name: "Reintentar" }));
     expect(screen.getByRole("status").textContent).toBe("Cargando cuestionario…");
-    expect(await screen.findByRole("radiogroup", { name: "Afirmación de prueba 1" })).toBeTruthy();
+    expect(await screen.findByRole("group", { name: "Afirmación de prueba 1" })).toBeTruthy();
     expect(apiPaths(fetch)).toEqual([ELECTION_URL, ELECTION_URL, VERSION_URL]);
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
@@ -541,10 +654,7 @@ describe("QuestionnairePage", () => {
     expect(document.querySelector(".party-logo")).toBeNull();
 
     // Disagreeing with everything ranks Partido Dos first.
-    for (let i = 0; i < 3; i += 1) {
-      fireEvent.click(radio("En desacuerdo"));
-      fireEvent.click(button("Siguiente"));
-    }
+    answerAll([-1, -1, -1]);
     const ranking = Array.from(document.querySelectorAll(".ranking-row img"), (img) =>
       img.getAttribute("src"),
     );
@@ -559,8 +669,9 @@ describe("QuestionnairePage", () => {
       "Se pueden comparar menos de 5 afirmaciones con este partido, así que su afinidad se basa " +
       "en pocos datos.";
     const PROMPT =
-      "Todavía no se puede calcular tu afinidad: no has respondido ninguna afirmación en la que " +
-      "los partidos tengan posición. Responde al menos una para ver los resultados.";
+      "Todavía no se puede calcular tu afinidad: no has respondido con opinión ninguna afirmación " +
+      "en la que los partidos tengan posición. Pulsa «Repetir cuestionario» y responde al menos " +
+      "una con «De acuerdo» o «En desacuerdo».";
     // The fixture's Party Positions (datasetVersionJson, 6 Statements, ids 101..106).
     const IDS = [101, 102, 103, 104, 105, 106];
     const PARTIES = [
@@ -592,24 +703,22 @@ describe("QuestionnairePage", () => {
 
     async function openSix(fetch: FetchLike = happyFetch(6)) {
       const view = renderResults(fetch);
-      await screen.findByRole("radiogroup");
+      await findAnswerButtons();
       return view;
     }
 
-    type Step = { readonly label: string; readonly important?: boolean } | "neutral";
+    type Step = { readonly label: AnswerName; readonly important?: boolean } | "neutral";
 
     function walk(steps: readonly Step[]) {
       for (const step of steps) {
         if (step === "neutral") {
-          fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
-          fireEvent.click(button("Siguiente"));
+          fireEvent.click(answerButton("Neutral / No lo sé"));
           continue;
         }
         if (step.important === true) {
           fireEvent.click(button("Importante para mí"));
         }
-        fireEvent.click(radio(step.label));
-        fireEvent.click(button("Siguiente"));
+        fireEvent.click(answerButton(step.label));
       }
     }
 
@@ -667,10 +776,13 @@ describe("QuestionnairePage", () => {
         ["Dos", 0],
       ]);
       expect(screen.queryByText(PROMPT)).toBeNull();
-      expect(button("Revisar mis respuestas").className).toBe("button-primary");
-      // Revisar sits right after the summary, before the ranking and the share card.
+      expect(screen.queryByRole("button", { name: "Revisar mis respuestas" })).toBeNull();
+      const restart = button("Repetir cuestionario");
+      expect(restart.className).toBe("button-primary");
+      expect(restart.getAttribute("aria-haspopup")).toBe("dialog");
+      // Repetir sits right after the summary, before the ranking and the share card.
       const summary = screen.getByText(/^Muestra evaluada:/).closest(".results-dashboard > *");
-      expect(summary?.nextElementSibling).toBe(button("Revisar mis respuestas").parentElement);
+      expect(summary?.nextElementSibling).toBe(restart.parentElement);
       expect(screen.queryByRole("button", { name: "Volver a la última afirmación" })).toBeNull();
       // The warning is no longer a card: an alert button at the top right of
       // the ranking shows it inside the ranking card.
@@ -692,7 +804,7 @@ describe("QuestionnairePage", () => {
       expect(screen.queryByText(LOSS_NOTE)).toBeNull();
       expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();
       expect(screen.queryByRole("link", { name: "Ir al inicio" })).toBeNull();
-      expect(button("Revisar mis respuestas").nextElementSibling).toBeNull();
+      expect(button("Repetir cuestionario").nextElementSibling).toBeNull();
       expect(screen.getByRole("region", { name: "Comprueba de dónde salen tus coincidencias" })).toBeTruthy();
     });
 
@@ -740,13 +852,12 @@ describe("QuestionnairePage", () => {
       ).toBeTruthy();
       expect(screen.queryByText(LOSS_NOTE)).toBeNull();
 
-      fireEvent.click(button("Revisar mis respuestas"));
+      // Scenario 8 (quick answer): the prompt sends the Voter to Repetir cuestionario.
+      expect(screen.queryByRole("region", { name: "Comparte tu resultado" })).toBeNull();
+      restartQuestionnaire();
       expect(heading2().textContent).toBe("Afirmación de prueba 1");
       expect(document.activeElement).toBe(heading2());
-      expect(radio("Neutral / No lo sé").checked).toBe(true);
-      fireEvent.click(radio("De acuerdo"));
-      fireEvent.click(button("Siguiente"));
-      walk(["neutral", "neutral", "neutral", "neutral", "neutral"]);
+      walk([AGREE, "neutral", "neutral", "neutral", "neutral", "neutral"]);
       expect(screen.queryByText(PROMPT)).toBeNull();
       // Statement 1: Uno +1, same side; Dos has no stance there, so no score.
       expect(rowTexts()).toEqual([
@@ -755,34 +866,25 @@ describe("QuestionnairePage", () => {
       ]);
     });
 
-    test("Scenario 5: going back keeps every Answer and flag, and the same ranking comes back", async () => {
+    test("Repetir cuestionario starts over; the same Answers give the same ranking", async () => {
       await openSix();
-      walk([
+      const steps: Step[] = [
         { label: "De acuerdo", important: true },
         AGREE,
         AGREE,
         AGREE,
         AGREE,
         { label: "En desacuerdo", important: true },
-      ]);
+      ];
+      walk(steps);
       const before = rowTexts();
+      expect(screen.getByText("Has marcado 2 afirmaciones como importantes.")).toBeTruthy();
 
-      backToLast(6);
-      expect(heading2().textContent).toBe("Afirmación de prueba 6");
-      expect(document.activeElement).toBe(heading2());
-      expect(radio("En desacuerdo").checked).toBe(true);
-      expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("true");
-      fireEvent.click(button("Siguiente"));
-      expect(rowTexts()).toEqual(before);
-
-      fireEvent.click(button("Revisar mis respuestas"));
+      restartQuestionnaire();
       expect(heading2().textContent).toBe("Afirmación de prueba 1");
       expect(document.activeElement).toBe(heading2());
-      expect(radio("De acuerdo").checked).toBe(true);
-      expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("true");
-      for (let i = 0; i < 6; i += 1) {
-        fireEvent.click(button("Siguiente"));
-      }
+      expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("false");
+      walk(steps);
       expect(heading2().textContent).toBe("Tus resultados");
       expect(rowTexts()).toEqual(before);
     });
@@ -793,7 +895,7 @@ describe("QuestionnairePage", () => {
       const name = "Cómo se calcula la afinidad (se abre en una pestaña nueva)";
       for (const pass of ["ranking", "prompt"]) {
         if (pass === "prompt") {
-          fireEvent.click(button("Revisar mis respuestas"));
+          restartQuestionnaire();
           walk(["neutral", "neutral", "neutral", "neutral", "neutral", "neutral"]);
           expect(screen.getByText(PROMPT)).toBeTruthy();
         } else {
@@ -821,7 +923,7 @@ describe("QuestionnairePage", () => {
       view.unmount();
       await openSix(fetch);
       expect(heading2().textContent).toBe("Afirmación de prueba 1");
-      expect(checkedRadios()).toHaveLength(0);
+      expect(screen.queryByRole("button", { name: "Anterior" })).toBeNull();
       expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("false");
     });
 
@@ -878,10 +980,10 @@ describe("QuestionnairePage", () => {
       expect(localStorage.length).toBe(0);
       expect(sessionStorage.length).toBe(0);
 
-      backToLast(6);
-      expect(heading2().textContent).toBe("Afirmación de prueba 6");
-      expect(radio("De acuerdo").checked).toBe(true);
-      expect(button("Importante para mí").getAttribute("aria-pressed")).toBe("true");
+      // Cancelling Repetir keeps the result as it was.
+      fireEvent.click(button("Repetir cuestionario"));
+      fireEvent.click(button("Cancelar"));
+      expect(rowTexts()).toEqual(before.ranking);
     });
   });
 });

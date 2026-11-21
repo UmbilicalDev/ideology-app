@@ -203,6 +203,8 @@ describe("MethodologyPage", () => {
       "No cuentan las afirmaciones en las que respondes «Neutral / No lo sé»",
       "no tiene posición o tiene una posición neutral",
       "cuentan el doble",
+      "hasta un tercio de las afirmaciones, redondeando hacia arriba",
+      "la marca se quita, porque no contaría",
       "«N de M coincidencias»",
       "menos de 5 afirmaciones",
     ]) {
