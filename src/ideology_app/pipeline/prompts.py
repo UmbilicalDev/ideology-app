@@ -4,7 +4,7 @@ Changing a prompt's system text, template or schema MUST bump its ``version``
 and the fingerprint pinned in ``tests/test_pipeline_prompts.py``. A Pipeline Run
 records ``PROMPT_VERSIONS`` so it is known which prompt produced its output.
 
-The static ``StatementSet``, ``FindingList`` and ``PositionList`` are base
+The static ``StatementSet`` (items ``PoolStatement``), ``FindingList`` and ``PositionList`` are base
 types only. Every request uses the bounded schema of its builder
 (``statement_set_schema``, ``finding_list_schema``, ``position_list_schema``),
 which limits the Statement count and every Statement or candidate number to
@@ -70,11 +70,31 @@ class CandidateList(BaseModel):
     candidates: list[StatementDraft] = Field(max_length=12)
 
 
+# The structural cap of a context note; equals ``config.CONTEXT_NOTE_MAX_CHARS_LIMIT``
+# and the ``statements.context_note`` column width. The configured bounds
+# (``ValidationSettings.context_note_min_chars``..``max_chars``) are not in the
+# schema: Statement Selection and Validation enforce them, so a long note costs
+# one Statement, not the reduce call.
+CONTEXT_NOTE_SCHEMA_MAX = 500
+
+ContextNoteText = Annotated[
+    str, StringConstraints(min_length=1, max_length=CONTEXT_NOTE_SCHEMA_MAX, pattern=r"\S")
+]
+
+
+class PoolStatement(StatementDraft):
+    """A Statement Pool item: a proposed Statement, its context note and its anchor."""
+
+    context_note: ContextNoteText
+    # Base type only: requests bound it with ``statement_set_schema`` (1..anchors).
+    anchor: int | None
+
+
 class StatementSet(BaseModel):
     """The final ordered list of Statements for a Questionnaire."""
 
     # Base type only: requests use ``statement_set_schema`` (the pool bounds).
-    statements: list[StatementDraft] = Field(min_length=1, max_length=POOL_MAX_STATEMENTS)
+    statements: list[PoolStatement] = Field(min_length=1, max_length=POOL_MAX_STATEMENTS)
 
 
 def _check_bound(name: str, value: object) -> int:
@@ -90,21 +110,34 @@ def _subclass(base: type[BaseModel], **fields: Any) -> Any:
 
 
 @cache
-def _statement_set_schema(min_statements: int, max_statements: int) -> type[StatementSet]:
+def _statement_set_schema(
+    min_statements: int, max_statements: int, anchor_count: int
+) -> type[StatementSet]:
+    if anchor_count == 0:
+        item = _subclass(PoolStatement, anchor=(None, ...))
+    else:
+        item = _subclass(
+            PoolStatement, anchor=(int | None, Field(..., ge=1, le=anchor_count))
+        )
     return _subclass(
         StatementSet,
         statements=(
-            list[StatementDraft],
+            list[item],
             Field(min_length=min_statements, max_length=max_statements),
         ),
     )
 
 
-def statement_set_schema(min_statements: int, max_statements: int) -> type[StatementSet]:
+def statement_set_schema(
+    min_statements: int, max_statements: int, anchor_count: int = 0
+) -> type[StatementSet]:
     """``StatementSet`` with ``min_statements``..``max_statements`` Statements.
 
-    Raises ``ValueError`` unless both are integers of at least 1 and min is not
-    above max. Cached: the same bounds give the same class.
+    Each item's ``anchor`` is ``null`` or an integer from 1 to ``anchor_count``
+    (only ``null`` when ``anchor_count`` is 0); ``context_note`` and ``anchor``
+    are both required. Raises ``ValueError`` unless both bounds are integers of
+    at least 1, min is not above max, and ``anchor_count`` is a non-negative
+    integer. Cached: the same arguments give the same class.
     """
     low = _check_bound("min_statements", min_statements)
     high = _check_bound("max_statements", max_statements)
@@ -112,7 +145,9 @@ def statement_set_schema(min_statements: int, max_statements: int) -> type[State
         raise ValueError(
             f"min_statements ({low}) must not be above max_statements ({high})"
         )
-    return _statement_set_schema(low, high)
+    if isinstance(anchor_count, bool) or not isinstance(anchor_count, int) or anchor_count < 0:
+        raise ValueError(f"anchor_count must be a non-negative integer, got {anchor_count!r}")
+    return _statement_set_schema(low, high, anchor_count)
 
 
 @dataclass(frozen=True)
@@ -160,14 +195,15 @@ STATEMENT_CANDIDATES = PromptSpec(
 
 GENERATE_STATEMENTS = PromptSpec(
     task="generate_statements",
-    version="v5",
+    version="v6",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Recibes afirmaciones candidatas "
         "extraídas, en igual número, de los programas electorales de varias "
-        "candidaturas, y redactas a partir de ellas una lista amplia de afirmaciones; "
-        "después, un procedimiento automático elegirá entre ellas las del "
-        "cuestionario.\n\n"
+        "candidaturas, y las afirmaciones del cuestionario publicado anteriormente "
+        "para estas elecciones, si lo hay; redactas a partir de ellas una lista amplia "
+        "de afirmaciones; después, un procedimiento automático elegirá entre ellas las "
+        "del cuestionario.\n\n"
         f"{_COMMON_RULES}\n"
         "Reglas para la lista:\n"
         "- Cada afirmación expresa una orientación política con una dirección clara "
@@ -178,32 +214,71 @@ GENERATE_STATEMENTS = PromptSpec(
         "- Cada afirmación se entiende por sí sola, sin conocer la legislación ni "
         "la política vigentes: di en qué consiste lo que se propone. Nunca hables "
         "de \"la política actual\", \"el modelo vigente\" o \"la ley actual\" sin "
-        "decir cuál es ni qué establece; si la orientación consiste en derogar, "
-        "mantener o cambiar una ley o reforma concreta, nómbrala (por ejemplo, "
-        "\"la reforma laboral de 2012\") o describe su contenido.\n"
+        "decir cuál es ni qué establece.\n"
+        "- Expresa la medida por su contenido y en positivo, de modo que estar de "
+        "acuerdo signifique querer esa medida: en lugar de pedir que se derogue o "
+        "suprima una ley, una reforma o una institución, di lo que debe regir o "
+        "hacerse (por ejemplo, «Debe poder limitarse el precio del alquiler en las "
+        "zonas donde es más alto» y no «Debe derogarse la Ley de Vivienda de 2023, "
+        "que permite limitar el precio del alquiler»). Usa derogar, suprimir o "
+        "eliminar solo cuando la propuesta no tenga otro contenido que hacer "
+        "desaparecer esa norma o institución, y entonces nómbrala.\n"
+        "- Sin dobles negaciones: no combines «no», «nunca» o «sin» con verbos como "
+        "prohibir, impedir, suprimir, eliminar o derogar.\n"
+        "- Lenguaje llano: frases cortas y palabras de uso común. Si una afirmación "
+        "necesita un término técnico o el nombre de una ley, un plan o un organismo, "
+        "la nota de contexto lo explica.\n"
+        "- Nunca dejes una regla abstracta sin decir qué supone en la práctica: «Por "
+        "cada nueva regulación que afecte a las empresas deben derogarse dos normas "
+        "existentes» no se entiende sin saber qué normas ni para qué; di el objetivo "
+        "de la medida (por ejemplo, reducir el número de normas que deben cumplir las "
+        "empresas).\n"
         "- Agrupa en una misma orientación las candidatas de programas distintos que "
         "van en esa dirección o en la contraria, para que el mayor número posible de "
         "programas se pueda situar en ella.\n"
         "- Elige orientaciones en las que los programas discrepen; evita las que casi "
         "cualquier programa suscribiría.\n"
         "- Varía el sentido de las afirmaciones: no todas deben proponer aumentar o "
-        "ampliar algo; usa también reducir, limitar o suprimir cuando así lo planteen "
-        "las candidatas.\n"
-        "- Basa cada afirmación solo en las candidatas: no añadas temas ni propuestas "
-        "que no aparezcan en ellas.\n"
+        "ampliar algo; usa también reducir o limitar cuando así lo planteen las "
+        "candidatas.\n"
+        "- Basa cada afirmación solo en las candidatas y en las afirmaciones "
+        "anteriores: no añadas temas ni propuestas que no aparezcan en ellas.\n"
         "- Cubre los temas de forma amplia: ningún tema debe superar aproximadamente "
         "una cuarta parte de la lista.\n"
-        "- Sin afirmaciones casi duplicadas."
+        "- Sin afirmaciones casi duplicadas.\n"
+        "- Los votantes ya conocen las afirmaciones anteriores. Para cada una, incluye "
+        "en la lista una afirmación con la misma orientación, redactada de nuevo con "
+        "estas reglas, y pon su número en `anchor`; si une dos políticas, divídela en "
+        "dos afirmaciones con el mismo `anchor`. Las demás afirmaciones llevan "
+        "`anchor` nulo.\n"
+        "Reglas para la nota de contexto (`context_note`) de cada afirmación:\n"
+        "- Una o dos frases que explican de forma neutral lo que un votante podría no "
+        "conocer para entender la afirmación: qué es la ley, la reforma, el plan, la "
+        "institución, el organismo, la sigla o el término técnico que nombra (nombre "
+        "oficial, año y qué establece o hace). Si no nombra ninguno, explica "
+        "brevemente el concepto principal.\n"
+        "- Si un nombre es un apodo del debate público, da el nombre oficial y di que "
+        "se la conoce así.\n"
+        "- Solo hechos descriptivos: sin valoraciones, sin argumentos a favor o en "
+        "contra, sin efectos previstos, sin la posición de nadie y sin nombres de "
+        "partidos, de políticos ni de gobiernos.\n"
+        "- No repitas la afirmación ni añadas propuestas."
     ),
     template=(
         "Afirmaciones candidatas (una por línea, con su tema entre corchetes):\n\n"
         "{candidates}\n\n"
+        "Afirmaciones del cuestionario publicado anteriormente (una por línea, con su "
+        "número y su tema entre corchetes):\n\n"
+        "{anchors}\n\n"
         "Elabora una lista de {count} afirmaciones (como mínimo {min_count} y como "
         "máximo {max_count}), en el orden en que deben presentarse."
+        " Cada nota de contexto tiene entre {note_min} y {note_max} caracteres y no "
+        "usa ninguna de estas palabras: {evaluative_words}."
     ),
     schema=StatementSet,
-    # 80 Statements of up to 300 characters are about 8-9k output tokens.
-    max_tokens=16384,
+    # 80 Statements of up to 300 characters plus a context note each: about
+    # twice v5's 8-9k output tokens.
+    max_tokens=32768,
 )
 
 # Party Position extraction: findings per chunk, then one reduce per Party.

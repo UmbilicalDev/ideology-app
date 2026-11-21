@@ -21,6 +21,7 @@ from pipeline_fixtures import (
     candidate_lines,
     chunk_pages,
     fake_provider,
+    findings_response,
     findings_statement_numbers,
     offline_guard,
     positions_response,
@@ -147,7 +148,7 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
     assert run.generation_mode is GenerationMode.PRECOMPUTED
     assert run.prompt_versions == {
         "statement_candidates": "v1",
-        "generate_statements": "v5",
+        "generate_statements": "v6",
         "position_findings": "v5",
         "party_positions": "v2",
     }
@@ -170,9 +171,15 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
         # auto-publish-dataset-version: the run passed, so its version is Published.
         assert version.status is DatasetVersionStatus.PUBLISHED
         expected = statements_payload()["statements"][:35]
-        assert [(st.position, st.text, st.topic) for st in version.statements] == [
-            (i, e["text"], e["topic"]) for i, e in enumerate(expected, start=1)
+        assert [
+            (st.position, st.text, st.topic, st.context_note) for st in version.statements
+        ] == [
+            (i, e["text"], e["topic"], e["context_note"])
+            for i, e in enumerate(expected, start=1)
         ]
+    # pipeline-statement-clarity-context: no Published version before, so no anchors.
+    assert run.anchor_dataset_version_id is None
+    assert "(ninguna)" in provider.calls[2].prompt
 
 
 def test_failed_document_is_not_sent(seeded: Engine) -> None:
@@ -259,11 +266,29 @@ def test_prompts_never_contain_party_names(seeded: Engine) -> None:
                 assert value not in request.prompt
 
 
+def _same_except_anchors(first: FakeProvider, second: FakeProvider) -> None:
+    """Both runs sent the same requests, except the reduce of the second one,
+    which lists the first run's Published Statements as anchors
+    (pipeline-statement-clarity-context)."""
+    assert len(first.calls) == len(second.calls)
+    for a, b in zip(first.calls, second.calls, strict=True):
+        if a.task != "generate_statements":
+            assert a == b
+            continue
+        assert a.system == b.system and a.max_tokens == b.max_tokens
+        assert "\n\n(ninguna)\n\n" in a.prompt
+        anchors = "\n".join(
+            f"[{k}] [{st['topic']}] {st['text']}"
+            for k, st in enumerate(statements_payload()["statements"][:35], start=1)
+        )
+        assert b.prompt == a.prompt.replace("(ninguna)", anchors)
+
+
 def test_two_runs_on_the_same_input_send_identical_requests(seeded: Engine) -> None:
     first, second = fake_provider(), fake_provider()
     execute_run(seeded, queue(seeded, first), first)
     execute_run(seeded, queue(seeded, second), second)
-    assert first.calls == second.calls
+    _same_except_anchors(first, second)
     assert [c.task for c in first.calls] == [
         "statement_candidates",
         "statement_candidates",
@@ -315,8 +340,9 @@ def test_schema_mismatch_fails_the_run(seeded: Engine) -> None:
     run = _assert_failed(
         seeded,
         outcome,
+        # topic, plus the required context_note and anchor (generate_statements v6).
         "FakeProvider response for task 'generate_statements' does not match "
-        "StatementSet: 1 validation error(s)",
+        "StatementSet: 3 validation error(s)",
         calls=2,
     )
     assert run.input_tokens == sum(
@@ -530,7 +556,7 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
     run = read_run(seeded, run_id)
     assert run.prompt_versions == {
         "statement_candidates": "v1",
-        "generate_statements": "v5",
+        "generate_statements": "v6",
         "position_findings": "v5",
         "party_positions": "v2",
     }
@@ -709,11 +735,14 @@ def _calls(engine: Engine, run_id: int) -> list[tuple[str, str, bool]]:
 
 def test_reuse_from_replays_every_call_with_the_same_findings_record(seeded: Engine) -> None:
     # Scenario 5: the slipped finding changes no request, so a --reuse-from
-    # replay reuses every call and never reaches the provider.
+    # replay reuses every candidate and position call.
     first = fake_provider(position_findings=_slip_for_party1)
     source = queue(seeded, first)
     finished = execute_run(seeded, source, first)
     assert finished.dataset_version_id is not None
+    # pipeline-statement-clarity-context: the source run recorded no anchors
+    # and published its own version, so the replay lists that version as
+    # anchors and only its reduce goes to the provider (same pool back).
 
     with session_scope(seeded) as session:
         replay = queue_run(
@@ -725,12 +754,16 @@ def test_reuse_from_replays_every_call_with_the_same_findings_record(seeded: Eng
             resumed_from_run_id=source,
             allow_finished_source=True,
         ).id
-    outcome = execute_run(seeded, replay, _Raising())
+    reduce_only = FakeProvider({"generate_statements": statements_payload()})
+    outcome = execute_run(seeded, replay, reduce_only)
 
     recorded, replayed = _calls(seeded, source), _calls(seeded, replay)
     assert len(replayed) == len(recorded) == len(first.calls)
-    assert all(reused for _, _, reused in replayed)
-    assert [h for _, h, _ in replayed] == [h for _, h, _ in recorded]
+    assert [task for task, _, reused in replayed if not reused] == ["generate_statements"]
+    assert [r.task for r in reduce_only.calls] == ["generate_statements"]
+    assert [h for t, h, _ in replayed if t != "generate_statements"] == [
+        h for t, h, _ in recorded if t != "generate_statements"
+    ]
     assert (outcome.status, outcome.failure_reason, outcome.statement_count) == (
         finished.status,
         finished.failure_reason,
@@ -739,7 +772,11 @@ def test_reuse_from_replays_every_call_with_the_same_findings_record(seeded: Eng
     assert outcome.position_count == finished.position_count
     a = read_run(seeded, source).statement_selection
     b = read_run(seeded, replay).statement_selection
-    assert b == a
+    assert {k: v for k, v in b.items() if k != "anchors"} == {
+        k: v for k, v in a.items() if k != "anchors"
+    }
+    assert a["anchors"]["dataset_version_id"] is None
+    assert b["anchors"]["dataset_version_id"] == finished.dataset_version_id
     assert b["findings"]["items"] == [SLIP_ITEM]
 
 
@@ -853,6 +890,7 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
             ("statement_uniqueness", True, []),
             ("statement_count", True, []),
             ("topic_spread", True, []),
+            ("context_note", True, []),
         ]
     rows = position_rows(engine)
     party2 = [r for r in rows if r.party_id == 2]
@@ -902,11 +940,11 @@ def test_position_prompts_are_party_blind_and_deterministic(seeded: Engine) -> N
     execute_run(seeded, queue(seeded, first), first)
     execute_run(seeded, queue(seeded, second), second)
 
-    assert first.calls == second.calls
+    _same_except_anchors(first, second)
     assert {c.task for c in first.calls} == {
         "statement_candidates", "generate_statements", "position_findings", "party_positions"
     }
-    for request in first.calls:
+    for request in [*first.calls, *second.calls]:
         for name, short in PARTIES:
             for value in (name, short):
                 assert value not in request.system
@@ -1448,8 +1486,11 @@ def test_selection_stored_in_finish_commit(seeded: Engine) -> None:
     assert run.status is PipelineRunStatus.VALIDATING
     report = run.statement_selection
     assert report is not None
-    assert report["version"] == "v1"
+    assert report["version"] == "v2"
     assert report["pool_size"] == 70 and report["selected_count"] == 35
+    assert report["anchors"] == {
+        "dataset_version_id": None, "count": 0, "in_pool": [], "selected": [], "missing": []
+    }
     assert report["count_rule"] == "coverage_met"
     assert report["projected_failures"] == []
     assert report["party_ids"] == [1, 2]
@@ -1470,3 +1511,197 @@ def test_failed_generation_stores_no_selection(seeded: Engine, count: int) -> No
     assert outcome.dataset_version_id is None
     assert read_run(seeded, outcome.run_id).statement_selection is None
     assert "position_findings" not in [c.task for c in provider.calls]
+
+
+# pipeline-statement-clarity-context: anchors and context notes at run level.
+
+
+def _queue_resumed(engine: Engine, source: int) -> int:
+    with session_scope(engine) as session:
+        return queue_run(
+            session,
+            1,
+            llm_provider="fake",
+            llm_model="fake-model",
+            generation_mode=GenerationMode.PRECOMPUTED,
+            resumed_from_run_id=source,
+            allow_finished_source=True,
+        ).id
+
+
+def _reduce(provider: FakeProvider) -> LLMRequest[Any]:
+    (request,) = [c for c in provider.calls if c.task == "generate_statements"]
+    return request
+
+
+def _anchor_schema(request: LLMRequest[Any]) -> dict[str, Any]:
+    return request.schema.model_json_schema()["$defs"]["PoolStatement"]["properties"]["anchor"]
+
+
+def _published_lines(engine: Engine, dataset_version_id: int) -> str:
+    with Session(engine) as s:
+        rows = s.scalars(
+            select(Statement)
+            .where(Statement.dataset_version_id == dataset_version_id)
+            .order_by(Statement.position)
+        ).all()
+        return "\n".join(f"[{st.position}] [{st.topic}] {st.text}" for st in rows)
+
+
+def test_anchors_are_the_published_statements_in_position_order(seeded: Engine) -> None:
+    # Scenario 1.
+    first = fake_provider()
+    published = execute_run(seeded, queue(seeded, first), first)
+    assert published.status is PipelineRunStatus.PASSED
+
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+    execute_run(seeded, run_id, provider)
+
+    request = _reduce(provider)
+    lines = _published_lines(seeded, published.dataset_version_id)
+    assert lines.count("\n") == 34
+    assert (
+        "número y su tema entre corchetes):\n\n" + lines + "\n\nElabora una lista de"
+    ) in request.prompt
+    assert _anchor_schema(request) == {
+        "anyOf": [{"maximum": 35, "minimum": 1, "type": "integer"}, {"type": "null"}],
+        "title": "Anchor",
+    }
+    assert read_run(seeded, run_id).anchor_dataset_version_id == published.dataset_version_id
+    for name, short in PARTIES:
+        assert name not in request.prompt and short not in request.prompt
+
+
+def test_a_candidate_version_is_never_used_as_anchors(seeded: Engine) -> None:
+    # Scenario 2: run 1 fails Validation, so its version stays candidate.
+    first = fake_provider(position_findings=findings_response(value=1))
+    failed = execute_run(seeded, queue(seeded, first), first)
+    assert failed.status is PipelineRunStatus.FAILED and failed.dataset_version_id is not None
+
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+    execute_run(seeded, run_id, provider)
+
+    request = _reduce(provider)
+    assert "número y su tema entre corchetes):\n\n(ninguna)\n\nElabora" in request.prompt
+    assert _anchor_schema(request) == {"title": "Anchor", "type": "null"}
+    assert read_run(seeded, run_id).anchor_dataset_version_id is None
+    report = read_run(seeded, run_id).statement_selection
+    assert report["anchors"]["dataset_version_id"] is None
+
+
+def test_a_resumed_run_inherits_the_pinned_anchor_version(seeded: Engine) -> None:
+    # Scenario 3: run 2 recorded version 1 as anchors; version 2 is Published
+    # since, but a run reusing run 2 still lists version 1.
+    first = fake_provider()
+    one = execute_run(seeded, queue(seeded, first), first)
+    second = fake_provider()
+    run_two = queue(seeded, second)
+    two = execute_run(seeded, run_two, second)
+    assert two.status is PipelineRunStatus.PASSED
+    assert read_run(seeded, run_two).anchor_dataset_version_id == one.dataset_version_id
+    with Session(seeded) as s:
+        assert s.get(DatasetVersion, two.dataset_version_id).status is (
+            DatasetVersionStatus.PUBLISHED
+        )
+        assert s.get(DatasetVersion, one.dataset_version_id).status is (
+            DatasetVersionStatus.SUPERSEDED
+        )
+
+    replay = _queue_resumed(seeded, run_two)
+    provider = fake_provider()
+    outcome = execute_run(seeded, replay, provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED
+    assert read_run(seeded, replay).anchor_dataset_version_id == one.dataset_version_id
+    assert provider.calls == []
+    recorded, replayed = _calls(seeded, run_two), _calls(seeded, replay)
+    assert [h for _, h, _ in replayed] == [h for _, h, _ in recorded]
+    assert all(reused for _, _, reused in replayed)
+    with Session(seeded) as s:
+        rows = s.scalars(
+            select(PipelineRunCall).where(PipelineRunCall.pipeline_run_id == replay)
+        ).all()
+        assert all(r.input_tokens == r.output_tokens == 0 for r in rows)
+
+
+def test_context_notes_are_stored_exactly_as_returned(seeded: Engine) -> None:
+    # Scenario 6: no trim, no edit.
+    payload = statements_payload()
+    note = "  Los CIE son los centros de internamiento de extranjeros (Ley 4/2000). \n"
+    payload["statements"][0]["context_note"] = note
+    provider = fake_provider(generate_statements=payload)
+    outcome = execute_run(seeded, queue(seeded, provider), provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
+    with Session(seeded) as s:
+        stored = s.scalars(
+            select(Statement.context_note)
+            .where(Statement.dataset_version_id == outcome.dataset_version_id)
+            .order_by(Statement.position)
+        ).all()
+    assert stored[0] == note
+    assert stored[1:] == [st["context_note"] for st in payload["statements"][1:35]]
+
+
+def test_a_failing_note_costs_one_statement_not_the_run(seeded: Engine) -> None:
+    # Scenario 9 at run level: Statement 4's note uses an evaluative word.
+    payload = statements_payload()
+    payload["statements"][3]["context_note"] = "Una reforma polémica aprobada por las Cortes."
+    provider = fake_provider(generate_statements=payload)
+    outcome = execute_run(seeded, queue(seeded, provider), provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
+    report = read_run(seeded, outcome.run_id).statement_selection
+    assert report["pool"][3]["status"] == "context_invalid"
+    with Session(seeded) as s:
+        texts = s.scalars(
+            select(Statement.text).where(
+                Statement.dataset_version_id == outcome.dataset_version_id
+            )
+        ).all()
+    assert payload["statements"][3]["text"] not in texts
+
+
+def test_a_note_failing_validation_fails_the_whole_run(seeded: Engine) -> None:
+    # Validation re-checks the stored notes: a stored bad note fails the run.
+    provider = fake_provider()
+    run_id = queue(seeded, provider)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(runs_module, "validate_run", lambda engine, run_id, **kwargs: None)
+        execute_run(seeded, run_id, provider, ValidationSettings())
+    strict = ValidationSettings(context_note_evaluative_words=("ámbito",))
+
+    outcome = validate_run(seeded, run_id, settings=strict)
+
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: context_note"
+    assert read_run(seeded, run_id).validation_settings["context_note_evaluative_words"] == [
+        "ámbito"
+    ]
+
+
+def test_anchor_report_lists_pool_selected_and_missing(seeded: Engine) -> None:
+    # Scenario 10.
+    first = fake_provider()
+    published = execute_run(seeded, queue(seeded, first), first)
+    payload = statements_payload()
+    payload["statements"][0]["anchor"] = 1
+    payload["statements"][1]["anchor"] = 1
+    payload["statements"][59]["anchor"] = 3  # pool Statement 60: not selected
+    provider = fake_provider(generate_statements=payload)
+    run_id = queue(seeded, provider)
+    execute_run(seeded, run_id, provider)
+
+    report = read_run(seeded, run_id).statement_selection
+    assert report["anchors"] == {
+        "dataset_version_id": published.dataset_version_id,
+        "count": 35,
+        "in_pool": [1, 3],
+        "selected": [1],
+        "missing": [2, *range(4, 36)],
+    }
+    assert [row["anchor"] for row in report["pool"][:3]] == [1, 1, None]
+    assert report["pool"][59]["anchor"] == 3 and report["pool"][59]["status"] == "not_picked"
+    assert all("context_note" in row for row in report["pool"])

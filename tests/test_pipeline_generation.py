@@ -23,7 +23,12 @@ from ideology_app.pipeline import (
     build_document_chunks,
     generate_statements,
 )
-from ideology_app.pipeline.generation import candidate_request, pool_bounds, reduce_request
+from ideology_app.pipeline.generation import (
+    Anchor,
+    candidate_request,
+    pool_bounds,
+    reduce_request,
+)
 from ideology_app.pipeline.prompts import StatementDraft, StatementSet
 
 
@@ -165,7 +170,7 @@ def test_reduce_request_dedupes_and_sorts_candidates() -> None:
     request = reduce_request(drafts)
     assert request.task == "generate_statements"
     assert request.system == GENERATE_STATEMENTS.system
-    assert request.max_tokens == 16384
+    assert request.max_tokens == 32768
     assert "- [economy] Beta.\n- [economy] Zeta.\n- [health] Zeta.\n- [housing] Alfa." in (
         request.prompt
     )
@@ -341,3 +346,74 @@ def test_pool_prompt_asks_for_target(low: int, high: int, line: str) -> None:
     assert f"Elabora una lista de {line}, en el orden en que deben presentarse." in (
         request.prompt
     )
+
+
+# pipeline-statement-clarity-context: anchors and context note limits in the reduce.
+
+
+def test_reduce_request_lists_anchors_in_the_given_order() -> None:
+    anchors = (
+        Anchor(text="Debe subir el salario mínimo.", topic="employment"),
+        Anchor(text="Debe bajar el IVA.", topic="taxation"),
+    )
+    request = reduce_request([StatementDraft(text="Alfa.", topic="housing")], anchors=anchors)
+    assert (
+        "Afirmaciones del cuestionario publicado anteriormente (una por línea, con su número "
+        "y su tema entre corchetes):\n\n"
+        "[1] [employment] Debe subir el salario mínimo.\n[2] [taxation] Debe bajar el IVA."
+        "\n\nElabora una lista de 70 afirmaciones"
+    ) in request.prompt
+    anchor = request.schema.model_json_schema()["$defs"]["PoolStatement"]["properties"]["anchor"]
+    assert anchor["anyOf"][0] == {"maximum": 2, "minimum": 1, "type": "integer"}
+
+
+def test_reduce_request_without_anchors_says_ninguna_and_allows_only_null() -> None:
+    request = reduce_request([StatementDraft(text="Alfa.", topic="housing")])
+    assert "entre corchetes):\n\n(ninguna)\n\nElabora" in request.prompt
+    anchor = request.schema.model_json_schema()["$defs"]["PoolStatement"]["properties"]["anchor"]
+    assert anchor == {"title": "Anchor", "type": "null"}
+
+
+def test_reduce_request_states_the_configured_note_limits() -> None:
+    default = reduce_request([StatementDraft(text="Alfa.", topic="housing")])
+    assert default.prompt.endswith(
+        " Cada nota de contexto tiene entre 30 y 300 caracteres y no usa ninguna de estas "
+        "palabras: injusto, injusta, injustos, injustas, polémico, polémica, polémicos, "
+        "polémicas, controvertido, controvertida, controvertidos, controvertidas, represivo, "
+        "represiva, represivos, represivas, abusivo, abusiva, abusivos, abusivas, desastroso, "
+        "desastrosa, desastrosos, desastrosas, nefasto, nefasta, nefastos, nefastas, "
+        "excelente, excelentes, beneficioso, beneficiosa, beneficiosos, beneficiosas, "
+        "perjudicial, perjudiciales, acertado, acertada, acertados, acertadas, erróneo, "
+        "errónea, erróneos, erróneas, fracaso, fracasos, exitoso, exitosa, exitosos, "
+        "exitosas, necesario, necesaria, necesarios, necesarias, imprescindible, "
+        "imprescindibles, radical, radicales, extremista, extremistas, populista, "
+        "populistas, sectario, sectaria, afortunadamente, lamentablemente, "
+        "desgraciadamente, por desgracia, por suerte."
+    )
+    settings = ValidationSettings(
+        context_note_min_chars=40,
+        context_note_max_chars=200,
+        context_note_evaluative_words=("nefasto", "por suerte"),
+    )
+    custom = reduce_request([StatementDraft(text="Alfa.", topic="housing")], settings)
+    assert custom.prompt.endswith(
+        " Cada nota de contexto tiene entre 40 y 200 caracteres y no usa ninguna de estas "
+        "palabras: nefasto, por suerte."
+    )
+
+
+def test_generation_passes_anchors_to_the_reduce_only() -> None:
+    provider = fake_provider()
+    anchors = (Anchor(text="Debe subir el salario mínimo.", topic="employment"),)
+    pool = generate_statements(
+        provider, chunks_of("[página 1]\nA"), Usage(), anchors=anchors
+    )
+    candidates = [c for c in provider.calls if c.task == "statement_candidates"]
+    assert all("Debe subir el salario mínimo." not in c.prompt for c in candidates)
+    assert "[1] [employment] Debe subir el salario mínimo." in provider.calls[-1].prompt
+    # Anchors never join the pool or the Agenda directly.
+    assert "Debe subir el salario mínimo." not in [s.text for s in pool.statements]
+    assert "Debe subir el salario mínimo." not in [c.text for c in pool.agenda.candidates]
+    assert pool.statements[0].context_note == statements_payload()["statements"][0][
+        "context_note"
+    ]

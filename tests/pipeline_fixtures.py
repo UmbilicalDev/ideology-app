@@ -40,6 +40,9 @@ CONFIG_ENV_VARS = (
     "VALIDATION_MIN_STATEMENTS",
     "VALIDATION_MAX_STATEMENTS",
     "VALIDATION_MAX_TOPIC_SHARE_PERCENT",
+    "VALIDATION_CONTEXT_NOTE_MIN_CHARS",
+    "VALIDATION_CONTEXT_NOTE_MAX_CHARS",
+    "VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS",
 )
 
 PARTIES = (("Partido Alfa", "PA"), ("Bloque Beta", "BB"))
@@ -146,6 +149,11 @@ def candidates_response(count: int = 3) -> Callable[[LLMRequest[Any]], dict[str,
     return _respond
 
 
+def context_note(n: int) -> str:
+    """A valid context note for pool Statement ``n`` (no evaluative word, 30..300 chars)."""
+    return f"El ámbito {n} reúne las normas y los servicios públicos de esa materia."
+
+
 def statements_payload(
     count: int = 70,
     *,
@@ -154,13 +162,18 @@ def statements_payload(
 ) -> dict[str, Any]:
     """``count`` Statements with distinct texts and topics ``TOPICS[i % 18]``.
 
+    Each has a valid context note (30..300 characters, no evaluative word) and
+    ``anchor`` null.
+
     ``topic=(name, k)`` puts the first ``k`` Statements on topic ``name`` and
     the rest on the other topics in turn (so ``name`` has exactly ``k``);
     ``duplicate=(a, b)`` gives Statement ``b`` (1-based) the text of Statement ``a``.
     """
     statements = [
         {"text": f"Afirmación {i + 1}: el Estado debe actuar en el ámbito {i + 1}.",
-         "topic": TOPICS[i % len(TOPICS)]}
+         "topic": TOPICS[i % len(TOPICS)],
+         "context_note": context_note(i + 1),
+         "anchor": None}
         for i in range(count)
     ]
     if topic is not None:

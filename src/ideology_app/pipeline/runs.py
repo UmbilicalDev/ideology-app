@@ -48,6 +48,7 @@ from ideology_app.models import (
     _utcnow,
 )
 from ideology_app.pipeline.generation import (
+    Anchor,
     DocumentPages,
     GenerationError,
     Usage,
@@ -62,8 +63,8 @@ from ideology_app.pipeline.positions import (
     check_position_budget,
     extract_positions,
 )
-from ideology_app.pipeline.prompts import PROMPT_VERSIONS, StatementDraft
-from ideology_app.pipeline.selection import select_statements
+from ideology_app.pipeline.prompts import PROMPT_VERSIONS, PoolStatement
+from ideology_app.pipeline.selection import anchor_summary, select_statements
 from ideology_app.validation import CHECKS, MESSAGE_MAX, Check, load_input, run_checks
 
 _REASON_MAX = 500
@@ -216,6 +217,35 @@ class _RunInput:
     documents: list[DocumentPages]
     party_ids: list[int]
     resumed_from_run_id: int | None = None
+    anchor_dataset_version_id: int | None = None
+    anchors: tuple[Anchor, ...] = ()
+
+
+def _resolve_anchors(
+    session: Session, run: PipelineRun
+) -> tuple[int | None, tuple[Anchor, ...]]:
+    """The anchor Dataset Version of ``run`` and its Statements in position order.
+
+    A run queued with ``resumed_from_run_id`` uses the anchor version that run
+    recorded, when it recorded one, so its reduce request (and its recorded
+    call) stays the same; otherwise the Election's Published Dataset Version.
+    A ``candidate`` version is never used. ``(None, ())`` without one.
+    """
+    version: DatasetVersion | None = None
+    if run.resumed_from_run_id is not None:
+        source = session.get(PipelineRun, run.resumed_from_run_id)
+        if source is not None and source.anchor_dataset_version_id is not None:
+            version = session.get(DatasetVersion, source.anchor_dataset_version_id)
+    if version is None:
+        version = publishing.get_published_dataset_version(session, run.election_id)
+    if version is None:
+        return None, ()
+    statements = session.scalars(
+        select(Statement)
+        .where(Statement.dataset_version_id == version.id)
+        .order_by(Statement.position)
+    ).all()
+    return version.id, tuple(Anchor(text=s.text, topic=s.topic) for s in statements)
 
 
 def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
@@ -224,7 +254,9 @@ def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
     Only current documents (``replaced_by_id`` null) are read. Each Party's
     parsed document with the lowest first-version id (lineage root) is its
     ``main`` (joint) manifesto; any other parsed document is ``additional``.
-    Without re-fetched replacements this is the lowest-id document.
+    Without re-fetched replacements this is the lowest-id document. The
+    anchors (``_resolve_anchors``) are resolved and recorded on the run
+    (``anchor_dataset_version_id``) in the same commit.
     """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
@@ -276,17 +308,19 @@ def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
                     pipeline_run_id=run.id, source_document_id=d.id, role=role
                 )
             )
+        anchor_version_id, anchors = _resolve_anchors(session, run)
+        run.anchor_dataset_version_id = anchor_version_id
         run.status = PipelineRunStatus.RUNNING
         run.started_at = _utcnow()
         resumed_from = run.resumed_from_run_id
-    return _RunInput(loaded, party_ids, resumed_from)
+    return _RunInput(loaded, party_ids, resumed_from, anchor_version_id, anchors)
 
 
 def _finish(
     engine: Engine,
     run_id: int,
     usage: Usage,
-    statements: Sequence[StatementDraft] | None,
+    statements: Sequence[PoolStatement] | None,
     positions: dict[int, list[PositionResult]] | None,
     failure_reason: str | None,
     selection: dict[str, Any] | None = None,
@@ -323,6 +357,8 @@ def _finish(
                 position=position,
                 text=draft.text,
                 topic=draft.topic,
+                # Exactly as the provider returned it: never trimmed or edited.
+                context_note=draft.context_note,
             )
             for position, draft in enumerate(statements, start=1)
         ]
@@ -364,7 +400,8 @@ def execute_run(
 
     Generation returns a Statement Pool; positions are extracted for the whole
     pool (findings whose quote is not on their page are discarded and recorded
-    under ``statement_selection["findings"]``), and ``selection.select_statements`` (with the same
+    under ``statement_selection["findings"]``; what became of the anchors under
+    ``statement_selection["anchors"]``), and ``selection.select_statements`` (with the same
     ``validation_settings``) chooses the Statements of the Dataset Version.
     Commits up to four times: ``running`` (with the Source Documents it reads)
     before any LLM call, then (after the calls, made outside any transaction)
@@ -395,6 +432,7 @@ def execute_run(
             build_document_chunks(run_input.documents),
             usage,
             settings=validation_settings,
+            anchors=run_input.anchors,
         )
         pool_positions = extract_positions(
             provider,
@@ -416,6 +454,11 @@ def execute_run(
             None,
             selection={
                 **selection.report,
+                "anchors": anchor_summary(
+                    selection.report.get("pool", []),
+                    run_input.anchor_dataset_version_id,
+                    len(run_input.anchors),
+                ),
                 "agenda": pool.agenda.report,
                 "findings": findings.report(),
             },

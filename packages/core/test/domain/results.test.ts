@@ -21,6 +21,7 @@ const STATEMENTS: Statement[] = Array.from({ length: 8 }, (_, i) => ({
   position: i + 1,
   text: `Afirmación ${i + 1}.`,
   topic: "economía",
+  contextNote: null,
 }));
 
 function party(id: number, name: string, values: readonly (ScaleValue | typeof NO_STANCE)[]): Party {

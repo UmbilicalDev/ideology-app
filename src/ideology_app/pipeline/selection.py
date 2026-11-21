@@ -5,10 +5,15 @@ sets, so the same pool, Party Positions, Party ids and settings always give the
 same selection and report. Every Party is treated the same: the order of
 ``party_ids`` and which Party owns which values never matter.
 
-The rules (``pipeline-coverage-selection``), with pool numbers 1-based:
+The rules (``pipeline-coverage-selection``; rule 0 since
+``pipeline-statement-clarity-context``, ``SELECTION_VERSION`` v2), with pool
+numbers 1-based:
 
-1. Duplicates (``validation.check_statement_uniqueness`` on the pool) are left
-   out; the first copy in pool order stays.
+0. Statements whose context note fails ``validation.check_context_note`` on the
+   pool are ineligible (status ``context_invalid``), so a note that would fail
+   Validation costs one Statement, not the run.
+1. Duplicates (``validation.check_statement_uniqueness`` on the eligible
+   Statements) are left out; the first eligible copy in pool order stays.
 2. Statements that separate the Parties (``check_statement_separation``) are
    tier 1; the others are tier 2 (every Statement with fewer than two Parties).
 3. No topic gets more than ``topic_cap`` picks:
@@ -22,8 +27,11 @@ The rules (``pipeline-coverage-selection``), with pool numbers 1-based:
    which ``check_party_coverage`` passes; if none passes, the one with the best
    worst-Party coverage ratio (ties: the larger).
 
-The selected Statements keep their pool order, text and topic, and are
-renumbered 1..n; their Party Positions keep value and Evidence.
+The selected Statements keep their pool order, text, topic and context note,
+and are renumbered 1..n; their Party Positions keep value and Evidence.
+Anchors (``PoolStatement.anchor``) get no preference: an anchor's topic stays
+exactly when its rewritten Statement wins the same choice. Rules 0 and 1 depend
+only on Statement text and notes, so Party symmetry is unaffected.
 """
 
 from collections import Counter
@@ -33,7 +41,7 @@ from typing import Any
 
 from ideology_app.config import ValidationSettings
 from ideology_app.pipeline.positions import PositionResult
-from ideology_app.pipeline.prompts import StatementDraft
+from ideology_app.pipeline.prompts import PoolStatement
 from ideology_app.validation import (
     CHECKS,
     EVIDENCE_QUOTES,
@@ -43,17 +51,19 @@ from ideology_app.validation import (
     normalize_for_match,
     run_checks,
 )
+from ideology_app.validation.context_note import check_context_note
 from ideology_app.validation.party_coverage import check_party_coverage
 from ideology_app.validation.statement_separation import check_statement_separation
 from ideology_app.validation.statement_uniqueness import check_statement_uniqueness
 
-SELECTION_VERSION = "v1"
+SELECTION_VERSION = "v2"
 
 RULE_COVERAGE_MET = "coverage_met"
 RULE_BEST_COVERAGE = "best_coverage"
 RULE_SHORT = "short"
 
 STATUS_SELECTED = "selected"
+STATUS_CONTEXT_INVALID = "context_invalid"
 STATUS_DUPLICATE = "duplicate"
 STATUS_TOPIC_FULL = "topic_full"
 STATUS_NOT_PICKED = "not_picked"
@@ -71,7 +81,7 @@ class Selection:
     run as ``pipeline_runs.statement_selection``.
     """
 
-    statements: tuple[StatementDraft, ...]
+    statements: tuple[PoolStatement, ...]
     positions: dict[int, list[PositionResult]]
     report: dict[str, Any]
 
@@ -83,7 +93,7 @@ def topic_cap(settings: ValidationSettings) -> int:
 
 def _validation_input(
     numbers: Sequence[int],
-    pool: Sequence[StatementDraft],
+    pool: Sequence[PoolStatement],
     values: Mapping[int, Mapping[int, int | None]],
     party_ids: Sequence[int],
     settings: ValidationSettings,
@@ -91,7 +101,13 @@ def _validation_input(
     """The pool Statements ``numbers`` as Validation data (id = position = pool number)."""
     return ValidationInput(
         statements=tuple(
-            StatementRow(id=n, position=n, text=pool[n - 1].text, topic=pool[n - 1].topic)
+            StatementRow(
+                id=n,
+                position=n,
+                text=pool[n - 1].text,
+                topic=pool[n - 1].topic,
+                context_note=pool[n - 1].context_note,
+            )
             for n in numbers
         ),
         positions=tuple(
@@ -115,7 +131,7 @@ def _validation_input(
 
 def _count(
     sequence: Sequence[int],
-    pool: Sequence[StatementDraft],
+    pool: Sequence[PoolStatement],
     values: Mapping[int, Mapping[int, int | None]],
     party_ids: Sequence[int],
     settings: ValidationSettings,
@@ -142,7 +158,7 @@ def _count(
 
 
 def select_statements(
-    pool: Sequence[StatementDraft],
+    pool: Sequence[PoolStatement],
     positions: Mapping[int, Sequence[PositionResult]],
     party_ids: Sequence[int],
     settings: ValidationSettings,
@@ -176,10 +192,13 @@ def select_statements(
         spread[n] = max(found) - min(found) if len(found) >= 2 else 0
 
     pool_data = _validation_input(numbers, pool, values, party_ids, settings)
-    duplicates = {e.statement_id for e in check_statement_uniqueness(pool_data)}
+    context_invalid = {e.statement_id for e in check_context_note(pool_data)}
+    eligible = [n for n in numbers if n not in context_invalid]
+    eligible_data = _validation_input(eligible, pool, values, party_ids, settings)
+    duplicates = {e.statement_id for e in check_statement_uniqueness(eligible_data)}
     first_by_text: dict[str, int] = {}
     duplicate_of: dict[int, int] = {}
-    for n in numbers:
+    for n in eligible:
         first = first_by_text.setdefault(normalize_for_match(pool[n - 1].text), n)
         if n in duplicates:
             duplicate_of[n] = first
@@ -187,7 +206,7 @@ def select_statements(
         not_separating = set(numbers)
     else:
         not_separating = {e.statement_id for e in check_statement_separation(pool_data)}
-    unique = [n for n in numbers if n not in duplicates]
+    unique = [n for n in eligible if n not in duplicates]
     tier = {n: 2 if n in not_separating else 1 for n in unique}
 
     cap = topic_cap(settings)
@@ -233,6 +252,8 @@ def select_statements(
     def status(n: int) -> str:
         if n in new_position:
             return STATUS_SELECTED
+        if n in context_invalid:
+            return STATUS_CONTEXT_INVALID
         if n in duplicates:
             return STATUS_DUPLICATE
         if n not in pick_index and per_topic[pool[n - 1].topic] >= cap:
@@ -241,7 +262,11 @@ def select_statements(
 
     report: dict[str, Any] = {
         "version": SELECTION_VERSION,
-        "settings": asdict(settings),
+        # JSON-native: the context note word list as a list, not a tuple.
+        "settings": {
+            key: list(value) if isinstance(value, tuple) else value
+            for key, value in asdict(settings).items()
+        },
         "topic_cap": cap,
         "party_ids": list(party_ids),
         "pool_size": len(pool),
@@ -261,6 +286,8 @@ def select_statements(
                 "pool": n,
                 "text": pool[n - 1].text,
                 "topic": pool[n - 1].topic,
+                "context_note": pool[n - 1].context_note,
+                "anchor": pool[n - 1].anchor,
                 "values": [values[n][p] for p in party_ids],
                 "stances": stances[n],
                 "distinct": distinct[n],
@@ -277,9 +304,41 @@ def select_statements(
     return Selection(statements, renumbered, report)
 
 
+def anchor_summary(
+    pool_rows: Sequence[Mapping[str, Any]],
+    dataset_version_id: int | None,
+    anchor_count: int,
+) -> dict[str, Any]:
+    """What became of the anchors, from a selection report's ``pool`` rows.
+
+    ``in_pool``: the sorted anchor numbers some pool Statement carries;
+    ``selected``: those carried by a selected Statement; ``missing``: the
+    numbers 1..``anchor_count`` no pool Statement carries.
+    ``dataset_version_id`` is the anchor Dataset Version (None without one).
+    """
+    in_pool = sorted({row["anchor"] for row in pool_rows if row.get("anchor") is not None})
+    selected = sorted(
+        {
+            row["anchor"]
+            for row in pool_rows
+            if row.get("anchor") is not None and row.get("status") == STATUS_SELECTED
+        }
+    )
+    present = set(in_pool)
+    return {
+        "dataset_version_id": dataset_version_id,
+        "count": anchor_count,
+        "in_pool": in_pool,
+        "selected": selected,
+        "missing": [k for k in range(1, anchor_count + 1) if k not in present],
+    }
+
+
 __all__ = [
     "SELECTION_VERSION",
+    "STATUS_CONTEXT_INVALID",
     "Selection",
+    "anchor_summary",
     "select_statements",
     "topic_cap",
 ]

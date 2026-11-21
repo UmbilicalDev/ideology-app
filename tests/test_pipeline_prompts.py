@@ -9,6 +9,7 @@ from pipeline_fixtures import PARTIES, offline_guard
 from pydantic import BaseModel, ValidationError
 
 from ideology_app.pipeline import (
+    CONTEXT_NOTE_SCHEMA_MAX,
     GENERATE_STATEMENTS,
     PARTY_POSITIONS,
     POOL_MAX_STATEMENTS,
@@ -47,7 +48,7 @@ from ideology_app.pipeline.prompts import _COMMON_RULES
 # (task, version) and the fingerprint printed by the failing test.
 FINGERPRINTS = {
     ("statement_candidates", "v1"): "a2073f8c4dcc630a08056db3bef2f59f3e412532693fd2b364af902bbfbe1177",
-    ("generate_statements", "v5"): "71799833e95bbe6a6c087f6a267169e643201b4b17834937a7eb839b8c92b7e1",
+    ("generate_statements", "v6"): "5ef86697e9a0b579a80ab8fa9e6e91c89d814f59c0d897491011e776c1e03ac1",
     ("position_findings", "v5"): "988fb77e0034909faa79574b65c49889d496a4790c54e65a43e580d921f03690",
     ("party_positions", "v2"): "cd473fcb60cd0ad4c7cbbd0e30c4d5c1d2bfeb37340bcd4aa7801277f1eee9e3",
 }
@@ -56,7 +57,7 @@ FINGERPRINTS = {
 # schema: a builder change then fails the pin too.
 REFERENCE_SCHEMAS = {
     "statement_candidates": lambda: CandidateList,
-    "generate_statements": lambda: statement_set_schema(60, 80),
+    "generate_statements": lambda: statement_set_schema(60, 80, 32),
     "position_findings": lambda: finding_list_schema(30),
     "party_positions": lambda: position_list_schema(30, 10),
 }
@@ -127,6 +128,10 @@ def test_fingerprint_detects_a_change() -> None:
     assert fingerprint(PARTY_POSITIONS, position_list_schema(30, 11)) != FINGERPRINTS[positions]
     generate = (GENERATE_STATEMENTS.task, GENERATE_STATEMENTS.version)
     assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(60, 81)) != FINGERPRINTS[generate]
+    # The anchor bound is part of the pinned schema too.
+    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(60, 80, 31)) != FINGERPRINTS[
+        generate
+    ]
 
 
 def test_statement_candidates_request_is_byte_identical() -> None:
@@ -162,7 +167,7 @@ def test_position_requests_are_byte_identical() -> None:
     # pipeline-verified-findings changes no request: same versions, same hashes.
     assert PROMPT_VERSIONS == {
         "statement_candidates": "v1",
-        "generate_statements": "v5",
+        "generate_statements": "v6",
         "position_findings": "v5",
         "party_positions": "v2",
     }
@@ -187,7 +192,7 @@ def test_a_verification_verdict_does_not_change_the_positions_request() -> None:
 def test_prompt_versions_and_constants() -> None:
     assert PROMPT_VERSIONS == {
         "statement_candidates": "v1",
-        "generate_statements": "v5",
+        "generate_statements": "v6",
         "position_findings": "v5",
         "party_positions": "v2",
     }
@@ -198,7 +203,7 @@ def test_prompt_versions_and_constants() -> None:
     assert STATEMENT_CANDIDATES.schema is CandidateList
     assert STATEMENT_CANDIDATES.max_tokens == 4096
     assert GENERATE_STATEMENTS.schema is StatementSet
-    assert GENERATE_STATEMENTS.max_tokens == 16384
+    assert GENERATE_STATEMENTS.max_tokens == 32768
     assert (POOL_MIN_STATEMENTS, POOL_MAX_STATEMENTS, POOL_TARGET_STATEMENTS) == (60, 80, 70)
     assert len(TOPICS) == 18 and len(set(TOPICS)) == 18
     assert TOPICS[0] == "economy" and TOPICS[-1] == "infrastructure_transport"
@@ -224,44 +229,86 @@ def test_reduce_prompt_adds_list_rules() -> None:
     # The count lives only in the template, so it cannot contradict the range.
     assert str(POOL_TARGET_STATEMENTS) not in GENERATE_STATEMENTS.system
     assert "afirmaciones en total" not in GENERATE_STATEMENTS.system
-    for field in ("{count}", "{min_count}", "{max_count}"):
+    for field in (
+        "{count}", "{min_count}", "{max_count}", "{anchors}", "{note_min}", "{note_max}",
+        "{evaluative_words}",
+    ):
         assert field in GENERATE_STATEMENTS.template
     assert "{candidates}" in GENERATE_STATEMENTS.template
     assert "{chunk}" in STATEMENT_CANDIDATES.template
 
 
-# The exact v5 system text: v4 of the spec (pipeline-balanced-statements, Technical
-# Approach section 3) with e2e-real-2026-election's self-contained-Statement rule; ``_COMMON_RULES`` is shared with statement_candidates.
-GENERATE_STATEMENTS_V5_SYSTEM = (
+# The exact v6 system text (pipeline-statement-clarity-context, Technical Approach
+# section 2): v5 with the clarity rules, the anchors and the context note block.
+# ``_COMMON_RULES`` is shared with statement_candidates and stays unchanged.
+GENERATE_STATEMENTS_V6_RULE_LINES = (
+    "- Cada afirmación se entiende por sí sola, sin conocer la legislación ni la política "
+    "vigentes: di en qué consiste lo que se propone. Nunca hables de \"la política "
+    "actual\", \"el modelo vigente\" o \"la ley actual\" sin decir cuál es ni qué "
+    "establece.",
+    "- Expresa la medida por su contenido y en positivo, de modo que estar de acuerdo "
+    "signifique querer esa medida: en lugar de pedir que se derogue o suprima una ley, una "
+    "reforma o una institución, di lo que debe regir o hacerse (por ejemplo, «Debe poder "
+    "limitarse el precio del alquiler en las zonas donde es más alto» y no «Debe derogarse "
+    "la Ley de Vivienda de 2023, que permite limitar el precio del alquiler»). Usa derogar, "
+    "suprimir o eliminar solo cuando la propuesta no tenga otro contenido que hacer "
+    "desaparecer esa norma o institución, y entonces nómbrala.",
+    "- Sin dobles negaciones: no combines «no», «nunca» o «sin» con verbos como prohibir, "
+    "impedir, suprimir, eliminar o derogar.",
+    "- Lenguaje llano: frases cortas y palabras de uso común. Si una afirmación necesita un "
+    "término técnico o el nombre de una ley, un plan o un organismo, la nota de contexto lo "
+    "explica.",
+    "- Nunca dejes una regla abstracta sin decir qué supone en la práctica: «Por cada nueva "
+    "regulación que afecte a las empresas deben derogarse dos normas existentes» no se "
+    "entiende sin saber qué normas ni para qué; di el objetivo de la medida (por ejemplo, "
+    "reducir el número de normas que deben cumplir las empresas).",
+    "- Varía el sentido de las afirmaciones: no todas deben proponer aumentar o ampliar "
+    "algo; usa también reducir o limitar cuando así lo planteen las candidatas.",
+    "- Basa cada afirmación solo en las candidatas y en las afirmaciones anteriores: no "
+    "añadas temas ni propuestas que no aparezcan en ellas.",
+    "- Los votantes ya conocen las afirmaciones anteriores. Para cada una, incluye en la "
+    "lista una afirmación con la misma orientación, redactada de nuevo con estas reglas, y "
+    "pon su número en `anchor`; si une dos políticas, divídela en dos afirmaciones con el "
+    "mismo `anchor`. Las demás afirmaciones llevan `anchor` nulo.",
+    "Reglas para la nota de contexto (`context_note`) de cada afirmación:",
+    "- Una o dos frases que explican de forma neutral lo que un votante podría no conocer "
+    "para entender la afirmación: qué es la ley, la reforma, el plan, la institución, el "
+    "organismo, la sigla o el término técnico que nombra (nombre oficial, año y qué "
+    "establece o hace). Si no nombra ninguno, explica brevemente el concepto principal.",
+    "- Si un nombre es un apodo del debate público, da el nombre oficial y di que se la "
+    "conoce así.",
+    "- Solo hechos descriptivos: sin valoraciones, sin argumentos a favor o en contra, sin "
+    "efectos previstos, sin la posición de nadie y sin nombres de partidos, de políticos ni "
+    "de gobiernos.",
+    "- No repitas la afirmación ni añadas propuestas.",
+)
+
+GENERATE_STATEMENTS_V6_SYSTEM = (
     "Eres un analista político que prepara un cuestionario de orientación de voto para "
     "unas elecciones generales en España. Recibes afirmaciones candidatas extraídas, en "
-    "igual número, de los programas electorales de varias candidaturas, y redactas a partir "
-    "de ellas una lista amplia de afirmaciones; después, un procedimiento automático "
-    "elegirá entre ellas las del cuestionario.\n\n"
+    "igual número, de los programas electorales de varias candidaturas, y las afirmaciones "
+    "del cuestionario publicado anteriormente para estas elecciones, si lo hay; redactas a "
+    "partir de ellas una lista amplia de afirmaciones; después, un procedimiento "
+    "automático elegirá entre ellas las del cuestionario.\n\n"
     f"{_COMMON_RULES}\n"
     "Reglas para la lista:\n"
     "- Cada afirmación expresa una orientación política con una dirección clara (por "
     "ejemplo, subir o bajar un impuesto, ampliar o reducir un servicio público, más o menos "
     "peso de una fuente de energía), no una medida de detalle: sin cifras, porcentajes ni "
     "plazos salvo que sean el núcleo de la propuesta.\n"
-    "- Cada afirmación se entiende por sí sola, sin conocer la legislación ni la política "
-    "vigentes: di en qué consiste lo que se propone. Nunca hables de \"la política "
-    "actual\", \"el modelo vigente\" o \"la ley actual\" sin decir cuál es ni qué "
-    "establece; si la orientación consiste en derogar, mantener o cambiar una ley o "
-    "reforma concreta, nómbrala (por ejemplo, \"la reforma laboral de 2012\") o describe "
-    "su contenido.\n"
+    + "\n".join(GENERATE_STATEMENTS_V6_RULE_LINES[0:5])
+    + "\n"
     "- Agrupa en una misma orientación las candidatas de programas distintos que van en esa "
     "dirección o en la contraria, para que el mayor número posible de programas se pueda "
     "situar en ella.\n"
     "- Elige orientaciones en las que los programas discrepen; evita las que casi cualquier "
     "programa suscribiría.\n"
-    "- Varía el sentido de las afirmaciones: no todas deben proponer aumentar o ampliar "
-    "algo; usa también reducir, limitar o suprimir cuando así lo planteen las candidatas.\n"
-    "- Basa cada afirmación solo en las candidatas: no añadas temas ni propuestas que no "
-    "aparezcan en ellas.\n"
+    + "\n".join(GENERATE_STATEMENTS_V6_RULE_LINES[5:7])
+    + "\n"
     "- Cubre los temas de forma amplia: ningún tema debe superar aproximadamente una cuarta "
     "parte de la lista.\n"
-    "- Sin afirmaciones casi duplicadas."
+    "- Sin afirmaciones casi duplicadas.\n"
+    + "\n".join(GENERATE_STATEMENTS_V6_RULE_LINES[7:])
 )
 
 FINDINGS_V3_NEW_RULES = (
@@ -274,11 +321,33 @@ FINDINGS_V3_NEW_RULES = (
 )
 
 
-def test_reduce_prompt_v5_asks_for_orientation_level_statements() -> None:
-    assert GENERATE_STATEMENTS.system == GENERATE_STATEMENTS_V5_SYSTEM
-    assert GENERATE_STATEMENTS.max_tokens == 16384
+def test_reduce_prompt_v6_states_the_clarity_anchor_and_note_rules() -> None:
+    # pipeline-statement-clarity-context, scenario 5: every rule line verbatim.
+    for line in GENERATE_STATEMENTS_V6_RULE_LINES:
+        assert line + "\n" in GENERATE_STATEMENTS.system + "\n", line
+    assert GENERATE_STATEMENTS.system == GENERATE_STATEMENTS_V6_SYSTEM
+    assert GENERATE_STATEMENTS.max_tokens == 32768
+    # v5 lines that v6 replaces are gone.
+    assert "nómbrala (por ejemplo, \"la reforma laboral de 2012\")" not in (
+        GENERATE_STATEMENTS.system
+    )
+    assert "reducir, limitar o suprimir" not in GENERATE_STATEMENTS.system
     # The common rules are unchanged and still shared with statement_candidates.
     assert _COMMON_RULES in STATEMENT_CANDIDATES.system
+    assert _COMMON_RULES in GENERATE_STATEMENTS.system
+
+
+def test_reduce_template_v6_lists_anchors_and_note_limits() -> None:
+    template = GENERATE_STATEMENTS.template
+    assert (
+        "{candidates}\n\n"
+        "Afirmaciones del cuestionario publicado anteriormente (una por línea, con su "
+        "número y su tema entre corchetes):\n\n{anchors}\n\nElabora una lista de"
+    ) in template
+    assert template.endswith(
+        " Cada nota de contexto tiene entre {note_min} y {note_max} caracteres y no usa "
+        "ninguna de estas palabras: {evaluative_words}."
+    )
 
 
 def test_findings_prompt_v3_counts_concrete_proposals_and_not_silence() -> None:
@@ -327,7 +396,12 @@ def test_candidate_list_limits() -> None:
 
 
 def test_statement_set_limits() -> None:
-    item = {"text": "Subir el salario mínimo.", "topic": "employment"}
+    item = {
+        "text": "Subir el salario mínimo.",
+        "topic": "employment",
+        "context_note": "El salario mínimo es la retribución más baja fijada por ley.",
+        "anchor": None,
+    }
     with pytest.raises(ValidationError):
         StatementSet.model_validate({"statements": []})
     assert len(StatementSet.model_validate({"statements": [item] * 80}).statements) == 80
@@ -425,7 +499,12 @@ def test_position_list_limits() -> None:
 
 # Bounded schema builders (pipeline-output-bounds).
 
-_DRAFT = {"text": "Subir el salario mínimo.", "topic": "employment"}
+_DRAFT = {
+    "text": "Subir el salario mínimo.",
+    "topic": "employment",
+    "context_note": "El salario mínimo es la retribución más baja fijada por ley.",
+    "anchor": None,
+}
 
 
 def test_statement_set_schema_bounds_the_count() -> None:
@@ -437,6 +516,62 @@ def test_statement_set_schema_bounds_the_count() -> None:
             schema.model_validate({"statements": [_DRAFT] * n})
     statements = schema.model_json_schema()["properties"]["statements"]
     assert statements["minItems"] == 25 and statements["maxItems"] == 35
+
+
+def test_statement_set_schema_bounds_the_anchor() -> None:
+    # pipeline-statement-clarity-context, scenarios 1 and 2.
+    schema = statement_set_schema(1, 3, 32)
+    for anchor in (None, 1, 32):
+        schema.model_validate({"statements": [_DRAFT | {"anchor": anchor}]})
+    for anchor in (0, 33, -1):
+        with pytest.raises(ValidationError):
+            schema.model_validate({"statements": [_DRAFT | {"anchor": anchor}]})
+    item = schema.model_json_schema()["$defs"]["PoolStatement"]
+    assert item["required"] == ["text", "topic", "context_note", "anchor"]
+    assert item["properties"]["anchor"] == {
+        "anyOf": [{"maximum": 32, "minimum": 1, "type": "integer"}, {"type": "null"}],
+        "title": "Anchor",
+    }
+    assert item["properties"]["context_note"]["maxLength"] == CONTEXT_NOTE_SCHEMA_MAX == 500
+
+    without = statement_set_schema(1, 3)
+    assert without is statement_set_schema(1, 3, 0)
+    without.model_validate({"statements": [_DRAFT]})
+    with pytest.raises(ValidationError):
+        without.model_validate({"statements": [_DRAFT | {"anchor": 1}]})
+    assert without.model_json_schema()["$defs"]["PoolStatement"]["properties"]["anchor"] == {
+        "title": "Anchor", "type": "null"
+    }
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"context_note": ""},
+        {"context_note": " \n\t"},
+        {"context_note": "x" * 501},
+        {"anchor": 1.5},
+    ],
+    ids=["empty-note", "blank-note", "long-note", "fractional-anchor"],
+)
+def test_pool_statement_rejects(change: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        statement_set_schema(1, 3, 5).model_validate({"statements": [_DRAFT | change]})
+
+
+@pytest.mark.parametrize("missing", ["context_note", "anchor"])
+def test_pool_statement_requires_note_and_anchor(missing: str) -> None:
+    item = {k: v for k, v in _DRAFT.items() if k != missing}
+    with pytest.raises(ValidationError):
+        statement_set_schema(1, 3, 5).model_validate({"statements": [item]})
+
+
+def test_pool_statement_keeps_the_note_as_given() -> None:
+    note = "  La CIE … \n"
+    parsed = statement_set_schema(1, 3).model_validate(
+        {"statements": [_DRAFT | {"context_note": note}]}
+    )
+    assert parsed.statements[0].context_note == note
 
 
 def test_finding_list_schema_bounds_the_statement() -> None:
@@ -512,12 +647,15 @@ def test_bounded_item_types_keep_their_base_names() -> None:
         lambda: statement_set_schema(36, 35),
         lambda: statement_set_schema(True, 35),
         lambda: statement_set_schema(25.0, 35),
+        lambda: statement_set_schema(25, 35, -1),
+        lambda: statement_set_schema(25, 35, True),
         lambda: finding_list_schema(0),
         lambda: finding_list_schema(-1),
         lambda: position_list_schema(0, 10),
         lambda: position_list_schema(30, 0),
     ],
     ids=["set-min-0", "set-max-0", "set-min-above-max", "set-bool", "set-float",
+         "set-anchors-negative", "set-anchors-bool",
          "findings-0", "findings-negative", "positions-n-0", "positions-k-0"],
 )
 def test_builders_reject_invalid_bounds(build) -> None:

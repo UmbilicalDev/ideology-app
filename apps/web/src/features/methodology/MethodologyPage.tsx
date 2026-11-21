@@ -79,14 +79,29 @@ export function MethodologyPage() {
               70 afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación
               política con una dirección clara, como subir o bajar un impuesto, y no una medida de
               detalle, para que el mayor número posible de partidos se pueda situar en ella. Debe
-              entenderse por sí sola: si propone cambiar o derogar una ley o una política vigente,
-              dice cuál es o en qué consiste.
+              entenderse por sí sola y en lenguaje llano: expresa la medida por su contenido y en
+              positivo, de modo que estar de acuerdo signifique querer esa medida, sin dobles
+              negaciones; solo habla de derogar o suprimir algo cuando la propuesta no tiene otro
+              contenido.
+            </p>
+            <p>
+              La inteligencia artificial recibe también las afirmaciones del cuestionario publicado
+              anteriormente y las vuelve a redactar con estas reglas, para que los temas que ya
+              conoces no desaparezcan por azar. Siguen en el cuestionario solo si superan el mismo
+              procedimiento de elección que las demás.
+            </p>
+            <p>
+              Cada afirmación lleva una breve nota de contexto, también redactada por la
+              inteligencia artificial, que explica de forma neutral qué es la ley, el plan, la
+              institución o el concepto que nombra. La nota no sale de los programas, y las
+              comprobaciones automáticas no pueden confirmar que sea exacta; sus instrucciones le
+              piden solo hechos descriptivos, sin valoraciones ni nombres de partidos.
             </p>
             <p>
               Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres
               de partidos o de políticos, una sola propuesta por afirmación, temas variados,
               orientaciones en las que los partidos discrepen y no añadir nada que no esté en las
-              candidatas. Nadie modifica a mano el resultado.
+              candidatas ni en las afirmaciones anteriores. Nadie modifica a mano el resultado.
             </p>
           </section>
 
@@ -128,7 +143,8 @@ export function MethodologyPage() {
               cuestionario.
             </p>
             <p>
-              Deja fuera las afirmaciones repetidas y las que no separan a los partidos, porque
+              Deja fuera las afirmaciones cuya nota de contexto no cumple las comprobaciones, las
+              repetidas y las que no separan a los partidos, porque
               todos los que tienen posición coinciden, y no deja que un tema supere el 30&nbsp;% del
               cuestionario. Entre las demás, elige primero las que dan posición al partido que menos
               tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas
@@ -158,7 +174,11 @@ export function MethodologyPage() {
               </li>
               <li>no hay dos afirmaciones con el mismo texto;</li>
               <li>el cuestionario tiene entre 25 y 35 afirmaciones;</li>
-              <li>ningún tema reúne más del 30&nbsp;% de las afirmaciones.</li>
+              <li>ningún tema reúne más del 30&nbsp;% de las afirmaciones;</li>
+              <li>
+                cada afirmación tiene una nota de contexto de entre 30 y 300 caracteres que no usa
+                ninguna palabra valorativa de una lista fija.
+              </li>
             </ul>
             <p>
               Si falla cualquiera de estas comprobaciones, no se publica nada y siguen vigentes los

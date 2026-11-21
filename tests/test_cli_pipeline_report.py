@@ -43,15 +43,23 @@ PASSED_ROWS = [
         "statement_uniqueness",
         "statement_count",
         "topic_spread",
+        "context_note",
     )
 ]
 SEPARATION_ROW_1 = (
     "statement_separation\tfailed\t1\t\t"
     "statement 1 does not separate parties: all 2 parties with a stance have value 1"
 )
-POOL_HEADER = "pool\tposition\ttopic\tstances\tdistinct\tspread\ttier\tstatus\ttext"
+POOL_HEADER = (
+    "pool\tposition\ttopic\tstances\tdistinct\tspread\ttier\tstatus\tanchor\ttext\tcontext_note"
+)
+# pipeline-statement-clarity-context: the word list is shown as its length.
+NOTE_SETTINGS = (
+    "context_note_evaluative_words=69 words, context_note_max_chars=300, "
+    "context_note_min_chars=30, "
+)
 DEFAULT_SETTINGS = (
-    "validation_settings: max_statements=35, max_topic_share_percent=30, "
+    "validation_settings: " + NOTE_SETTINGS + "max_statements=35, max_topic_share_percent=30, "
     "min_party_coverage_percent=50, min_statements=25"
 )
 PROMPTS_LINE = "prompt_versions: " + ", ".join(
@@ -82,6 +90,7 @@ KEYS = [
     "dataset_version_status",
     "statements",
     "statement_agenda",
+    "statement_anchors",
     "statement_selection",
     "selection_coverage",
     "findings_check",
@@ -313,7 +322,8 @@ def test_report_of_a_passed_and_published_run(run, report, seeded, use_fake, db_
         "statements: 35",
         "statement_agenda: v1, quota 40, lines 3; party 1 3/3 (1 chunks); "
         "party 2 3/3 (1 chunks)",
-        "statement_selection: v1, pool 70, selected 35, rule coverage_met, topic_cap 7, "
+        "statement_anchors: none",
+        "statement_selection: v2, pool 70, selected 35, rule coverage_met, topic_cap 7, "
         "projected_failures none",
         "selection_coverage: party 1 35/35 (pool 70/70); party 2 35/35 (pool 70/70)",
         "findings_check: v2, checked 4, discarded 0, cleared 0, repaired 0; "
@@ -328,7 +338,7 @@ def test_report_of_a_passed_and_published_run(run, report, seeded, use_fake, db_
         POOL_HEADER,
         *(
             f"{n}\t{n if n <= 35 else ''}\t{st['topic']}\t2\t2\t2\t1\t"
-            f"{'selected' if n <= 35 else 'not_picked'}\t{st['text']}"
+            f"{'selected' if n <= 35 else 'not_picked'}\t\t{st['text']}\t{st['context_note']}"
             for n, st in enumerate(statements_payload()["statements"], start=1)
         ),
     ]
@@ -348,8 +358,16 @@ def test_usage_is_deterministic(run, report, seeded, use_fake, db_url) -> None:
 
     first, second = fields(report(1)), fields(report(2))
 
-    for key in ("llm_calls", "input_tokens", "output_tokens"):
+    for key in ("llm_calls", "output_tokens"):
         assert first[key] == second[key]
+    # pipeline-statement-clarity-context: run 2's reduce also lists run 1's 35
+    # Published Statements as anchors, so only its input grows.
+    assert int(second["input_tokens"]) > int(first["input_tokens"])
+    assert first["statement_anchors"] == "none"
+    assert second["statement_anchors"] == (
+        "dataset version 1, 35 anchors, 0 in pool, 0 selected, missing "
+        + ", ".join(str(k) for k in range(1, 36))
+    )
 
 
 # Scenario 2: failed run (Validation failure)
@@ -370,7 +388,7 @@ def test_report_of_a_run_that_failed_validation(run, report, seeded, use_fake) -
     assert got["dataset_version_status"] == "candidate"
     assert got["statements"] == "25"
     assert got["statement_selection"] == (
-        "v1, pool 70, selected 25, rule short, topic_cap 7, "
+        "v2, pool 70, selected 25, rule short, topic_cap 7, "
         "projected_failures statement_separation"
     )
     assert got["publication"] == "not published: the run failed; live for election 1: none"
@@ -511,7 +529,7 @@ def test_report_shows_the_threshold_used_by_pipeline_run(
     monkeypatch.delenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT")
 
     assert fields(report(1))["validation_settings"] == (
-        "max_statements=35, max_topic_share_percent=30, "
+        NOTE_SETTINGS + "max_statements=35, max_topic_share_percent=30, "
         "min_party_coverage_percent=40, min_statements=25"
     )
 
@@ -528,7 +546,7 @@ def test_report_shows_the_threshold_used_by_pipeline_validate(
     monkeypatch.delenv("VALIDATION_MAX_STATEMENTS")
 
     assert fields(report(1))["validation_settings"] == (
-        "max_statements=40, max_topic_share_percent=30, "
+        NOTE_SETTINGS + "max_statements=40, max_topic_share_percent=30, "
         "min_party_coverage_percent=40, min_statements=25"
     )
 
@@ -696,7 +714,7 @@ def test_report_shows_statement_selection_and_pool_table(
     got = fields(result)
     assert got["statements"] == "35"
     assert got["statement_selection"] == (
-        "v1, pool 70, selected 35, rule coverage_met, topic_cap 7, projected_failures none"
+        "v2, pool 70, selected 35, rule coverage_met, topic_cap 7, projected_failures none"
     )
     assert got["selection_coverage"] == (
         "party 1 35/35 (pool 70/70); party 2 35/35 (pool 70/70)"
@@ -708,7 +726,9 @@ def test_report_shows_statement_selection_and_pool_table(
     assert rows[1][:8] == ["2", "", texts[1]["topic"], "2", "1", "0", "2", "not_picked"]
     assert rows[3][:8] == ["4", "", texts[3]["topic"], "2", "2", "2", "", "duplicate"]
     assert rows[2][7] == "selected"
-    assert [r[8] for r in rows] == [st["text"] for st in texts]
+    assert [r[8] for r in rows] == [""] * len(texts)  # anchor: none in this run
+    assert [r[9] for r in rows] == [st["text"] for st in texts]
+    assert [r[10] for r in rows] == [st["context_note"] for st in texts]
     selected = [r for r in rows if r[7] == "selected"]
     assert [r[0] for r in selected] == ["1", "3", *map(str, range(5, 38))]
     assert [r[1] for r in selected] == [str(n) for n in range(1, 36)]
@@ -791,7 +811,7 @@ def test_report_selection_without_agenda_shows_not_recorded(
 
     got = fields(report(1))
     assert got["statement_agenda"] == "not recorded"
-    assert got["statement_selection"].startswith("v1, pool 70, selected 35")
+    assert got["statement_selection"].startswith("v2, pool 70, selected 35")
 
 
 # pipeline-verified-findings Scenario 8: discarded findings in the report
@@ -940,3 +960,45 @@ def test_report_of_a_run_that_failed_before_selection_shows_not_recorded(
 
     assert fields(result)["findings_check"] == "not recorded"
     assert "discarded findings:" not in result.output
+
+
+# pipeline-statement-clarity-context Scenario 10: the statement_anchors line.
+
+
+def test_report_selection_before_v2_shows_anchors_not_recorded(
+    run, report, seeded, use_fake, db_url
+) -> None:
+    # A v1 selection (before pipeline-statement-clarity-context) has no "anchors"
+    # key and its pool rows have no anchor or context_note.
+    use_fake(fake_provider())
+    assert run("pipeline", "run", "--election", "1").exit_code == 0
+    engine = _engine(db_url)
+    try:
+        with engine.begin() as conn:
+            stored = conn.execute(
+                select(PipelineRun.statement_selection).where(PipelineRun.id == 1)
+            ).scalar_one()
+            old = {k: v for k, v in stored.items() if k != "anchors"}
+            old["pool"] = [
+                {k: v for k, v in row.items() if k not in ("anchor", "context_note")}
+                for row in old["pool"]
+            ]
+            conn.execute(
+                update(PipelineRun).where(PipelineRun.id == 1).values(statement_selection=old)
+            )
+    finally:
+        engine.dispose()
+
+    result = report(1)
+    assert result.exit_code == 0, result.output
+    assert fields(result)["statement_anchors"] == "not recorded"
+    first_row = (pool_table(result) or [])[0].split("\t")
+    assert first_row[8] == "" and first_row[10] == ""
+
+
+def test_report_of_a_run_without_selection_shows_anchors_not_recorded(
+    run, report, seeded, use_fake
+) -> None:
+    use_fake(fake_provider(generate_statements={"statements": []}))
+    assert run("pipeline", "run", "--election", "1").exit_code == 1
+    assert fields(report(1))["statement_anchors"] == "not recorded"

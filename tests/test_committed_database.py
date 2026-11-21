@@ -99,3 +99,16 @@ def test_the_2023_election(engine: Engine) -> None:
             assert [page.text for page in document.pages] == list(entry.text.pages)
         session.rollback()
 
+
+
+def test_old_dataset_versions_have_no_context_notes(engine: Engine) -> None:
+    # pipeline-statement-clarity-context scenario 7: 0014 adds the column with
+    # no data migration; Dataset Versions are immutable, so nothing is backfilled.
+    with engine.connect() as conn:
+        notes = conn.exec_driver_sql(
+            "SELECT count(*) FROM statements WHERE context_note IS NOT NULL"
+        ).scalar()
+        anchors = conn.exec_driver_sql(
+            "SELECT count(*) FROM pipeline_runs WHERE anchor_dataset_version_id IS NOT NULL"
+        ).scalar()
+    assert (notes, anchors) == (0, 0)
