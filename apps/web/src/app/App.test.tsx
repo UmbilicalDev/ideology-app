@@ -32,8 +32,9 @@ describe("App routes", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Generales 2023");
     expect(screen.getByText("Afirmación 1 de 1")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Saltar" }));
-    expect(screen.getByText("Muestra evaluada: 0/1 afirmaciones contestadas")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "Neutral / No lo sé" }));
+    fireEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByText("Muestra evaluada: 0/1 afirmaciones con opinión")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Volver al inicio" })).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: "IdeologiApp, ir al inicio" }));
     expect(
@@ -139,7 +140,7 @@ describe("App routes", () => {
       if (url === "/api/v1/elections/1") return jsonResponse(electionJson());
       throw new Error(`unexpected request ${url}`);
     });
-    renderAt("/resultados#v1-1-dddddA", fetch);
+    renderAt("/resultados#v2-1-aaaaaD", fetch);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Resultado compartido");
     expect(
       await screen.findByRole("heading", { level: 2, name: "Afinidad con cada partido" }),

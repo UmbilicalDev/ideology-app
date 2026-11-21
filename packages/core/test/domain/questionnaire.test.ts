@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  SKIP,
+  NEUTRAL,
   computeMatchScores,
   currentStatementId,
   isAtEnd,
@@ -14,6 +14,8 @@ import {
 } from "../../src/index";
 
 const IDS = [11, 12, 13] as const;
+const SELECT_NEUTRAL: QuestionnaireAction = { type: "select", value: NEUTRAL };
+const NEXT: QuestionnaireAction = { type: "next" };
 
 function run(state: QuestionnaireState, ...actions: QuestionnaireAction[]): QuestionnaireState {
   return actions.reduce(reduceQuestionnaire, state);
@@ -34,7 +36,7 @@ describe("startQuestionnaire", () => {
     const state = startQuestionnaire([]);
     expect(isAtEnd(state)).toBe(true);
     expect(currentStatementId(state)).toBeNull();
-    expect(summarize(state)).toEqual({ answered: 0, skipped: 0, important: 0, total: 0 });
+    expect(summarize(state)).toEqual({ answered: 0, neutral: 0, important: 0, total: 0 });
   });
 });
 
@@ -43,16 +45,19 @@ describe("reduceQuestionnaire", () => {
     const once = run(startQuestionnaire(IDS), { type: "select", value: 1 });
     expect(once.currentIndex).toBe(0);
     expect(once.answers.get(11)).toBe(1);
-    const twice = reduceQuestionnaire(once, { type: "select", value: -2 });
+    const twice = reduceQuestionnaire(once, { type: "select", value: -1 });
     expect(twice.currentIndex).toBe(0);
-    expect(twice.answers.get(11)).toBe(-2);
+    expect(twice.answers.get(11)).toBe(-1);
     expect(twice.answers.size).toBe(1);
   });
 
-  test("skip records SKIP and advances", () => {
-    const state = run(startQuestionnaire(IDS), { type: "skip" });
+  test("select NEUTRAL records it without advancing; next advances", () => {
+    const selected = run(startQuestionnaire(IDS), SELECT_NEUTRAL);
+    expect(selected.currentIndex).toBe(0);
+    expect(selected.answers.get(11)).toBe(NEUTRAL);
+    const state = reduceQuestionnaire(selected, NEXT);
     expect(state.currentIndex).toBe(1);
-    expect(state.answers.get(11)).toBe(SKIP);
+    expect(state.answers.get(11)).toBe(NEUTRAL);
   });
 
   test("next is a no-op without an Answer", () => {
@@ -62,21 +67,28 @@ describe("reduceQuestionnaire", () => {
     expect(state.currentIndex).toBe(0);
   });
 
-  test("next advances with a value or with a skip", () => {
-    const answered = run(startQuestionnaire(IDS), { type: "select", value: 0 }, { type: "next" });
-    expect(answered.currentIndex).toBe(1);
-    const skippedThenBack = run(answered, { type: "skip" }, { type: "back" });
-    expect(skippedThenBack.currentIndex).toBe(1);
-    expect(reduceQuestionnaire(skippedThenBack, { type: "next" }).currentIndex).toBe(2);
+  test("there is no skip action", () => {
+    const start = startQuestionnaire(IDS);
+    const after = reduceQuestionnaire(start, { type: "skip" } as unknown as QuestionnaireAction);
+    expect(after.currentIndex).toBe(0);
+    expect(after.answers.size).toBe(0);
   });
 
-  test("a value replaces a skip and a skip replaces a value", () => {
-    const skipped = run(startQuestionnaire(IDS), { type: "skip" }, { type: "back" });
-    const valued = reduceQuestionnaire(skipped, { type: "select", value: 2 });
-    expect(valued.answers.get(11)).toBe(2);
-    const reskipped = reduceQuestionnaire(valued, { type: "skip" });
-    expect(reskipped.answers.get(11)).toBe(SKIP);
-    expect(reskipped.currentIndex).toBe(1);
+  test("next advances with a side or with Neutral", () => {
+    const answered = run(startQuestionnaire(IDS), { type: "select", value: NEUTRAL }, { type: "next" });
+    expect(answered.currentIndex).toBe(1);
+    const neutralThenBack = run(answered, SELECT_NEUTRAL, NEXT, { type: "back" });
+    expect(neutralThenBack.currentIndex).toBe(1);
+    expect(reduceQuestionnaire(neutralThenBack, { type: "next" }).currentIndex).toBe(2);
+  });
+
+  test("a side replaces Neutral and Neutral replaces a side", () => {
+    const neutralOne = run(startQuestionnaire(IDS), SELECT_NEUTRAL, NEXT, { type: "back" });
+    const valued = reduceQuestionnaire(neutralOne, { type: "select", value: 1 });
+    expect(valued.answers.get(11)).toBe(1);
+    const reNeutral = run(valued, SELECT_NEUTRAL, NEXT);
+    expect(reNeutral.answers.get(11)).toBe(NEUTRAL);
+    expect(reNeutral.currentIndex).toBe(1);
   });
 
   test("back clamps at 0 and keeps the Answers", () => {
@@ -92,7 +104,8 @@ describe("reduceQuestionnaire", () => {
       startQuestionnaire(IDS),
       { type: "select", value: 1 },
       { type: "next" },
-      { type: "skip" },
+      SELECT_NEUTRAL,
+      NEXT,
       { type: "select", value: -1 },
       { type: "next" },
     );
@@ -104,15 +117,15 @@ describe("reduceQuestionnaire", () => {
   });
 
   test.each<QuestionnaireAction>([
-    { type: "select", value: 2 },
-    { type: "skip" },
+    { type: "select", value: 1 },
+    SELECT_NEUTRAL,
     { type: "next" },
     { type: "toggleImportant" },
   ])("$type is a no-op on the end screen", (action) => {
-    const end = run(startQuestionnaire([5]), { type: "skip" });
+    const end = run(startQuestionnaire([5]), SELECT_NEUTRAL, NEXT);
     const after = reduceQuestionnaire(end, action);
     expect(after).toBe(end);
-    expect(after.answers.get(5)).toBe(SKIP);
+    expect(after.answers.get(5)).toBe(NEUTRAL);
   });
 
   test("returns a new state with a new Map and never mutates the old one", () => {
@@ -138,19 +151,20 @@ describe("reduceQuestionnaire", () => {
 });
 
 describe("summarize", () => {
-  test("counts answered, skipped and total", () => {
+  test("counts answered (sided), neutral and total", () => {
     const state = run(
       startQuestionnaire(IDS),
-      { type: "select", value: -2 },
+      { type: "select", value: -1 },
       { type: "next" },
-      { type: "skip" },
+      SELECT_NEUTRAL,
+      NEXT,
     );
-    expect(summarize(state)).toEqual({ answered: 1, skipped: 1, important: 0, total: 3 });
+    expect(summarize(state)).toEqual({ answered: 1, neutral: 1, important: 0, total: 3 });
   });
 
-  test("counts a neutral 0 as answered", () => {
-    const state = run(startQuestionnaire(IDS), { type: "select", value: 0 });
-    expect(summarize(state)).toEqual({ answered: 1, skipped: 0, important: 0, total: 3 });
+  test("counts a Neutral Answer as neutral, not answered", () => {
+    const state = run(startQuestionnaire(IDS), { type: "select", value: NEUTRAL });
+    expect(summarize(state)).toEqual({ answered: 0, neutral: 1, important: 0, total: 3 });
   });
 });
 
@@ -188,48 +202,50 @@ describe("toggleImportant", () => {
     expect(reduceQuestionnaire(flagged, { type: "next" })).toBe(flagged);
   });
 
-  test("select, skip, next and back keep the Set", () => {
+  test("select, next and back keep the Set", () => {
     const state = run(
       startQuestionnaire(IDS),
       TOGGLE,
-      { type: "select", value: 2 },
+      { type: "select", value: 1 },
       { type: "next" },
       TOGGLE,
-      { type: "skip" },
+      SELECT_NEUTRAL,
+      NEXT,
       { type: "back" },
       { type: "back" },
     );
     expect(state.currentIndex).toBe(0);
     expect([...state.important].sort()).toEqual([11, 12]);
-    expect(state.answers.get(11)).toBe(2);
-    expect(state.answers.get(12)).toBe(SKIP);
+    expect(state.answers.get(11)).toBe(1);
+    expect(state.answers.get(12)).toBe(NEUTRAL);
   });
 
-  test("skip keeps the flag, and rating the skipped Statement keeps it too", () => {
-    const skipped = run(startQuestionnaire(IDS), TOGGLE, { type: "skip" }, { type: "back" });
-    expect(skipped.important.has(11)).toBe(true);
-    expect(skipped.answers.get(11)).toBe(SKIP);
-    const rated = reduceQuestionnaire(skipped, { type: "select", value: 2 });
+  test("Neutral keeps the flag, and choosing a side afterwards keeps it too", () => {
+    const neutralOne = run(startQuestionnaire(IDS), TOGGLE, SELECT_NEUTRAL, NEXT, { type: "back" });
+    expect(neutralOne.important.has(11)).toBe(true);
+    expect(neutralOne.answers.get(11)).toBe(NEUTRAL);
+    const rated = reduceQuestionnaire(neutralOne, { type: "select", value: 1 });
     expect(rated.important.has(11)).toBe(true);
-    expect(rated.answers.get(11)).toBe(2);
+    expect(rated.answers.get(11)).toBe(1);
   });
 });
 
 describe("summarize important", () => {
-  test("counts only rated and flagged Statements", () => {
+  test("counts only sided and flagged Statements", () => {
     const state = run(
       startQuestionnaire([1, 2, 3, 4]),
       TOGGLE,
       { type: "select", value: 1 },
       { type: "next" },
       TOGGLE,
-      { type: "skip" },
+      SELECT_NEUTRAL,
+      NEXT,
       { type: "select", value: -1 },
       { type: "next" },
       TOGGLE,
     );
-    // 1 rated + flagged, 2 skipped + flagged, 3 rated, 4 flagged without Answer.
-    expect(summarize(state)).toEqual({ answered: 2, skipped: 1, important: 1, total: 4 });
+    // 1 sided + flagged, 2 neutral + flagged, 3 sided, 4 flagged without Answer.
+    expect(summarize(state)).toEqual({ answered: 2, neutral: 1, important: 1, total: 4 });
   });
 });
 
@@ -242,9 +258,10 @@ describe("first", () => {
       { type: "select", value: 1 },
       TOGGLE,
       { type: "next" },
-      { type: "skip" },
+      SELECT_NEUTRAL,
+      NEXT,
       TOGGLE,
-      { type: "select", value: -2 },
+      { type: "select", value: -1 },
       { type: "next" },
     );
     expect(isAtEnd(end)).toBe(true);
@@ -253,8 +270,8 @@ describe("first", () => {
     expect(currentStatementId(first)).toBe(11);
     expect([...first.answers]).toEqual([
       [11, 1],
-      [12, SKIP],
-      [13, -2],
+      [12, NEUTRAL],
+      [13, -1],
     ]);
     expect([...first.important].sort()).toEqual([11, 13]);
     expect(first.answers).not.toBe(end.answers);
@@ -262,16 +279,16 @@ describe("first", () => {
   });
 
   test("goes from the middle to 0", () => {
-    const middle = run(startQuestionnaire(IDS), { type: "skip" }, { type: "skip" });
+    const middle = run(startQuestionnaire(IDS), SELECT_NEUTRAL, NEXT, SELECT_NEUTRAL, NEXT);
     expect(middle.currentIndex).toBe(2);
     const first = reduceQuestionnaire(middle, FIRST);
     expect(first.currentIndex).toBe(0);
-    expect(first.answers.get(11)).toBe(SKIP);
-    expect(first.answers.get(12)).toBe(SKIP);
+    expect(first.answers.get(11)).toBe(NEUTRAL);
+    expect(first.answers.get(12)).toBe(NEUTRAL);
   });
 
   test("is a no-op at 0", () => {
-    const start = reduceQuestionnaire(startQuestionnaire(IDS), { type: "select", value: 2 });
+    const start = reduceQuestionnaire(startQuestionnaire(IDS), { type: "select", value: 1 });
     expect(reduceQuestionnaire(start, FIRST)).toBe(start);
   });
 
@@ -287,19 +304,20 @@ describe("toMatchScoreAnswers", () => {
   test("one entry per answered Statement in order, important always a boolean", () => {
     const state = run(
       startQuestionnaire([30, 10, 20, 40]),
-      { type: "select", value: -2 },
+      { type: "select", value: -1 },
       TOGGLE,
       { type: "next" },
       TOGGLE,
-      { type: "skip" },
-      { type: "select", value: 0 },
+      SELECT_NEUTRAL,
+      NEXT,
+      { type: "select", value: NEUTRAL },
       { type: "next" },
       TOGGLE,
     );
     expect(toMatchScoreAnswers(state)).toEqual([
-      { statementId: 30, value: -2, important: true },
-      { statementId: 10, value: SKIP, important: true },
-      { statementId: 20, value: 0, important: false },
+      { statementId: 30, value: -1, important: true },
+      { statementId: 10, value: NEUTRAL, important: true },
+      { statementId: 20, value: NEUTRAL, important: false },
     ]);
   });
 
@@ -309,9 +327,9 @@ describe("toMatchScoreAnswers", () => {
     expect(toMatchScoreAnswers(startQuestionnaire(IDS))).toEqual([]);
   });
 
-  test("its output gives a rated Important Statement weight 2 and a flagged skip no effect", () => {
-    // Statement 1: Voter 2, party 2 (agreement 1). Statement 2: Voter -2, party 2 (agreement 0).
-    // Statement 3: skipped and flagged, party 2.
+  test("its output gives a sided Important Statement weight 2 and a flagged Neutral no effect", () => {
+    // Statement 1: Voter 1, party 2 (agreement 1). Statement 2: Voter -1, party 2 (agreement 0).
+    // Statement 3: Neutral and flagged, party 2.
     const parties = [
       {
         partyId: "A",
@@ -324,20 +342,21 @@ describe("toMatchScoreAnswers", () => {
     ];
     const base = run(
       startQuestionnaire([1, 2, 3]),
-      { type: "select", value: 2 },
+      { type: "select", value: 1 },
       { type: "next" },
-      { type: "select", value: -2 },
+      { type: "select", value: -1 },
       { type: "next" },
       TOGGLE,
-      { type: "skip" },
+      SELECT_NEUTRAL,
+      NEXT,
     );
     const [plain] = computeMatchScores(toMatchScoreAnswers(base), parties);
     expect(plain?.matchScore).toBe(0.5);
-    expect(plain?.sharedStatementCount).toBe(2);
+    expect(plain?.comparedStatementCount).toBe(2);
 
     const flagFirst = run(base, { type: "back" }, { type: "back" }, { type: "back" }, TOGGLE);
     const [weighted] = computeMatchScores(toMatchScoreAnswers(flagFirst), parties);
     expect(weighted?.matchScore).toBeCloseTo(2 / 3);
-    expect(weighted?.sharedStatementCount).toBe(2);
+    expect(weighted?.comparedStatementCount).toBe(2);
   });
 });

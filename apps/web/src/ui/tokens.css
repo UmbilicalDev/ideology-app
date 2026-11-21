@@ -59,13 +59,10 @@
   /* Placeholder text in SVG user units (scaled to fit the tile). */
   --party-logo-placeholder-font: 600 10px/12px var(--font-sans);
 
-  /* Statement matrix: how much accent a cell takes for each coincidence with
-     the Answer (one hue, never a colour per side). 60% keeps the cell text
-     at AA in both themes. */
+  /* Statement matrix: how much accent a cell takes when it coincides with
+     the Answer (one hue, never a colour per side; a non-coincidence is the
+     plain surface). 60% keeps the cell text at AA in both themes. */
   --match-100: 60%;
-  --match-75: 42%;
-  --match-50: 26%;
-  --match-25: 12%;
   --matrix-statement-width: 18rem;
   --matrix-answer-width: 3.5rem;
   /* Every Party column (header and cells): the 2.75rem cell button plus

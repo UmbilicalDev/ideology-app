@@ -39,15 +39,20 @@ One complete flow with real data:
 1. The Operator registers the latest Spanish general election, its parties with seats, and their manifestos (upload or URL).
 2. A Pipeline Run (through a configurable LLM provider) generates the Questionnaire and Party Positions with Evidence.
 3. Validation passes → the Dataset Version is published automatically.
-4. A Voter answers the Statements (5-point scale, skip, Important), sees the ranking by Match Score and a per-Statement breakdown with each Party's Position and Evidence.
+4. A Voter answers the Statements (three options: De acuerdo, Neutral / No lo sé, En desacuerdo; Important), sees the ranking by Match Score and a per-Statement breakdown with each Party's Position and Evidence.
 5. The Voter copies a Share Link that reproduces the same result.
 
 ## Matching Rule (initial position)
 
-- Scale mapped to −2..+2. Per Statement, agreement = 1 − |user − party| / 4.
-- Weight 2 if Important, otherwise 1. `skip` answers and `no stance` positions are excluded for that pair.
-- Match Score = Σ(weight × agreement) / Σ(weight) over the included Statements.
-- If a Party shares fewer than N valid Statements with the user (initially 5), its score is shown flagged as "low coverage".
+Three-option rule (user decision 2026-11-21, `three-option-scale`; it replaces the five-point distance rule):
+
+- Answers: `De acuerdo` = +1, `En desacuerdo` = −1, `Neutral / No lo sé` = no value (excluded).
+- Party Positions stay stored on −2..+2 and are read by side: −2/−1 against, +1/+2 in favour. Position 0 and `no stance` are excluded for that pair.
+- Per compared Statement: agreement = 1 on the same side, 0 on opposite sides.
+- Weight 2 if Important, otherwise 1 (an Important flag on a Neutral Answer has no effect).
+- Match Score = Σ(weight × agreement) / Σ(weight) over the compared Statements, or none when nothing is compared.
+- Each ranking row reads `N de M coincidencias`: M = Statements compared with that Party, N = same side. With Important flags the percent is weighted, so it can differ slightly from N/M.
+- If fewer than N Statements (initially 5) can be compared with a Party (M < 5), its score is flagged as "low coverage".
 
 ## Validation Plan
 

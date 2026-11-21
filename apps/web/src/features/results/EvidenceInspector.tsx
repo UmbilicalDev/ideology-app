@@ -6,6 +6,7 @@ import { CloseIcon } from "../../ui/icons";
 import { coincidence, stanceLabel } from "./breakdown-view";
 import { AnswerLine, EvidenceBody, NO_STANCE_LABEL, ValueIcon } from "./Evidence";
 import { PartyLogo } from "./PartyLogo";
+import type { CoincidenceCopy } from "./ResultsBreakdown";
 
 /** What the inspector shows: one Party's Position on a Statement, or every Party's. */
 export type InspectorTarget =
@@ -22,12 +23,12 @@ export type InspectorTarget =
 export function EvidenceInspector({
   target,
   answerPrefix,
-  coincidencePrefix,
+  coincidenceCopy,
   onClosed,
 }: {
   readonly target: InspectorTarget;
   readonly answerPrefix: string;
-  readonly coincidencePrefix: string;
+  readonly coincidenceCopy: CoincidenceCopy;
   readonly onClosed: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -126,7 +127,7 @@ export function EvidenceInspector({
                     {stanceLabel(position, NO_STANCE_LABEL)}
                   </strong>
                   {match === null ? null : (
-                    <span className="inspector-position__match">{` · ${coincidencePrefix} ${match} %`}</span>
+                    <span className="inspector-position__match">{` · ${match === 100 ? coincidenceCopy.yes : coincidenceCopy.no}`}</span>
                   )}
                 </p>
                 <EvidenceBody position={position} />

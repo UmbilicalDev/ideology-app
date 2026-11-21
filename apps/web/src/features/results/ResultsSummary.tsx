@@ -6,17 +6,17 @@ export type SummaryVoice = "voter" | "link";
 const COPY: Record<
   SummaryVoice,
   {
-    readonly skipped: (count: number) => string;
+    readonly neutral: (count: number) => string;
     readonly important: (count: number) => string;
   }
 > = {
   voter: {
-    skipped: (count) =>
+    neutral: (count) =>
       count === 0
-        ? "No has saltado ninguna afirmación."
+        ? "No has respondido «Neutral / No lo sé» en ninguna afirmación."
         : count === 1
-          ? "Has saltado 1 afirmación."
-          : `Has saltado ${count} afirmaciones.`,
+          ? "Has respondido «Neutral / No lo sé» en 1 afirmación."
+          : `Has respondido «Neutral / No lo sé» en ${count} afirmaciones.`,
     important: (count) =>
       count === 0
         ? "No has marcado ninguna afirmación como importante."
@@ -25,12 +25,12 @@ const COPY: Record<
           : `Has marcado ${count} afirmaciones como importantes.`,
   },
   link: {
-    skipped: (count) =>
+    neutral: (count) =>
       count === 0
-        ? "No se saltó ninguna afirmación."
+        ? "No se respondió «Neutral / No lo sé» en ninguna afirmación."
         : count === 1
-          ? "Se saltó 1 afirmación."
-          : `Se saltaron ${count} afirmaciones.`,
+          ? "Se respondió «Neutral / No lo sé» en 1 afirmación."
+          : `Se respondió «Neutral / No lo sé» en ${count} afirmaciones.`,
     important: (count) =>
       count === 0
         ? "No se marcó ninguna afirmación como importante."
@@ -41,23 +41,24 @@ const COPY: Record<
 };
 
 export function summaryTitle(answered: number, total: number): string {
-  return `Muestra evaluada: ${answered}/${total} afirmaciones contestadas`;
+  return `Muestra evaluada: ${answered}/${total} afirmaciones con opinión`;
 }
 
 /**
  * The results summary card (DESIGN.md "Summary card"): how many Statements
- * were answered, as text and as a decorative donut, plus the skipped count
- * and the Important sentence. The text carries every number.
+ * were answered with an opinion (De acuerdo or En desacuerdo), as text and as
+ * a decorative donut, plus the Neutral count and the Important sentence. The
+ * text carries every number.
  */
 export function ResultsSummary({
   answered,
-  skipped,
+  neutral,
   important,
   total,
   voice,
 }: {
   readonly answered: number;
-  readonly skipped: number;
+  readonly neutral: number;
   readonly important: number;
   readonly total: number;
   readonly voice: SummaryVoice;
@@ -85,7 +86,7 @@ export function ResultsSummary({
       </div>
       <div className="summary-card__text">
         <h3 id="summary-title">{summaryTitle(answered, total)}</h3>
-        <p>{copy.skipped(skipped)}</p>
+        <p>{copy.neutral(neutral)}</p>
         <p className="summary-card__important" data-marked={important > 0}>
           <StarIcon className="summary-card__star" />
           {copy.important(important)}

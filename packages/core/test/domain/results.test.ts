@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   NO_STANCE,
-  SKIP,
+  NEUTRAL,
   buildBreakdown,
   buildResults,
   isQuestionnaireAvailable,
@@ -45,7 +45,7 @@ const PARTIES: Party[] = [
 ];
 const VERSION = { statements: STATEMENTS, parties: PARTIES };
 
-const VALUES: readonly AnswerValue[] = [-2, -1, 0, 1, 2, SKIP];
+const VALUES: readonly AnswerValue[] = [-1, 1, NEUTRAL];
 
 // Small deterministic generator (mulberry32).
 function rng(seed: number): () => number {
@@ -95,20 +95,20 @@ describe("buildResults", () => {
     }
   });
 
-  test("hasScores is false when every Statement is skipped, true with one shared rating", () => {
+  test("hasScores is false when every Statement is Neutral, true with one compared Answer", () => {
     const ids = STATEMENTS.map((s) => s.id);
-    const skipped: QuestionnaireState = {
+    const allNeutral: QuestionnaireState = {
       statementIds: ids,
       currentIndex: ids.length,
-      answers: new Map(ids.map((id) => [id, SKIP] as const)),
+      answers: new Map(ids.map((id) => [id, NEUTRAL] as const)),
       important: new Set(ids),
     };
-    const result = buildResults(VERSION, skipped);
+    const result = buildResults(VERSION, allNeutral);
     expect(result.hasScores).toBe(false);
     expect(result.ranking.map((p) => p.matchScore)).toEqual([null, null, null]);
     expect(result.breakdown).toHaveLength(8);
 
-    const one: QuestionnaireState = { ...skipped, answers: new Map([[200, 2]]), important: new Set() };
+    const one: QuestionnaireState = { ...allNeutral, answers: new Map([[200, 1]]), important: new Set() };
     expect(buildResults(VERSION, one).hasScores).toBe(true);
   });
 
@@ -117,7 +117,7 @@ describe("buildResults", () => {
     const state: QuestionnaireState = {
       statementIds: ids,
       currentIndex: ids.length,
-      answers: new Map(ids.map((id) => [id, -2] as const)),
+      answers: new Map(ids.map((id) => [id, -1] as const)),
       important: new Set(),
     };
     const { ranking, breakdown } = buildResults(VERSION, state);
