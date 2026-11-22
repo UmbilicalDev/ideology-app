@@ -1318,3 +1318,14 @@
 - Verification run: Vitest for the notice and Landing (27 passed), web typecheck ok, `vite build` ok; built-in browser at desktop width: Landing step 1 shows the triangles, a v2 shared result for Election 2 shows the plural note with both Parties; console clean.
 - Known risk or unresolved issue: Frente Obrero's exclusion reason is the user's copy; it is not recorded in `data/elections/es-general-2026-11-29/election.toml`, which lists only the Parties that were imported or tried.
 - Next best step: commit these tweaks separately from `pipeline-statement-priority-tiers` and include them in the round-1 integration (`v2`).
+
+### Session 109 (results-dashboard, third validation and repair)
+
+- Date: 2026-11-23
+- Goal: re-validate `results-dashboard` on `v2` (its last status was REVISE from 2026-10-31) and repair what the validator found.
+- Completed: independent validator verdict REVISE (the 2026-10-31 Medium was not resolved: partly visible focused matrix cells stayed hidden under the sticky columns or past the box's edge). Repair on branch `feature/results-dashboard-focus-scroll` (off `v2`): `ResultsMatrix.tsx` scrolls a focused cell into view (`scrollIntoView`, `nearest`), a jsdom stand-in in `src/test/setup.ts`, a new Vitest case; `DESIGN.md` and the risks entry "Statement matrix width" updated, with the overflow cue and the header-height token as accepted Lows.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 2081, Vitest 1033, build ok). Built-in browser, shared result at 1024 with real Tab/Shift+Tab: 2026 (741 cell focuses) and 2023 (459) with 0px hidden on any edge; 375px cards. End screen at 1024 not re-checked.
+- Evidence captured: `feature_list.json` -> `results-dashboard.evidence` (status stays `passing`).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md`, "Statement matrix width".
+- Next best step: commit and open the PR into `v2`, then a fourth independent validation of `results-dashboard`; then validate its six dependents against current behaviour.
+

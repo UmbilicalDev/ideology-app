@@ -226,6 +226,20 @@ describe("ResultsMatrix (1024px and up)", () => {
     expect(document.activeElement).toBe(cell);
   });
 
+  test("a focused cell is scrolled fully into view, clear of the sticky columns", () => {
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+    render(<ResultsBreakdown rows={ROWS} />);
+    const cell = screen.getAllByRole("button", { name: /^Partido Dos: En desacuerdo/ })[0]!;
+    act(() => cell.focus());
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.contexts[0]).toBe(cell);
+    expect(scroll).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+
+    // The Statement button sits in the sticky column: it is never moved.
+    act(() => screen.getAllByRole("button", { name: /Afirmación de prueba 1\./ })[0]!.focus());
+    expect(scroll).toHaveBeenCalledTimes(1);
+  });
+
   test("a Statement opens every Party's Position", () => {
     render(<ResultsBreakdown rows={ROWS} answerOwner="link" />);
     expect(screen.getAllByRole("columnheader")[1]!.textContent).toBe("Enlace");

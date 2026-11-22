@@ -1,4 +1,5 @@
 import { NO_STANCE, type BreakdownRow } from "@ideology-app/core";
+import type { FocusEvent } from "react";
 
 import { StarIcon } from "../../ui/icons";
 import { SideIcon, answerSide, stanceSide, type Side } from "../scale-icons";
@@ -71,7 +72,13 @@ export function ResultsMatrix({
           ))}
         </p>
       </div>
-      <div className="matrix-scroll" role="region" aria-label="Matriz de posiciones" tabIndex={0}>
+      <div
+        className="matrix-scroll"
+        role="region"
+        aria-label="Matriz de posiciones"
+        tabIndex={0}
+        onFocus={revealFocusedCell}
+      >
         <table className="matrix">
           <caption className="visually-hidden">
             Posición de cada partido en cada afirmación y su coincidencia con la respuesta
@@ -152,6 +159,16 @@ export function ResultsMatrix({
       </div>
     </>
   );
+}
+
+// The browser's own focus scrolling moves a cell only when it is fully
+// hidden, so a partly visible cell would stay under the sticky columns or past
+// the box's edge. scrollIntoView honours the box's scroll-padding.
+function revealFocusedCell(event: FocusEvent<HTMLDivElement>) {
+  const target = event.target;
+  if (target instanceof HTMLElement && target.classList.contains("match-cell")) {
+    target.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 }
 
 // The Answer as its icon; the full label stays for screen readers.

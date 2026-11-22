@@ -2318,7 +2318,8 @@ a.button-secondary {
 /* Statement matrix (DESIGN.md "Statement matrix"): Statements as rows,
    Parties in ranking order as identical columns. */
 /* Scroll padding keeps a focused cell clear of the sticky header row and the
-   sticky Statement and answer columns, so its focus ring stays visible. */
+   sticky Statement and answer columns, so its focus ring stays visible
+   (ResultsMatrix scrolls a focused cell into view, which honours it). */
 .matrix-scroll {
   overflow: auto;
   scroll-padding-top: var(--matrix-header-height);

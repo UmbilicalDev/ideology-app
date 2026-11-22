@@ -3,6 +3,8 @@
 // images; the logo preload cache is reset after every test. jsdom has no
 // `HTMLDialogElement.showModal`/`close`: minimal stand-ins are defined only
 // when missing (no top layer or inert page; tests check focus themselves).
+// jsdom has no layout and no `Element.scrollIntoView`: a no-op stands in, and
+// tests spy on it.
 // jsdom does not implement media playback: `play`/`pause` on <video> are
 // silent stubs (play resolves) that tests can spy on. The Questionnaire's
 // double-tap lock is off (0 ms) unless a test sets it.
@@ -25,6 +27,10 @@ if (typeof HTMLDialogElement.prototype.close !== "function") {
     this.removeAttribute("open");
     this.dispatchEvent(new Event("close"));
   };
+}
+
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = function scrollIntoView() {};
 }
 
 beforeEach(() => {
