@@ -1325,7 +1325,8 @@
 - Goal: re-validate `results-dashboard` on `v2` (its last status was REVISE from 2026-10-31) and repair what the validator found.
 - Completed: independent validator verdict REVISE (the 2026-10-31 Medium was not resolved: partly visible focused matrix cells stayed hidden under the sticky columns or past the box's edge). Repair on branch `feature/results-dashboard-focus-scroll` (off `v2`): `ResultsMatrix.tsx` scrolls a focused cell into view (`scrollIntoView`, `nearest`), a jsdom stand-in in `src/test/setup.ts`, a new Vitest case; `DESIGN.md` and the risks entry "Statement matrix width" updated, with the overflow cue and the header-height token as accepted Lows.
 - Verification run: `CI=true ./init.sh` exit 0 (pytest 2081, Vitest 1033, build ok). Built-in browser, shared result at 1024 with real Tab/Shift+Tab: 2026 (741 cell focuses) and 2023 (459) with 0px hidden on any edge; 375px cards. End screen at 1024 not re-checked.
-- Evidence captured: `feature_list.json` -> `results-dashboard.evidence` (status stays `passing`).
+- Evidence captured: `feature_list.json` -> `results-dashboard.evidence`.
+- Validation: 2026-11-23 fourth independent validation (subagent) at ce3c7cd: verdict ACCEPT; 1,621 real-key cell focuses (shared 2026, shared 2023, end screen 2026 at 1024) with 0px hidden on any edge, no regressions, the two accepted Lows confirmed. Status `accepted`.
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md`, "Statement matrix width".
-- Next best step: commit and open the PR into `v2`, then a fourth independent validation of `results-dashboard`; then validate its six dependents against current behaviour.
+- Next best step: validate the six dependents of `results-dashboard` against current behaviour (`questionnaire-results-visual-tweaks` and `breakdown-first-sight-cue` touch the matrix).
 
