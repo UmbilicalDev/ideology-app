@@ -92,3 +92,143 @@ def test_claude_code_default_model(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setenv("LLM_MODEL", "sonnet")
     assert config.llm_settings().model == "sonnet"
+
+
+# pipeline-statement-priority-tiers, scenario 12: questionnaire lengths and the
+# minimum Parties with a side.
+
+_VALIDATION_VARS = (
+    "VALIDATION_MIN_PARTY_COVERAGE_PERCENT",
+    "VALIDATION_MIN_STATEMENTS",
+    "VALIDATION_MAX_STATEMENTS",
+    "VALIDATION_MAX_TOPIC_SHARE_PERCENT",
+    "VALIDATION_CONTEXT_NOTE_MIN_CHARS",
+    "VALIDATION_CONTEXT_NOTE_MAX_CHARS",
+    "VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS",
+    "VALIDATION_QUESTIONNAIRE_LENGTHS",
+    "VALIDATION_MIN_STATEMENT_PARTIES",
+)
+LENGTHS = "VALIDATION_QUESTIONNAIRE_LENGTHS"
+MIN_PARTIES = "VALIDATION_MIN_STATEMENT_PARTIES"
+
+
+@pytest.fixture
+def _no_validation_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _VALIDATION_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.usefixtures("_no_validation_env")
+def test_priority_tier_defaults() -> None:
+    settings = config.validation_settings()
+    assert (settings.min_statements, settings.max_statements) == (35, 40)
+    assert settings.questionnaire_lengths == (15, 30) == config.DEFAULT_QUESTIONNAIRE_LENGTHS
+    assert settings.min_statement_parties == 3 == config.DEFAULT_MIN_STATEMENT_PARTIES
+    assert config.ValidationSettings() == settings
+
+
+@pytest.mark.usefixtures("_no_validation_env")
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("", (15, 30)),
+        ("   ", (15, 30)),
+        ("15,30", (15, 30)),
+        (" 10 , 20 ", (10, 20)),
+        ("34", (34,)),
+        ("1,2,3", (1, 2, 3)),
+        ("none", ()),
+        ("NONE", ()),
+        (" None ", ()),
+    ],
+)
+def test_questionnaire_lengths_from_env(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: tuple[int, ...]
+) -> None:
+    monkeypatch.setenv(LENGTHS, raw)
+    assert config.validation_settings().questionnaire_lengths == expected
+
+
+@pytest.mark.usefixtures("_no_validation_env")
+@pytest.mark.parametrize(
+    "raw",
+    ["15,15", "30,15", "0", "0,15", "15,35", "35", "40", "-15", "+15", "15.0", "15,,30",
+     "15,", ",15", "quince", "15;30", "١٥"],
+)
+def test_invalid_questionnaire_lengths_raise(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+    monkeypatch.setenv(LENGTHS, raw)
+    with pytest.raises(ConfigError) as info:
+        config.validation_settings()
+    assert str(info.value) == (
+        f"Invalid {LENGTHS} {raw!r}; expected increasing positive integers below "
+        "VALIDATION_MIN_STATEMENTS (35), or none"
+    )
+
+
+@pytest.mark.usefixtures("_no_validation_env")
+def test_lengths_are_checked_against_the_configured_minimum(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "20")
+    monkeypatch.setenv(LENGTHS, "10,20")
+    with pytest.raises(ConfigError, match=r"below VALIDATION_MIN_STATEMENTS \(20\)"):
+        config.validation_settings()
+    monkeypatch.setenv(LENGTHS, "10,19")
+    assert config.validation_settings().questionnaire_lengths == (10, 19)
+    # The default lengths are never dropped silently: they must fit too.
+    monkeypatch.delenv(LENGTHS)
+    with pytest.raises(ConfigError) as info:
+        config.validation_settings()
+    assert str(info.value) == (
+        f"Invalid {LENGTHS}: the default 15,30 is not below VALIDATION_MIN_STATEMENTS (20); "
+        "set lower lengths or none"
+    )
+
+
+@pytest.mark.usefixtures("_no_validation_env")
+@pytest.mark.parametrize(("raw", "expected"), [("", 3), ("1", 1), (" 5 ", 5), ("12", 12)])
+def test_min_statement_parties_from_env(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: int
+) -> None:
+    monkeypatch.setenv(MIN_PARTIES, raw)
+    assert config.validation_settings().min_statement_parties == expected
+
+
+@pytest.mark.usefixtures("_no_validation_env")
+@pytest.mark.parametrize("raw", ["0", "-1", "2.5", "+3", "tres"])
+def test_invalid_min_statement_parties_raise(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+    monkeypatch.setenv(MIN_PARTIES, raw)
+    with pytest.raises(ConfigError) as info:
+        config.validation_settings()
+    assert str(info.value) == f"Invalid {MIN_PARTIES} {raw!r}; expected a positive integer"
+
+
+@pytest.mark.usefixtures("_no_validation_env")
+def test_lengths_are_checked_before_min_parties(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(LENGTHS, "x")
+    monkeypatch.setenv(MIN_PARTIES, "x")
+    with pytest.raises(ConfigError, match=f"^Invalid {LENGTHS}"):
+        config.validation_settings()
+    monkeypatch.setenv("VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS", ",")
+    with pytest.raises(ConfigError, match="^Invalid VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS"):
+        config.validation_settings()
+
+
+@pytest.mark.parametrize(
+    "lengths",
+    [(15, 15), (30, 15), (0,), (15, 35), (35,), [15, 30], (15.0,), (True,), ("15",), None],
+)
+def test_settings_reject_bad_lengths(lengths: object) -> None:
+    with pytest.raises(ValueError, match="^questionnaire_lengths must be"):
+        config.ValidationSettings(questionnaire_lengths=lengths)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("value", [0, -1, 2.5, True, "3", None])
+def test_settings_reject_bad_min_statement_parties(value: object) -> None:
+    with pytest.raises(ValueError, match="^min_statement_parties must be"):
+        config.ValidationSettings(min_statement_parties=value)  # type: ignore[arg-type]
+
+
+def test_settings_accept_no_shorter_length() -> None:
+    assert config.ValidationSettings(questionnaire_lengths=()).questionnaire_lengths == ()
+    assert config.ValidationSettings(questionnaire_lengths=(34,)).questionnaire_lengths == (34,)

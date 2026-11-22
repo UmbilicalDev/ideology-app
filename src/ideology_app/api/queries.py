@@ -186,6 +186,12 @@ def _version_out(session: Session, version: DatasetVersion) -> DatasetVersionOut
         id=version.id,
         election_id=version.election_id,
         created_at=_utc_timestamp(version.created_at),
+        # NULL (versions before pipeline-statement-priority-tiers): the full length only.
+        questionnaire_lengths=(
+            list(version.questionnaire_lengths)
+            if version.questionnaire_lengths
+            else [len(statements)]
+        ),
         statements=[
             StatementOut(
                 id=s.id,

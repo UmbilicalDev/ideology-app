@@ -84,6 +84,9 @@ export function datasetVersionJson({
         ),
       },
     ],
+    // pipeline-statement-priority-tiers: the API serves the full length for
+    // Dataset Versions created before lengths existed.
+    ...(statements > 0 ? { questionnaire_lengths: [statements] } : {}),
   };
 }
 

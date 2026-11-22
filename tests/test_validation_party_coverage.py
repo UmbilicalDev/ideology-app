@@ -71,9 +71,12 @@ def data(
     )
 
 
-def entry(party_id: int, covered: int, total: int, percent: int, minimum: int) -> ReportEntry:
+def entry(
+    party_id: int, covered: int, total: int, percent: int, minimum: int, prefix: int | None = None
+) -> ReportEntry:
+    start = "" if prefix is None else f"first {prefix} statements: "
     return ReportEntry(
-        f"party {party_id} has positions on {covered} of {total} statements "
+        f"{start}party {party_id} is in favour or against on {covered} of {total} statements "
         f"({percent}%); minimum is {minimum}%",
         party_id=party_id,
     )
@@ -96,7 +99,7 @@ def test_50_percent_passes_and_40_percent_fails_at_10_statements() -> None:
 
     assert result == [entry(2, 4, 10, 40, 50)]
     assert result[0].message == (
-        "party 2 has positions on 4 of 10 statements (40%); minimum is 50%"
+        "party 2 is in favour or against on 4 of 10 statements (40%); minimum is 50%"
     )
     assert result[0].statement_id is None
 
@@ -209,7 +212,7 @@ def test_party_without_rows_or_only_no_stance_has_zero_coverage() -> None:
     no_rows = data(30, {1: 21}, party_ids=(1, 2))
     assert PARTY_COVERAGE.run(no_rows) == [entry(2, 0, 30, 0, 50)]
     assert PARTY_COVERAGE.run(no_rows)[0].message == (
-        "party 2 has positions on 0 of 30 statements (0%); minimum is 50%"
+        "party 2 is in favour or against on 0 of 30 statements (0%); minimum is 50%"
     )
 
 
@@ -234,9 +237,71 @@ def test_zero_parties_report_nothing() -> None:
     assert PARTY_COVERAGE.run(data(10, {}, party_ids=())) == []
 
 
-def test_negative_and_zero_values_count_as_stances() -> None:
+def test_negative_values_count_and_zero_does_not() -> None:
+    # pipeline-statement-priority-tiers: only +1/+2 and -1/-2 count (Settled Decision 4).
     rows = tuple(
-        position(1, n, (-2, 0, 2)[n % 3] if n <= 7 else None) for n in range(1, 11)
+        position(1, n, (-2, -1, 1, 2, 0)[n % 5] if n <= 10 else None) for n in range(1, 11)
     )
-    covered = ValidationInput(statements=statements(10), positions=rows, party_ids=(1,))
-    assert PARTY_COVERAGE.run(covered) == []
+    data_ = ValidationInput(statements=statements(10), positions=rows, party_ids=(1,))
+    # n = 1..10: values -1, 1, 2, 0, -2, -1, 1, 2, 0, -2 -> 8 sided, 2 zero.
+    assert PARTY_COVERAGE.run(data_) == []
+    zeros = tuple(position(1, n, 0 if n <= 6 else (1 if n <= 9 else None)) for n in range(1, 11))
+    only_zero = ValidationInput(statements=statements(10), positions=zeros, party_ids=(1,))
+    assert PARTY_COVERAGE.run(only_zero) == [entry(1, 3, 10, 30, 50)]
+
+
+# pipeline-statement-priority-tiers, scenario 5: every offered length (prefix).
+
+
+def sided_on(total: int, sides: dict[int, tuple[int, ...]], lengths: tuple[int, ...]) -> ValidationInput:
+    """Party p has value +1 on the Statement positions ``sides[p]``, else no stance."""
+    rows = tuple(
+        position(party_id, n, 1 if n in on else None)
+        for n in range(1, total + 1)
+        for party_id, on in sorted(sides.items())
+    )
+    return ValidationInput(
+        statements=statements(total),
+        positions=rows,
+        party_ids=tuple(sorted(sides)),
+        settings=ValidationSettings(questionnaire_lengths=()),
+        lengths=lengths,
+    )
+
+
+def test_each_offered_length_is_checked_on_its_prefix() -> None:
+    # Party 3 is sided on 7 of the first 15, 15 of the first 30 and 17 of 40.
+    on = tuple(range(1, 8)) + tuple(range(16, 24)) + (31, 32)
+    full = tuple(range(1, 41))
+    data_ = sided_on(40, {1: full, 3: on}, (15, 30, 40))
+    result = PARTY_COVERAGE.run(data_)
+    assert result == [entry(3, 7, 15, 46, 50, prefix=15), entry(3, 17, 40, 42, 50)]
+    assert result[0].message == (
+        "first 15 statements: party 3 is in favour or against on 7 of 15 statements (46%); "
+        "minimum is 50%"
+    )
+    assert result[1].message == (
+        "party 3 is in favour or against on 17 of 40 statements (42%); minimum is 50%"
+    )
+
+
+def test_entries_are_ordered_by_length_then_party() -> None:
+    data_ = sided_on(40, {1: (), 2: tuple(range(1, 41)), 4: ()}, (15, 30, 40))
+    assert PARTY_COVERAGE.run(data_) == [
+        entry(1, 0, 15, 0, 50, prefix=15),
+        entry(4, 0, 15, 0, 50, prefix=15),
+        entry(1, 0, 30, 0, 50, prefix=30),
+        entry(4, 0, 30, 0, 50, prefix=30),
+        entry(1, 0, 40, 0, 50),
+        entry(4, 0, 40, 0, 50),
+    ]
+
+
+def test_a_party_sided_only_after_the_first_15_fails_only_the_15_prefix() -> None:
+    data_ = sided_on(40, {1: tuple(range(16, 41))}, (15, 30, 40))
+    assert PARTY_COVERAGE.run(data_) == [entry(1, 0, 15, 0, 50, prefix=15)]
+
+
+def test_no_stored_lengths_check_only_the_full_set() -> None:
+    data_ = sided_on(40, {1: tuple(range(16, 41))}, ())
+    assert PARTY_COVERAGE.run(data_) == []

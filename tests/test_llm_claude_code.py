@@ -948,11 +948,11 @@ def test_positions_request_bounds_reach_the_cli() -> None:
 def test_reduce_request_bounds_reach_the_cli() -> None:
     drafts = [StatementDraft(text="Alfa.", topic="housing")]
     default = _sent_schema(reduce_request(drafts))["properties"]["statements"]
-    assert (default["minItems"], default["maxItems"]) == (60, 80)
+    assert (default["minItems"], default["maxItems"]) == (100, 140)
     configured = _sent_schema(
-        reduce_request(drafts, ValidationSettings(min_statements=36, max_statements=90))
+        reduce_request(drafts, ValidationSettings(min_statements=36, max_statements=150, questionnaire_lengths=()))
     )["properties"]["statements"]
-    assert (configured["minItems"], configured["maxItems"]) == (90, 90)
+    assert (configured["minItems"], configured["maxItems"]) == (150, 150)
 
 
 def test_out_of_range_structured_output_is_an_output_error() -> None:

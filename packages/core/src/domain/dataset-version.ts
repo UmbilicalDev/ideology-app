@@ -52,4 +52,10 @@ export interface DatasetVersion {
   readonly createdAt: string;
   readonly statements: readonly Statement[];
   readonly parties: readonly Party[];
+  /**
+   * Offered questionnaire lengths, strictly increasing; the last is
+   * `statements.length`. A questionnaire of length N is the first N Statements.
+   * Dataset Versions created before lengths existed offer only their full length.
+   */
+  readonly questionnaireLengths: readonly number[];
 }

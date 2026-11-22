@@ -4,11 +4,12 @@ import { describe, expect, test } from "vitest";
 import { excludedPartiesFor, ExcludedPartiesNotice } from "./ExcludedPartiesNotice";
 
 describe("excludedPartiesFor", () => {
-  test("names EAJ-PNV for the 2026 general election", () => {
+  test("names EAJ-PNV and Frente Obrero for the 2026 general election", () => {
     const notes = excludedPartiesFor({ type: "general", date: "2026-11-29" });
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain("EAJ-PNV");
-    expect(notes[0]).toContain("no se incluye en los resultados");
+    expect(notes[0]).toContain("Frente Obrero");
+    expect(notes[0]).toContain("no se incluyen en los resultados");
   });
 
   test("is empty for any other Election", () => {

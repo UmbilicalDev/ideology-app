@@ -17,9 +17,10 @@ from typing import Any
 
 from ideology_app.pipeline.prompts import TOPICS, StatementDraft
 
-AGENDA_VERSION = "v1"
+AGENDA_VERSION = "v2"
 # The most candidates any Party contributes (keeps the reduce input focused).
-PARTY_QUOTA_MAX = 24
+# v2 (pipeline-statement-priority-tiers): 40 (was 24), for the 100..140 pool.
+PARTY_QUOTA_MAX = 40
 
 _TOPIC_INDEX = {topic: index for index, topic in enumerate(TOPICS)}
 
@@ -82,7 +83,7 @@ def balance_candidates(
     """Choose the same number of candidates from every Party.
 
     ``per_chunk`` is ``(party_id, candidates of that chunk)`` in chunk order.
-    Rule (``AGENDA_VERSION`` v1):
+    Rule (``AGENDA_VERSION`` v2; v1 had ``PARTY_QUOTA_MAX`` 24):
 
     1. Per Party, its unique ``(topic, text)`` in first-seen order, each with
        the chunk (0-based among the Party's chunks) and rank (index in that

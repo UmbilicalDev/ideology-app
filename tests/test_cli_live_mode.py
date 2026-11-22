@@ -276,7 +276,7 @@ def test_run_queued_executes_the_queued_run(run, seeded, live, pdf: Path, use_fa
 
     assert result.exit_code == 0, result.output
     assert result.output == (
-        "Pipeline run 1: passed (dataset version 1, 35 statements, 70 party positions)\n"
+        "Pipeline run 1: passed (dataset version 1, 40 statements, 80 party positions)\n"
         "Published dataset version 1 for election 1\n"
     )
     assert provider.calls
@@ -365,7 +365,7 @@ def test_failed_run_is_reported_and_later_runs_still_execute(
 
     assert result.exit_code == 1
     assert result.stdout == (
-        "Pipeline run 2: passed (dataset version 1, 35 statements, 70 party positions)\n"
+        "Pipeline run 2: passed (dataset version 1, 40 statements, 80 party positions)\n"
         "Published dataset version 1 for election 1\n"
     )
     assert result.stderr == (
@@ -379,7 +379,8 @@ def test_validation_failure_points_at_the_checks(
     run, seeded, live, pdf: Path, use_fake, db_url: str
 ) -> None:
     assert run("source", "add", "--party", "1", "--file", str(pdf)).exit_code == 0
-    # A Validation failure the selection cannot fix: every Party agrees everywhere.
+    # A Validation failure the selection cannot fix: every Party agrees everywhere,
+    # so selection v3 keeps no Statement and statement_count fails.
     use_fake(fake_provider(position_findings=findings_response(value=1)))
 
     result = run("pipeline", "run-queued")
@@ -387,7 +388,7 @@ def test_validation_failure_points_at_the_checks(
     assert result.exit_code == 1
     assert result.stdout == ""
     assert result.stderr == (
-        "Error: pipeline run 1 failed: validation failed: statement_separation; "
+        "Error: pipeline run 1 failed: validation failed: statement_count; "
         'see "ideology pipeline checks --run 1"\n'
         "Error: 1 of 1 queued pipeline runs failed\n"
     )

@@ -23,7 +23,7 @@ from pipeline_fixtures import (
     positions_response,
     seed_election,
 )
-from sqlalchemy import Engine, event, select
+from sqlalchemy import Engine, event, select, text
 from sqlalchemy.orm import Session
 
 from ideology_app.api.http_cache import etag_for, if_none_match_matches
@@ -68,7 +68,7 @@ ELECTION_1 = {
 GAMMA_URL = "https://gamma.example/programa.pdf"
 GAMMA_PAGE = "Propuestas sobre transporte público y ferrocarril."
 # Statement position Party 3 leaves as ``no stance`` (Parties 1 and 2 still differ there).
-GAMMA_NO_STANCE = 2
+GAMMA_NO_STANCE = 26
 
 
 @pytest.fixture(autouse=True)
@@ -110,12 +110,10 @@ def run_pipeline(engine: Engine, provider: FakeProvider, **kwargs: Any) -> int:
 def gamma_positions() -> Callable[[LLMRequest[Any]], dict[str, Any]]:
     """``positions_response(fill=True)``, but Party 3 has a stance only on odd Statements below 50.
 
-    The selection (pipeline-coverage-selection) serves Party 3 first, so it
-    takes those 25 odd pool Statements and then the lowest even ones (2, 4 ... 20)
-    up to 35; Party 3 covers 25 of 35 (71 %) and Dataset Version Statement
-    ``GAMMA_NO_STANCE`` (pool Statement 2) is ``no stance``. (The default pool
-    has 70 Statements since e2e-real-2026-election; the bound keeps Party 3's
-    coverage as it was with the 50-Statement pool.)
+    Selection v3 (pipeline-statement-priority-tiers) ranks those 25 odd pool
+    Statements first (3 Parties with a side), then the even ones in pool order
+    (2 Parties), up to 40; Party 3 covers 25 of 40 (62 %) and Dataset Version
+    Statement ``GAMMA_NO_STANCE`` (pool Statement 2) is ``no stance``.
     """
     base = positions_response(fill=True)
 
@@ -269,14 +267,18 @@ def test_published_version_follows_contract(
     assert response.status_code == 200
     assert response.headers["cache-control"] == POINTER
     body = response.json()
-    assert list(body) == ["id", "election_id", "created_at", "statements", "parties"]
+    assert list(body) == [
+        "id", "election_id", "created_at", "statements", "parties", "questionnaire_lengths"
+    ]
+    # pipeline-statement-priority-tiers: written by the run, the last is the count.
+    assert body["questionnaire_lengths"] == [15, 30, len(body["statements"])]
     assert body["id"] == published
     assert body["election_id"] == 1
     assert len(body["created_at"]) == 20 and body["created_at"].endswith("Z")
     dt.datetime.strptime(body["created_at"], "%Y-%m-%dT%H:%M:%SZ")
 
     statements = body["statements"]
-    assert [s["position"] for s in statements] == list(range(1, 36))
+    assert [s["position"] for s in statements] == list(range(1, 41))
     assert all(
         list(s) == ["id", "position", "text", "topic", "context_note"] for s in statements
     )
@@ -491,6 +493,8 @@ def test_exact_dataset_version_body(
                 ],
             },
         ],
+        # Created without lengths (NULL, as Dataset Versions 1-5): the full length.
+        "questionnaire_lengths": [2],
     }
     assert response.status_code == 200
     assert response.json() == expected
@@ -1095,3 +1099,33 @@ def test_openapi_documents_context_note(client_for: Callable[[], TestClient]) ->
         "existed."
     )
     assert "context_note" in schema["components"]["schemas"]["StatementOut"]["required"]
+
+
+# pipeline-statement-priority-tiers scenario 13: questionnaire lengths.
+
+
+def test_stored_questionnaire_lengths_are_served(
+    migrated_engine: Engine, client_for: Callable[[], TestClient]
+) -> None:
+    seed_exact_version(migrated_engine)
+    with session_scope(migrated_engine) as session:
+        session.execute(
+            text("UPDATE dataset_versions SET questionnaire_lengths = '[1, 2]' WHERE id = 1")
+        )
+
+    body = client_for().get("/api/v1/dataset-versions/1").json()
+
+    assert body["questionnaire_lengths"] == [1, 2]
+
+
+def test_openapi_documents_questionnaire_lengths(client_for: Callable[[], TestClient]) -> None:
+    schema = client_for().get("/api/openapi.json").json()
+    out = schema["components"]["schemas"]["DatasetVersionOut"]
+    field = out["properties"]["questionnaire_lengths"]
+    assert field["type"] == "array" and field["items"] == {"type": "integer"}
+    assert field["description"] == (
+        "Offered questionnaire lengths, ascending; the last is the number of Statements. "
+        "A questionnaire of length N is the first N Statements. Dataset Versions created "
+        "before lengths existed offer only their full length."
+    )
+    assert "questionnaire_lengths" in out["required"]

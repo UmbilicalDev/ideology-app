@@ -79,11 +79,11 @@ def validating_run(engine: Engine, provider: FakeProvider | None = None) -> int:
 
 
 def failing_provider() -> FakeProvider:
-    """Both Parties agree everywhere: fails ``statement_separation``.
+    """Both Parties agree everywhere: fails ``statement_count``.
 
-    (A count outside the range fails at generation, and the selection leaves out
-    duplicates and topics over the cap, so a Validation failure needs one the
-    selection cannot fix.)
+    (Selection v3 keeps no Statement without a Party on each side, so the
+    Dataset Version is empty; a Validation failure needs one the selection
+    cannot fix.)
     """
     return fake_provider(position_findings=findings_response(value=1))
 
@@ -266,7 +266,7 @@ def test_next_passing_run_supersedes(seeded: Engine) -> None:
     assert published_id(seeded) == v2
     assert election_status(seeded) is ElectionStatus.ACTIVE
     assert snapshot(seeded, v1) == before
-    assert len(before[4]) == 35 and len(before[5]) == 70
+    assert len(before[4]) == 40 and len(before[5]) == 80
 
 
 # Scenario 3: a failing run changes nothing about publication
@@ -283,7 +283,7 @@ def test_failing_run_keeps_the_published_version(seeded: Engine) -> None:
     assert outcome.status is PipelineRunStatus.FAILED
     assert outcome.failure_reason is not None
     assert outcome.failure_reason.startswith("validation failed: ")
-    assert outcome.failed_checks == ("statement_separation",)
+    assert outcome.failed_checks == ("statement_count",)
     assert outcome.publish is None
     v2 = outcome.dataset_version_id
     assert v1 is not None and v2 is not None

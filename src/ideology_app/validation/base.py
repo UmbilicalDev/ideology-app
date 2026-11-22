@@ -67,7 +67,10 @@ class ValidationInput:
     ``statements`` are in position order; ``positions`` by Statement position
     then Party id; ``party_ids`` are the Election's Parties in id order;
     ``documents`` maps document id to every Source Document the run read;
-    ``settings`` holds the configured thresholds. A check that needs more data
+    ``settings`` holds the configured thresholds; ``lengths`` are the
+    questionnaire lengths the Dataset Version offers, ascending, the last
+    being its Statement count (``()`` for versions created before lengths
+    existed, read as the full length by ``offered_lengths``). A check that needs more data
     adds a field here and fills it in ``load_input``; a check that needs a new
     threshold adds a field to ``config.ValidationSettings`` instead.
     """
@@ -77,6 +80,23 @@ class ValidationInput:
     party_ids: tuple[int, ...]
     documents: Mapping[int, RunDocument] = field(default_factory=dict)
     settings: ValidationSettings = ValidationSettings()
+    lengths: tuple[int, ...] = ()
+
+
+def offered_lengths(data: ValidationInput) -> tuple[int, ...]:
+    """The questionnaire lengths to check: ``data.lengths``, or the full length.
+
+    Empty when there are no Statements. A questionnaire of length L is the
+    first L Statements in position order.
+    """
+    if not data.statements:
+        return ()
+    return data.lengths or (len(data.statements),)
+
+
+def length_prefix(length: int, total: int) -> str:
+    """The message prefix for a check on the first ``length`` of ``total`` Statements."""
+    return "" if length == total else f"first {length} statements: "
 
 
 @dataclass(frozen=True)
@@ -175,4 +195,5 @@ def load_input(
             for link, d in run_documents
         },
         settings=settings,
+        lengths=tuple(version.questionnaire_lengths or ()),
     )

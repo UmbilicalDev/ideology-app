@@ -23,6 +23,7 @@ from pipeline_fixtures import (
     fake_provider,
     findings_response,
     findings_statement_numbers,
+    keep_pool_prefix,
     offline_guard,
     positions_response,
     seed_election,
@@ -72,6 +73,10 @@ from ideology_app.pipeline import runs as runs_module
 @pytest.fixture(autouse=True)
 def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     offline_guard(monkeypatch)
+
+
+# The seeded Election has 2 Parties (offline_guard sets the same value in the env).
+TWO_PARTY = ValidationSettings(min_statement_parties=2)
 
 
 @pytest.fixture
@@ -137,9 +142,10 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
     outcome = execute_run(seeded, run_id, provider)
 
     assert outcome.status is PipelineRunStatus.PASSED
-    # pipeline-coverage-selection: a 70-Statement pool where every Statement ties,
-    # so the selection is pool Statements 1..35 (max_statements).
-    assert outcome.statement_count == 35
+    # pipeline-statement-priority-tiers: a 120-Statement pool where every Statement
+    # ties (2 Parties with a side, separation 1), so the selection is pool Statements
+    # 1..40 (max_statements) in pool order.
+    assert outcome.statement_count == 40
     assert outcome.failure_reason is None
     run = read_run(seeded, run_id)
     assert run.status is PipelineRunStatus.PASSED
@@ -147,13 +153,13 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
     assert run.llm_model == "fake-model"
     assert run.generation_mode is GenerationMode.PRECOMPUTED
     assert run.prompt_versions == {
-        "statement_candidates": "v1",
-        "generate_statements": "v6",
+        "statement_candidates": "v2",
+        "generate_statements": "v7",
         "position_findings": "v5",
         "party_positions": "v2",
     }
-    # e2e-real-2026-election: 70 pool Statements = 4 findings batches per chunk.
-    assert run.llm_calls == 13
+    # 120 pool Statements = 6 findings batches per chunk: 2 + 1 + 2 x 6 + 2 calls.
+    assert run.llm_calls == 17
     in_tokens = sum(len(f"{c.system} {c.prompt}".split()) for c in provider.calls)
     assert run.input_tokens == in_tokens
     assert run.output_tokens > 0
@@ -170,7 +176,7 @@ def test_happy_path_creates_and_publishes_dataset_version(seeded: Engine) -> Non
         assert version.pipeline_run_id == run_id
         # auto-publish-dataset-version: the run passed, so its version is Published.
         assert version.status is DatasetVersionStatus.PUBLISHED
-        expected = statements_payload()["statements"][:35]
+        expected = statements_payload()["statements"][:40]
         assert [
             (st.position, st.text, st.topic, st.context_note) for st in version.statements
         ] == [
@@ -279,7 +285,7 @@ def _same_except_anchors(first: FakeProvider, second: FakeProvider) -> None:
         assert "\n\n(ninguna)\n\n" in a.prompt
         anchors = "\n".join(
             f"[{k}] [{st['topic']}] {st['text']}"
-            for k, st in enumerate(statements_payload()["statements"][:35], start=1)
+            for k, st in enumerate(statements_payload()["statements"][:40], start=1)
         )
         assert b.prompt == a.prompt.replace("(ninguna)", anchors)
 
@@ -293,9 +299,9 @@ def test_two_runs_on_the_same_input_send_identical_requests(seeded: Engine) -> N
         "statement_candidates",
         "statement_candidates",
         "generate_statements",
-        *["position_findings"] * 4,
+        *["position_findings"] * 6,
         "party_positions",
-        *["position_findings"] * 4,
+        *["position_findings"] * 6,
         "party_positions",
     ]
     # Exact duplicate candidates (same 3 per chunk) appear once in the reduce prompt.
@@ -456,7 +462,7 @@ def test_execute_run_rejects_a_run_that_is_not_queued(seeded: Engine) -> None:
         before.started_at,
         before.llm_calls,
     )
-    assert counts(seeded) == (1, 1, 35)
+    assert counts(seeded) == (1, 1, 40)
 
 
 @pytest.mark.parametrize(
@@ -505,7 +511,7 @@ def test_list_runs_and_get_dataset_version(seeded: Engine) -> None:
 def test_deleting_the_election_cascades(seeded: Engine) -> None:
     provider = fake_provider()
     execute_run(seeded, queue(seeded, provider), provider)
-    assert counts(seeded) == (1, 1, 35)
+    assert counts(seeded) == (1, 1, 40)
     with seeded.begin() as conn:
         conn.execute(sa.text("DELETE FROM elections"))
     assert counts(seeded) == (0, 0, 0)
@@ -537,26 +543,29 @@ def _scenario1_positions(request: LLMRequest[Any]) -> dict[str, Any]:
     return {"positions": [{"statement": 1, "value": -2, "evidence": 1}]}
 
 
-def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) -> None:
+def test_positions_happy_path_stores_every_statement_party_pair(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
     provider = fake_provider(
         position_findings=_scenario1_findings, party_positions=_scenario1_positions
     )
     run_id = queue(seeded, provider)
 
     # A sparse run on purpose: coverage is not what this test checks. Only
-    # Statement 1 separates the Parties, so the selection fills up to
-    # min_statements (25) with non-separating ones (2..25), statement_separation
-    # fails, and the Dataset Version and its rows are kept.
+    # Statement 1 separates the Parties; selection v3 would keep nothing else, so
+    # the seam keeps pool Statements 1..35, statement_separation fails, and the
+    # Dataset Version and its rows are kept.
+    keep_pool_prefix(monkeypatch)
     outcome = execute_run(seeded, run_id, provider, ValidationSettings(0))
 
     assert outcome.status is PipelineRunStatus.FAILED
     assert outcome.failure_reason == "validation failed: statement_separation"
-    assert outcome.statement_count == 25
-    assert outcome.position_count == 50
+    assert outcome.statement_count == 35
+    assert outcome.position_count == 70
     run = read_run(seeded, run_id)
     assert run.prompt_versions == {
-        "statement_candidates": "v1",
-        "generate_statements": "v6",
+        "statement_candidates": "v2",
+        "generate_statements": "v7",
         "position_findings": "v5",
         "party_positions": "v2",
     }
@@ -564,12 +573,12 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
         "statement_candidates",
         "statement_candidates",
         "generate_statements",
-        *["position_findings"] * 4,
+        *["position_findings"] * 6,
         "party_positions",
-        *["position_findings"] * 4,
+        *["position_findings"] * 6,
         "party_positions",
     ]
-    assert run.llm_calls == 3 + 2 * 4 + 2
+    assert run.llm_calls == 3 + 2 * 6 + 2
     assert run.input_tokens == sum(len(f"{c.system} {c.prompt}".split()) for c in provider.calls)
     assert run_documents(seeded, run_id) == {
         1: SourceDocumentRole.MAIN,
@@ -578,9 +587,9 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
 
     with Session(seeded) as s:
         statements = s.scalars(select(Statement).order_by(Statement.position)).all()
-        assert len(statements) == 25
+        assert len(statements) == 35
         rows = s.scalars(select(PartyPosition)).all()
-        assert len(rows) == 50
+        assert len(rows) == 70
         assert {(r.statement_id, r.party_id) for r in rows} == {
             (st.id, party) for st in statements for party in (1, 2)
         }
@@ -603,7 +612,9 @@ def test_positions_happy_path_stores_every_statement_party_pair(seeded: Engine) 
                 assert row.engine_value == NO_STANCE
 
 
-def test_quotes_are_stored_exactly_as_returned(seeded: Engine) -> None:
+def test_quotes_are_stored_exactly_as_returned(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # pipeline-verified-findings: a quote with odd case and whitespace is still
     # on its page, so it is kept and stored exactly as returned; an invented
     # quote is discarded at extraction and never stored.
@@ -625,9 +636,10 @@ def test_quotes_are_stored_exactly_as_returned(seeded: Engine) -> None:
     provider = fake_provider(
         position_findings=_findings, party_positions=_positions((3, 0, 1), (4, 1, 2))
     )
+    keep_pool_prefix(monkeypatch)
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    # Each Party covers 1 of 25 Statements and no Statement separates them, so
+    # Each Party has a stance (0) on 1 of 35 Statements and no Statement separates them, so
     # coverage and separation fail; evidence_quotes passes.
     assert outcome.status is PipelineRunStatus.FAILED
     assert outcome.failed_checks == ("party_coverage", "statement_separation")
@@ -710,7 +722,7 @@ def test_slipped_finding_is_discarded_recorded_and_never_stored(seeded: Engine) 
     assert pool[1]["values"][0] is None
     assert all(entry["values"][0] is not None for entry in pool if entry["pool"] != 2)
     party1 = selection["parties"][0]
-    assert party1["pool_stances"] == selection["pool_size"] - 1
+    assert party1["pool_sides"] == selection["pool_size"] - 1
 
 
 class _Raising:
@@ -784,7 +796,7 @@ def test_reuse_from_replays_every_call_with_the_same_findings_record(seeded: Eng
 
 
 def test_document_roles_are_recorded_and_additional_evidence_is_kept(
-    migrated_engine: Engine,
+    migrated_engine: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seed_election(migrated_engine)
     with session_scope(migrated_engine) as s:
@@ -795,9 +807,10 @@ def test_document_roles_are_recorded_and_additional_evidence_is_kept(
     provider = fake_provider(party_positions=positions_response())
     run_id = queue(migrated_engine, provider)
 
+    keep_pool_prefix(monkeypatch)
     outcome = execute_run(migrated_engine, run_id, provider, ValidationSettings(0))
 
-    # Sparse on purpose, so Statements 3..25 do not separate the Parties.
+    # Sparse on purpose, so Statements 3..35 do not separate the Parties.
     assert outcome.status is PipelineRunStatus.FAILED
     assert outcome.failure_reason == "validation failed: statement_separation"
     assert run_documents(migrated_engine, run_id) == {
@@ -806,8 +819,8 @@ def test_document_roles_are_recorded_and_additional_evidence_is_kept(
         4: SourceDocumentRole.ADDITIONAL,
     }
     findings = [c for c in provider.calls if c.task == "position_findings"]
-    assert len(findings) == 3 * 4
-    assert PAGES[1][0] in findings[0].prompt and "Anexo uno." in findings[4].prompt
+    assert len(findings) == 3 * 6
+    assert PAGES[1][0] in findings[0].prompt and "Anexo uno." in findings[6].prompt
     with Session(migrated_engine) as s:
         party1 = list_positions(s, outcome.dataset_version_id or 0, 1)
         evidence = {p.statement.position: (p.evidence_source_document_id, p.evidence_quote)
@@ -859,7 +872,7 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
     assert outcome.status is PipelineRunStatus.FAILED
     assert outcome.failure_reason == "validation failed: party_coverage, statement_separation"
     assert outcome.failed_checks == ("party_coverage", "statement_separation")
-    assert outcome.position_count == 50
+    assert outcome.position_count == 70
     with Session(engine) as s:
         version = s.get(DatasetVersion, outcome.dataset_version_id)
         assert version is not None and version.status is DatasetVersionStatus.CANDIDATE
@@ -871,7 +884,12 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
             (
                 "party_coverage",
                 False,
-                [(None, 2, "party 2 has positions on 0 of 25 statements (0%); minimum is 50%")],
+                [
+                    (None, 2, f"{prefix}party 2 is in favour or against on 0 of {n} "
+                     "statements (0%); minimum is 50%")
+                    for prefix, n in (("first 15 statements: ", 15),
+                                      ("first 30 statements: ", 30), ("", 35))
+                ],
             ),
             (
                 "statement_separation",
@@ -879,7 +897,7 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
                 [
                     (st.id, None,
                      f"statement {st.position} does not separate parties: "
-                     "only party 1 has a stance (value 1)")
+                     "no party is against (1 in favour)")
                     for st in s.scalars(
                         select(Statement)
                         .where(Statement.dataset_version_id == outcome.dataset_version_id)
@@ -894,28 +912,33 @@ def _assert_party2_has_no_stance(engine: Engine, outcome: RunOutcome) -> None:
         ]
     rows = position_rows(engine)
     party2 = [r for r in rows if r.party_id == 2]
-    assert len(party2) == 25
+    assert len(party2) == 35
     assert all(
         (r.value, r.evidence_source_document_id, r.evidence_quote, r.evidence_page,
          r.evidence_url) == (None, None, None, None, None)
         for r in party2
     )
     # The default fake fills Party 1's one finding into every Statement.
-    assert [r.value for r in rows if r.party_id == 1 and r.value is not None] == [1] * 25
+    assert [r.value for r in rows if r.party_id == 1 and r.value is not None] == [1] * 35
 
 
-def test_party_without_findings_gets_no_stance_and_no_reduce(seeded: Engine) -> None:
+def test_party_without_findings_gets_no_stance_and_no_reduce(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
     provider = fake_provider(position_findings=_no_party2_findings)
+    keep_pool_prefix(monkeypatch)
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
     _assert_party2_has_no_stance(seeded, outcome)
     tasks = [c.task for c in provider.calls]
-    assert tasks.count("position_findings") == 2 * 4
+    assert tasks.count("position_findings") == 2 * 6
     assert tasks.count("party_positions") == 1
-    assert read_run(seeded, outcome.run_id).llm_calls == 12
+    assert read_run(seeded, outcome.run_id).llm_calls == 16
 
 
-def test_party_without_documents_gets_no_stance_and_no_calls(seeded: Engine) -> None:
+def test_party_without_documents_gets_no_stance_and_no_calls(
+    seeded: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with session_scope(seeded) as s:
         s.execute(
             sa.update(SourceDocument)
@@ -923,11 +946,12 @@ def test_party_without_documents_gets_no_stance_and_no_calls(seeded: Engine) -> 
             .values(status=SourceDocumentStatus.FAILED)
         )
     provider = fake_provider(position_findings=_no_party2_findings)
+    keep_pool_prefix(monkeypatch)
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
     _assert_party2_has_no_stance(seeded, outcome)
     tasks = [c.task for c in provider.calls]
-    assert tasks.count("position_findings") == 4
+    assert tasks.count("position_findings") == 6
     assert tasks.count("party_positions") == 1
     assert run_documents(seeded, outcome.run_id) == {1: SourceDocumentRole.MAIN}
 
@@ -990,39 +1014,39 @@ def _raise(exc: Exception) -> Any:
         # Since pipeline-output-bounds the schema rejects unknown numbers, so the
         # call fails (and is not counted) instead of a GenerationError after it.
         (
-            {"position_findings": _findings_with(statement=71)},
+            {"position_findings": _findings_with(statement=121)},
             "FakeProvider response for task 'position_findings' does not match "
             "FindingList: 1 validation error(s)",
             3,
         ),
         (
-            {"position_findings": _findings_with(statement=101)},
+            {"position_findings": _findings_with(statement=141)},
             "FakeProvider response for task 'position_findings' does not match "
             "FindingList: 1 validation error(s)",
             3,
         ),
         (
-            {"party_positions": _positions((71, 1, 1))},
+            {"party_positions": _positions((121, 1, 1))},
             "FakeProvider response for task 'party_positions' does not match "
             "PositionList: 1 validation error(s)",
-            7,
+            9,
         ),
         (
             {"party_positions": _positions((4, 1, 1), (4, -1, 2))},
             "party_positions repeated statement 4",
-            8,
+            10,
         ),
         (
             {"party_positions": _positions((1, 1, 3))},
             "FakeProvider response for task 'party_positions' does not match "
             "PositionList: 1 validation error(s)",
-            7,
+            9,
         ),
         (
             {"party_positions": _positions((1, 3, 1))},
             "FakeProvider response for task 'party_positions' does not match "
             "PositionList: 1 validation error(s)",
-            7,
+            9,
         ),
         (
             {"position_findings": _findings_with(value=3)},
@@ -1056,7 +1080,7 @@ def _raise(exc: Exception) -> Any:
         (
             {"party_positions": _raise(LLMProviderError("APIConnectionError"))},
             "APIConnectionError",
-            7,
+            9,
         ),
     ],
     ids=[
@@ -1094,7 +1118,7 @@ def test_invalid_position_output_fails_the_run(
 def test_long_position_failure_reason_is_cut(seeded: Engine) -> None:
     provider = fake_provider(party_positions=_raise(LLMProviderError("x" * 600)))
     outcome = execute_run(seeded, queue(seeded, provider), provider)
-    _assert_failed(seeded, outcome, "x" * 500, 7)
+    _assert_failed(seeded, outcome, "x" * 500, 9)
 
 
 # Scenario 7: the call budget is checked before any LLM call
@@ -1103,33 +1127,33 @@ def test_long_position_failure_reason_is_cut(seeded: Engine) -> None:
 def test_position_call_budget_is_checked_before_any_call(
     seeded: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert MAX_POSITION_CALLS_PER_RUN == 300
+    assert MAX_POSITION_CALLS_PER_RUN == 600
     monkeypatch.setattr(positions_module, "MAX_POSITION_CALLS_PER_RUN", 3)
     provider = fake_provider()
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    # 2 chunks x 4 Statement batches (planned for the largest pool, 80) plus
-    # one reduce per Party with documents = 10 calls.
-    _assert_failed(seeded, outcome, "too many position extraction calls: 10 (limit 3)", 0)
+    # 2 chunks x 7 Statement batches (planned for the largest pool, 140) plus
+    # one reduce per Party with documents = 16 calls.
+    _assert_failed(seeded, outcome, "too many position extraction calls: 16 (limit 3)", 0)
     assert provider.calls == []
 
 
 def test_position_call_budget_uses_the_real_limit(seeded: Engine) -> None:
     with session_scope(seeded) as s:
         # Pages over half the chunk limit: one chunk each.
-        add_parsed_document(s, party_id=1, document_id=10, pages=["x" * 20_001] * 73)
+        add_parsed_document(s, party_id=1, document_id=10, pages=["x" * 20_001] * 84)
     provider = fake_provider()
     outcome = execute_run(seeded, queue(seeded, provider), provider)
 
-    # (73 + 2 chunks) x 4 Statement batches, plus 2 reduces = 302 calls.
-    _assert_failed(seeded, outcome, "too many position extraction calls: 302 (limit 300)", 0)
+    # (84 + 2 chunks) x 7 Statement batches, plus 2 reduces = 604 calls.
+    _assert_failed(seeded, outcome, "too many position extraction calls: 604 (limit 600)", 0)
     assert provider.calls == []
 
 
 def test_position_call_budget_at_the_limit_is_allowed(
     seeded: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(positions_module, "MAX_POSITION_CALLS_PER_RUN", 10)
+    monkeypatch.setattr(positions_module, "MAX_POSITION_CALLS_PER_RUN", 16)
     provider = fake_provider()
     outcome = execute_run(seeded, queue(seeded, provider), provider)
     assert outcome.status is PipelineRunStatus.PASSED
@@ -1191,7 +1215,7 @@ def test_unexpected_error_in_positions_fails_the_run_and_is_reraised(seeded: Eng
     run = read_run(seeded, run_id)
     assert run.status is PipelineRunStatus.FAILED
     assert run.failure_reason == "unexpected error: KeyError"
-    assert run.llm_calls == 7
+    assert run.llm_calls == 9
     assert position_rows(seeded) == []
 
 
@@ -1206,9 +1230,9 @@ def test_list_positions_orders_and_filters(seeded: Engine) -> None:
     with Session(seeded) as s:
         rows = list_positions(s, version_id)
         assert [(p.statement.position, p.party_id) for p in rows] == [
-            (n, party) for n in range(1, 36) for party in (1, 2)
+            (n, party) for n in range(1, 41) for party in (1, 2)
         ]
-        assert [p.party_id for p in list_positions(s, version_id, 2)] == [2] * 35
+        assert [p.party_id for p in list_positions(s, version_id, 2)] == [2] * 40
         with pytest.raises(NotFoundError, match="^dataset version 9 not found$"):
             list_positions(s, 9)
         with pytest.raises(NotFoundError, match="^party 9 not found$"):
@@ -1231,7 +1255,7 @@ def test_deleting_the_election_cascades_to_positions(seeded: Engine) -> None:
     provider = fake_provider()
     run_id = queue(seeded, provider)
     execute_run(seeded, run_id, provider)
-    assert len(position_rows(seeded)) == 70
+    assert len(position_rows(seeded)) == 80
     with seeded.begin() as conn:
         conn.execute(sa.text("DELETE FROM elections"))
     assert position_rows(seeded) == []
@@ -1281,7 +1305,7 @@ def test_replaced_documents_are_not_read_and_the_main_role_survives(
         assert text not in prompts
     # Party 1's chunks: the replacement (main) first, then the additional document.
     assert "Programa nuevo sobre vivienda." in findings[0].prompt
-    assert "Anexo uno." in findings[4].prompt
+    assert "Anexo uno." in findings[6].prompt
 
 
 def test_queue_run_finds_parsed_input_after_a_replacement(migrated_engine: Engine) -> None:
@@ -1299,7 +1323,8 @@ def test_queue_run_finds_parsed_input_after_a_replacement(migrated_engine: Engin
 # bounded at generation (pool_bounds of the run's ValidationSettings).
 
 
-@pytest.mark.parametrize("count", [20, 59, 81])
+# pipeline-statement-priority-tiers, scenario 2: 99 and 141 fail (pool 100..140).
+@pytest.mark.parametrize("count", [20, 99, 141])
 def test_out_of_range_statement_count_fails_before_any_position_call(
     seeded: Engine, count: int
 ) -> None:
@@ -1327,12 +1352,12 @@ def test_env_statement_range_drives_generation_and_validation(
     outcome = execute_run(seeded, queue(seeded, provider), provider, None)
 
     assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
-    # The selection keeps max_statements of the 70-Statement pool.
+    # The selection keeps max_statements of the 120-Statement pool.
     assert outcome.statement_count == 40
     reduce = next(c for c in provider.calls if c.task == "generate_statements")
     bounds = reduce.schema.model_json_schema()["properties"]["statements"]
-    assert (bounds["minItems"], bounds["maxItems"]) == (60, 80)
-    assert "(como mínimo 60 y como máximo 80)" in reduce.prompt
+    assert (bounds["minItems"], bounds["maxItems"]) == (100, 140)
+    assert "(como mínimo 100 y como máximo 140)" in reduce.prompt
     run = read_run(seeded, outcome.run_id)
     assert run.validation_settings["min_statements"] == 36
     assert run.validation_settings["max_statements"] == 40
@@ -1341,10 +1366,10 @@ def test_env_statement_range_drives_generation_and_validation(
         checks = {r.check_name: r.passed for r in list_validation_results(s, outcome.run_id)}
     assert checks["statement_count"] is True
 
-    # A larger max_statements raises the pool minimum: 62 fits the default
-    # pool bounds (60..80) but not 65..80.
-    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "65")
-    narrow = fake_provider(generate_statements=statements_payload(62))
+    # A larger max_statements raises the pool minimum: 110 fits the default
+    # pool bounds (100..140) but not 120..140.
+    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "120")
+    narrow = fake_provider(generate_statements=statements_payload(110))
     failed = execute_run(seeded, queue(seeded, narrow), narrow, None)
     assert failed.status is PipelineRunStatus.FAILED
     assert failed.failure_reason == (
@@ -1398,22 +1423,25 @@ def test_dataset_version_holds_only_selected_statements(seeded: Engine) -> None:
         position_findings=_selection_findings,
         party_positions=_selection_positions,
     )
-    outcome = execute_run(seeded, queue(seeded, provider), provider, ValidationSettings(0))
+    settings = ValidationSettings(0, min_statement_parties=2)
+    outcome = execute_run(seeded, queue(seeded, provider), provider, settings)
 
     report = read_run(seeded, outcome.run_id).statement_selection
     assert report is not None
     selected = [e["pool"] for e in report["pool"] if e["status"] == "selected"]
+    # Every ranked Statement ties (2 Parties, separation 1): priority = pool order.
     assert selected == sorted(selected)
     assert [e["position"] for e in report["pool"] if e["status"] == "selected"] == list(
         range(1, len(selected) + 1)
     )
-    # Only separating Statements (odd, not a multiple of 3) are tier 1.
-    tier1 = [n for n in range(1, 71) if n % 2 and n % 3]
-    assert [e["pool"] for e in report["pool"] if e["tier"] == 1] == tier1
-    # 23 separate; 2 non-separating ones fill up to min_statements.
-    assert len(selected) == 25 and set(tier1) <= set(selected)
-    assert outcome.statement_count == 25
-    assert outcome.position_count == 50
+    # Only Statements with a Party on each side (odd, not a multiple of 3) are ranked;
+    # selection v3 never fills up with the others.
+    separating = [n for n in range(1, 121) if n % 2 and n % 3]
+    assert [e["pool"] for e in report["pool"] if e["rank"] is not None] == separating
+    assert {e["status"] for e in report["pool"] if e["rank"] is None} == {"not_separating"}
+    assert selected == separating[:40]
+    assert outcome.statement_count == 40
+    assert outcome.position_count == 80
     with Session(seeded) as s:
         version = get_dataset_version(s, outcome.dataset_version_id or 0)
         statements = list(version.statements)
@@ -1429,7 +1457,7 @@ def test_dataset_version_holds_only_selected_statements(seeded: Engine) -> None:
             )
             for p in rows
         }
-    assert len(got) == 50
+    assert len(got) == 80
     for position, n in enumerate(selected, start=1):
         for party_id in (1, 2):
             value = _selection_value(party_id, n)
@@ -1454,7 +1482,7 @@ def test_llm_call_count_unchanged(migrated_engine: Engine) -> None:
     tasks = [c.task for c in provider.calls]
     assert tasks.count("statement_candidates") == chunks
     assert tasks.count("generate_statements") == 1
-    batches = 4  # 70 pool Statements in batches of 20
+    batches = 6  # 120 pool Statements in batches of 20
     assert tasks.count("position_findings") == chunks * batches
     assert tasks.count("party_positions") == parties
     assert read_run(migrated_engine, outcome.run_id).llm_calls == (
@@ -1479,30 +1507,35 @@ def test_selection_stored_in_finish_commit(seeded: Engine) -> None:
     run_id = queue(seeded, provider)
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(runs_module, "validate_run", lambda engine, run_id, **kwargs: None)
-        execute_run(seeded, run_id, provider, ValidationSettings())
+        execute_run(seeded, run_id, provider, TWO_PARTY)
 
     # Before Validation: the run is validating, with its version and its selection.
     run = read_run(seeded, run_id)
     assert run.status is PipelineRunStatus.VALIDATING
     report = run.statement_selection
     assert report is not None
-    assert report["version"] == "v2"
-    assert report["pool_size"] == 70 and report["selected_count"] == 35
+    assert report["version"] == "v3"
+    assert report["lengths"] == [15, 30, 40]
+    assert report["pool_size"] == 120 and report["selected_count"] == 40
     assert report["anchors"] == {
         "dataset_version_id": None, "count": 0, "in_pool": [], "selected": [], "missing": []
     }
     assert report["count_rule"] == "coverage_met"
     assert report["projected_failures"] == []
     assert report["party_ids"] == [1, 2]
-    assert counts(seeded) == (1, 1, 35)
+    assert counts(seeded) == (1, 1, 40)
 
-    outcome = validate_run(seeded, run_id, settings=ValidationSettings())
+    with Session(seeded) as s:
+        # pipeline-statement-priority-tiers: written in the same insert, never updated.
+        version = s.scalars(select(DatasetVersion)).one()
+        assert version.questionnaire_lengths == [15, 30, 40]
+    outcome = validate_run(seeded, run_id, settings=TWO_PARTY)
     assert outcome.status is PipelineRunStatus.PASSED
     # Validation never changes the stored selection.
     assert read_run(seeded, run_id).statement_selection == report
 
 
-@pytest.mark.parametrize("count", [59, 81])
+@pytest.mark.parametrize("count", [99, 141])
 def test_failed_generation_stores_no_selection(seeded: Engine, count: int) -> None:
     provider = fake_provider(generate_statements=statements_payload(count))
     outcome = execute_run(seeded, queue(seeded, provider), provider)
@@ -1560,12 +1593,12 @@ def test_anchors_are_the_published_statements_in_position_order(seeded: Engine) 
 
     request = _reduce(provider)
     lines = _published_lines(seeded, published.dataset_version_id)
-    assert lines.count("\n") == 34
+    assert lines.count("\n") == 39
     assert (
         "número y su tema entre corchetes):\n\n" + lines + "\n\nElabora una lista de"
     ) in request.prompt
     assert _anchor_schema(request) == {
-        "anyOf": [{"maximum": 35, "minimum": 1, "type": "integer"}, {"type": "null"}],
+        "anyOf": [{"maximum": 40, "minimum": 1, "type": "integer"}, {"type": "null"}],
         "title": "Anchor",
     }
     assert read_run(seeded, run_id).anchor_dataset_version_id == published.dataset_version_id
@@ -1642,7 +1675,7 @@ def test_context_notes_are_stored_exactly_as_returned(seeded: Engine) -> None:
             .order_by(Statement.position)
         ).all()
     assert stored[0] == note
-    assert stored[1:] == [st["context_note"] for st in payload["statements"][1:35]]
+    assert stored[1:] == [st["context_note"] for st in payload["statements"][1:40]]
 
 
 def test_a_failing_note_costs_one_statement_not_the_run(seeded: Engine) -> None:
@@ -1670,8 +1703,10 @@ def test_a_note_failing_validation_fails_the_whole_run(seeded: Engine) -> None:
     run_id = queue(seeded, provider)
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(runs_module, "validate_run", lambda engine, run_id, **kwargs: None)
-        execute_run(seeded, run_id, provider, ValidationSettings())
-    strict = ValidationSettings(context_note_evaluative_words=("ámbito",))
+        execute_run(seeded, run_id, provider, TWO_PARTY)
+    strict = ValidationSettings(
+        context_note_evaluative_words=("ámbito",), min_statement_parties=2
+    )
 
     outcome = validate_run(seeded, run_id, settings=strict)
 
@@ -1697,11 +1732,131 @@ def test_anchor_report_lists_pool_selected_and_missing(seeded: Engine) -> None:
     report = read_run(seeded, run_id).statement_selection
     assert report["anchors"] == {
         "dataset_version_id": published.dataset_version_id,
-        "count": 35,
+        "count": 40,
         "in_pool": [1, 3],
         "selected": [1],
-        "missing": [2, *range(4, 36)],
+        "missing": [2, *range(4, 41)],
     }
     assert [row["anchor"] for row in report["pool"][:3]] == [1, 1, None]
     assert report["pool"][59]["anchor"] == 3 and report["pool"][59]["status"] == "not_picked"
     assert all("context_note" in row for row in report["pool"])
+
+
+# pipeline-statement-priority-tiers: priority order, stored lengths, strict lengths.
+
+
+def _five_party_election(engine: Engine) -> None:
+    """Parties 3..5 join the seeded Election, each with a one-page document."""
+    with session_scope(engine) as s:
+        for party_id in (3, 4, 5):
+            add_party(s, election_id=1, name=f"Partido {party_id}", short_name=f"P{party_id}")
+            add_parsed_document(
+                s, party_id=party_id, document_id=10 + party_id,
+                pages=[f"Propuestas del documento {party_id}."],
+            )
+
+
+def _override_positions(
+    monkeypatch: pytest.MonkeyPatch, value: Any
+) -> None:
+    """Replace every extracted result with ``value(party_id, n)``, citing real page text."""
+    from ideology_app.pipeline.positions import PositionResult
+
+    documents = {1: (1, PAGES[1][0]), 2: (2, PAGES[2][0])}
+    documents |= {p: (10 + p, f"Propuestas del documento {p}.") for p in (3, 4, 5)}
+    real = runs_module.extract_positions
+
+    def _wrapped(*args: Any, **kwargs: Any) -> dict[int, list[Any]]:
+        extracted = real(*args, **kwargs)
+        out: dict[int, list[Any]] = {}
+        for party_id, results in extracted.items():
+            document_id, quote = documents[party_id]
+            out[party_id] = [
+                PositionResult(r.statement_number, None)
+                if value(party_id, r.statement_number) is None
+                else PositionResult(
+                    r.statement_number, value(party_id, r.statement_number), document_id,
+                    quote, 1, None,
+                )
+                for r in results
+            ]
+        return out
+
+    monkeypatch.setattr(runs_module, "extract_positions", _wrapped)
+
+
+def _late_party3(party_id: int, n: int) -> int | None:
+    """Pool 1..20: Parties 1, 2, 4, 5 take a side; 21..: Parties 1, 2, 3 only."""
+    if n <= 20:
+        return {1: 1, 2: -1, 3: None, 4: -1, 5: 1}[party_id]
+    return {1: 1, 2: -1, 3: -1, 4: None, 5: None}[party_id]
+
+
+def test_a_failing_shorter_length_fails_the_whole_run(
+    migrated_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Scenario 11: Party 3 takes a side only on Statements ranked 21 and below.
+    seed_election(migrated_engine)
+    _five_party_election(migrated_engine)
+    _override_positions(monkeypatch, _late_party3)
+    provider = fake_provider()
+    outcome = execute_run(migrated_engine, queue(migrated_engine, provider), provider)
+
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: party_coverage"
+    assert outcome.statement_count == 40
+    run = read_run(migrated_engine, outcome.run_id)
+    assert run.statement_selection["projected_failures"] == ["party_coverage"]
+    assert run.statement_selection["count_rule"] == "coverage_met"
+    assert run.validation_settings["questionnaire_lengths"] == [15, 30]
+    assert run.validation_settings["min_statement_parties"] == 2
+    with Session(migrated_engine) as s:
+        version = s.get(DatasetVersion, outcome.dataset_version_id)
+        assert version is not None
+        assert version.status is DatasetVersionStatus.CANDIDATE
+        assert version.questionnaire_lengths == [15, 30, 40]
+        (coverage,) = [
+            r for r in list_validation_results(s, outcome.run_id) if not r.passed
+        ]
+        assert [(e.party_id, e.message) for e in coverage.entries] == [
+            (3, "first 15 statements: party 3 is in favour or against on 0 of 15 "
+                "statements (0%); minimum is 50%"),
+            (3, "first 30 statements: party 3 is in favour or against on 10 of 30 "
+                "statements (33%); minimum is 50%"),
+        ]
+        published = s.scalars(
+            select(DatasetVersion).where(DatasetVersion.status == DatasetVersionStatus.PUBLISHED)
+        ).all()
+        assert published == []
+
+
+def test_the_dataset_version_is_written_in_priority_order(
+    migrated_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Scenario 10: more Parties with a side first; equal counts keep pool order.
+    seed_election(migrated_engine)
+    _five_party_election(migrated_engine)
+
+    def value(party_id: int, n: int) -> int | None:
+        sided = 5 if n % 4 == 0 else (4 if n % 4 == 1 else 3)
+        return (1 if party_id % 2 else -1) if party_id <= sided else None
+
+    _override_positions(monkeypatch, value)
+    payload = statements_payload()
+    provider = fake_provider(generate_statements=payload)
+    outcome = execute_run(migrated_engine, queue(migrated_engine, provider), provider)
+
+    assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
+    fives = [n for n in range(1, 121) if n % 4 == 0]
+    fours = [n for n in range(1, 121) if n % 4 == 1]
+    expected = (fives + fours)[:40]
+    with Session(migrated_engine) as s:
+        version = get_dataset_version(s, outcome.dataset_version_id or 0)
+        assert version.questionnaire_lengths == [15, 30, 40]
+        assert [(st.position, st.text, st.context_note) for st in version.statements] == [
+            (k, payload["statements"][n - 1]["text"], payload["statements"][n - 1]["context_note"])
+            for k, n in enumerate(expected, start=1)
+        ]
+    report = read_run(migrated_engine, outcome.run_id).statement_selection
+    tiers = {e["pool"]: e["tier"] for e in report["pool"] if e["status"] == "selected"}
+    assert [tiers[n] for n in expected] == [15] * 15 + [30] * 15 + [40] * 10

@@ -18,6 +18,7 @@ from pipeline_fixtures import (
     fake_provider,
     findings_response,
     invent_quote_after_extraction,
+    keep_pool_prefix,
     offline_guard,
     positions_response,
     seed_election,
@@ -98,10 +99,10 @@ def test_run_list_and_statements(run, seeded, use_fake) -> None:
 
     assert result.exit_code == 0, result.output
     assert result.output == (
-        "Pipeline run 1: passed (dataset version 1, 35 statements, 70 party positions)\n"
+        "Pipeline run 1: passed (dataset version 1, 40 statements, 80 party positions)\n"
         "Published dataset version 1 for election 1\n"
     )
-    assert len(provider.calls) == 13  # 4 findings batches per chunk
+    assert len(provider.calls) == 17  # 6 findings batches per chunk
 
     listed = run("pipeline", "list", "--election", "1")
     assert listed.exit_code == 0, listed.output
@@ -111,7 +112,7 @@ def test_run_list_and_statements(run, seeded, use_fake) -> None:
     row = lines[1].split("\t")
     in_tokens = sum(len(f"{c.system} {c.prompt}".split()) for c in provider.calls)
     assert row[:9] == [
-        "1", "passed", "fake", "fake-model", "precomputed", "1", "35", "13", str(in_tokens)
+        "1", "passed", "fake", "fake-model", "precomputed", "1", "40", "17", str(in_tokens)
     ]
     assert int(row[9]) > 0
     assert row[10] == ""
@@ -120,8 +121,8 @@ def test_run_list_and_statements(run, seeded, use_fake) -> None:
     assert statements.exit_code == 0, statements.output
     lines = statements.output.splitlines()
     assert lines[0] == "position\ttopic\ttext\tcontext_note"
-    # The selection keeps pool Statements 1..35 of the 70-Statement pool.
-    expected = statements_payload()["statements"][:35]
+    # The selection keeps pool Statements 1..40 of the 120-Statement pool.
+    expected = statements_payload()["statements"][:40]
     assert lines[1:] == [
         f"{i}\t{e['topic']}\t{e['text']}\t{e['context_note']}"
         for i, e in enumerate(expected, 1)
@@ -373,9 +374,10 @@ def test_positions_lists_every_statement_party_pair(
     run, seeded, use_fake, monkeypatch
 ) -> None:
     # Sparse on purpose (no fill), so ``no_stance`` rows exist; coverage is not
-    # checked. Statements 3..25 have no stance (the selection fills up to 25
-    # with them), so the run fails on statement_separation and keeps its
-    # Dataset Version.
+    # checked. Statements 3..35 have no stance (kept through the seam, as
+    # selection v3 would drop them), so the run fails on statement_separation
+    # and keeps its Dataset Version.
+    keep_pool_prefix(monkeypatch)
     use_fake(fake_provider(party_positions=positions_response()))
     monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "0")
     failed = run("pipeline", "run", "--election", "1")
@@ -387,7 +389,7 @@ def test_positions_lists_every_statement_party_pair(
     assert result.exit_code == 0, result.output
     lines = result.output.splitlines()
     assert lines[0] == POSITIONS_HEADER
-    assert len(lines) == 51
+    assert len(lines) == 71
     assert lines[1:5] == [
         f"1\t1\t1\t1\t1\t\t{PAGES[1][0]}",
         f"1\t2\t-1\t2\t1\t\t{PAGES[2][0]}",
@@ -396,14 +398,14 @@ def test_positions_lists_every_statement_party_pair(
     ]
     assert lines[5:7] == ["3\t1\tno_stance\t\t\t\t", "3\t2\tno_stance\t\t\t\t"]
     assert [line.split("\t")[:2] for line in lines[1:]] == [
-        [str(n), str(p)] for n in range(1, 26) for p in (1, 2)
+        [str(n), str(p)] for n in range(1, 36) for p in (1, 2)
     ]
 
     party = run("pipeline", "positions", "--dataset-version", "1", "--party", "2")
     assert party.exit_code == 0, party.output
     rows = party.output.splitlines()
     assert rows[0] == POSITIONS_HEADER
-    assert len(rows) == 26
+    assert len(rows) == 36
     assert all(row.split("\t")[1] == "2" for row in rows[1:])
 
 
@@ -432,7 +434,9 @@ def test_positions_show_negative_values_urls_and_one_line_quotes(
         invent_quote_after_extraction(
             monkeypatch, quote, party_id=party_id, statement=2, value=-2, page=2
         )
-    # The quote is on no page, so the run fails Validation but keeps its positions.
+    # The quote is on no page, so the run fails Validation but keeps its positions
+    # (kept through the seam: no Statement separates the Parties here).
+    keep_pool_prefix(monkeypatch)
     assert run("pipeline", "run", "--election", "1").exit_code == 1
 
     result = run("pipeline", "positions", "--dataset-version", "1", "--party", "2")
@@ -486,7 +490,7 @@ SEPARATION_FAILED_RUN_1 = (
     'Error: pipeline run 1 failed: validation failed: statement_separation; '
     'see "ideology pipeline checks --run 1"\n'
 )
-# validation-questionnaire-shape: the default fake's 35 distinct Statements
+# validation-questionnaire-shape: the default fake's 40 distinct Statements
 # over 18 topics pass the three checks appended after statement_separation.
 SHAPE_PASSED_ROWS = [
     "statement_uniqueness\tpassed\t\t\t",
@@ -502,16 +506,19 @@ PASSED_CHECKS = (
     "statement_separation\tpassed\t\t\t\n"
     + "".join(f"{row}\n" for row in SHAPE_PASSED_ROWS)
 )
-PARTY2_ZERO = (
+# Party 2 without stances fails coverage on each offered length (15, 30, 35).
+PARTY2_ZERO_ROWS = [
     "party_coverage\tfailed\t\t2\t"
-    "party 2 has positions on 0 of 25 statements (0%); minimum is 50%"
-)
-# Party 2 without stances: no Statement separates the two Parties, so the
-# selection keeps min_statements (25) of them.
+    f"{prefix}party 2 is in favour or against on 0 of {n} statements (0%); minimum is 50%"
+    for prefix, n in (("first 15 statements: ", 15), ("first 30 statements: ", 30), ("", 35))
+]
+# Party 2 without stances: no Statement separates the two Parties; these runs
+# keep pool Statements 1..35 through ``keep_pool_prefix`` (selection v3 would
+# keep none).
 ONLY_PARTY1_ROWS = [
     f"statement_separation\tfailed\t{n}\t\t"
-    f"statement {n} does not separate parties: only party 1 has a stance (value 1)"
-    for n in range(1, 26)
+    f"statement {n} does not separate parties: no party is against (1 in favour)"
+    for n in range(1, 36)
 ]
 
 
@@ -533,8 +540,9 @@ def _validating_run(
 ) -> None:
     """Leave run 1 in ``validating``, as before this feature or after a crash.
 
-    ``settings`` bounds the selected Statement count (default 25..35); another
-    range stands for a run generated with other thresholds.
+    ``settings`` bounds the selected Statement count (default 35..40, 2 Parties
+    with a side for the seeded Election); another range stands for a run
+    generated with other thresholds.
     """
     engine = make_engine(db_url)
     try:
@@ -548,7 +556,9 @@ def _validating_run(
             ).id
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(runs_module, "validate_run", lambda engine, run_id, **kwargs: None)
-            execute_run(engine, run_id, provider, settings or ValidationSettings())
+            execute_run(
+                engine, run_id, provider, settings or ValidationSettings(min_statement_parties=2)
+            )
     finally:
         engine.dispose()
 
@@ -590,7 +600,7 @@ def test_run_failing_validation_is_committed_and_reported(
     assert len(listed) == 2
     row = listed[1].split("\t")
     assert row[1] == "failed"
-    assert row[5:7] == ["1", "35"]
+    assert row[5:7] == ["1", "40"]
     assert row[10] == "validation failed: evidence_quotes"
 
     checks = run("pipeline", "checks", "--run", "1")
@@ -621,8 +631,10 @@ def test_checks_list_one_row_per_entry(run, seeded, use_fake, monkeypatch) -> No
                 page=statement,
             )
 
-    # Sparse (no fill): no Statement separates, so the selection keeps 25; each
-    # Party covers 2 of them with value -1, so all three checks fail.
+    # Sparse (no fill): no Statement separates, so the seam keeps 35 (selection v3
+    # would keep none); each Party covers 2 of them with value -1, so all three
+    # checks fail.
+    keep_pool_prefix(monkeypatch)
     use_fake(fake_provider(party_positions=positions_response()))
     assert run("pipeline", "run", "--election", "1").exit_code == 1
 
@@ -635,18 +647,22 @@ def test_checks_list_one_row_per_entry(run, seeded, use_fake, monkeypatch) -> No
         "evidence_quotes\tfailed\t1\t2\tquote not found in source document 2",
         "evidence_quotes\tfailed\t2\t1\tquote not found in source document 1",
         "evidence_quotes\tfailed\t2\t2\tquote not found in source document 2",
-        "party_coverage\tfailed\t\t1\t"
-        "party 1 has positions on 2 of 25 statements (8%); minimum is 50%",
-        "party_coverage\tfailed\t\t2\t"
-        "party 2 has positions on 2 of 25 statements (8%); minimum is 50%",
+        *(
+            f"party_coverage\tfailed\t\t{party}\t{prefix}party {party} is in favour or "
+            f"against on 2 of {n} statements ({percent}%); minimum is 50%"
+            for prefix, n, percent in (
+                ("first 15 statements: ", 15, 13), ("first 30 statements: ", 30, 6), ("", 35, 5)
+            )
+            for party in (1, 2)
+        ),
         "statement_separation\tfailed\t1\t\t"
-        "statement 1 does not separate parties: all 2 parties with a stance have value -1",
+        "statement 1 does not separate parties: no party is in favour (2 against)",
         "statement_separation\tfailed\t2\t\t"
-        "statement 2 does not separate parties: all 2 parties with a stance have value -1",
+        "statement 2 does not separate parties: no party is in favour (2 against)",
         *(
             f"statement_separation\tfailed\t{n}\t\t"
             f"statement {n} does not separate parties: no party has a stance"
-            for n in range(3, 26)
+            for n in range(3, 36)
         ),
         *SHAPE_PASSED_ROWS,
     ]
@@ -708,8 +724,11 @@ def test_validate_rejects_a_run_that_is_not_validating(run, seeded, use_fake) ->
 # validation-party-coverage Scenario 5: threshold config and coverage failures
 
 
-def test_coverage_failure_is_committed_and_reported(run, seeded, use_fake, db_url) -> None:
+def test_coverage_failure_is_committed_and_reported(
+    run, seeded, use_fake, db_url, monkeypatch
+) -> None:
     _fail_party2_document(db_url)
+    keep_pool_prefix(monkeypatch)
     use_fake(fake_provider())
 
     result = run("pipeline", "run", "--election", "1")
@@ -719,27 +738,29 @@ def test_coverage_failure_is_committed_and_reported(run, seeded, use_fake, db_ur
     assert result.stderr == COVERAGE_FAILED_RUN_1
     row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
     assert (row[1], row[5], row[6], row[10]) == (
-        "failed", "1", "25", "validation failed: party_coverage, statement_separation"
+        "failed", "1", "35", "validation failed: party_coverage, statement_separation"
     )
     checks = run("pipeline", "checks", "--run", "1")
     assert checks.exit_code == 0, checks.output
-    # Coverage names Party 2 once; separation names every Statement (intended).
+    # Coverage names Party 2 once per length; separation names every Statement
+    # (intended).
     assert checks.output.splitlines() == [
         CHECKS_HEADER,
         "evidence_quotes\tpassed\t\t\t",
-        PARTY2_ZERO,
+        *PARTY2_ZERO_ROWS,
         *ONLY_PARTY1_ROWS,
         *SHAPE_PASSED_ROWS,
     ]
     # The failed run keeps its candidate Dataset Version and every Party Position.
     positions = run("pipeline", "positions", "--dataset-version", "1")
-    assert len(positions.output.splitlines()) == 51
+    assert len(positions.output.splitlines()) == 71
 
 
 def test_configured_threshold_is_used_by_pipeline_run(
     run, seeded, use_fake, db_url, monkeypatch
 ) -> None:
     _fail_party2_document(db_url)
+    keep_pool_prefix(monkeypatch)
     use_fake(fake_provider())
     monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", " 0 ")
 
@@ -797,6 +818,7 @@ def test_validate_uses_the_configured_threshold(
     run, seeded, db_url, no_provider, monkeypatch
 ) -> None:
     _fail_party2_document(db_url)
+    keep_pool_prefix(monkeypatch)
     _validating_run(db_url, fake_provider())
 
     monkeypatch.setenv("VALIDATION_MIN_PARTY_COVERAGE_PERCENT", "0")
@@ -810,15 +832,18 @@ def test_validate_uses_the_configured_threshold(
     )
 
 
-def test_validate_reports_a_coverage_failure(run, seeded, db_url, no_provider) -> None:
+def test_validate_reports_a_coverage_failure(
+    run, seeded, db_url, no_provider, monkeypatch
+) -> None:
     _fail_party2_document(db_url)
+    keep_pool_prefix(monkeypatch)
     _validating_run(db_url, fake_provider())
 
     result = run("pipeline", "validate", "--run", "1")
 
     assert result.exit_code == 1
     assert result.stderr == COVERAGE_FAILED_RUN_1
-    assert run("pipeline", "checks", "--run", "1").output.splitlines()[2] == PARTY2_ZERO
+    assert run("pipeline", "checks", "--run", "1").output.splitlines()[2:5] == PARTY2_ZERO_ROWS
     engine = make_engine(db_url)
     try:
         with Session(engine) as s:
@@ -832,18 +857,14 @@ def test_validate_reports_a_coverage_failure(run, seeded, db_url, no_provider) -
 
 EQUAL_ON_2_ROW = (
     "statement_separation\tfailed\t2\t\t"
-    "statement 2 does not separate parties: all 2 parties with a stance have value 1"
+    "statement 2 does not separate parties: no party is against (2 in favour)"
 )
 
 
-# The selection drops a non-separating Statement while separating ones are
-# left, so these runs keep the whole 70-Statement pool (min = max = 70).
-WHOLE_POOL = ValidationSettings(min_statements=70, max_statements=70)
-
-
-def _whole_pool_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "70")
-    monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "70")
+# Selection v3 never keeps a non-separating Statement, so these runs keep pool
+# Statements 1..40 through the seam (as an older selection would have).
+def _keep_40(monkeypatch: pytest.MonkeyPatch) -> None:
+    keep_pool_prefix(monkeypatch, 40)
 
 
 def _party2_agrees_on_statement2(request: LLMRequest[Any]) -> dict[str, Any]:
@@ -861,7 +882,7 @@ def _party2_agrees_on_statement2(request: LLMRequest[Any]) -> dict[str, Any]:
 def test_separation_failure_is_committed_and_reported(
     run, seeded, use_fake, monkeypatch
 ) -> None:
-    _whole_pool_env(monkeypatch)
+    _keep_40(monkeypatch)
     use_fake(fake_provider(position_findings=_party2_agrees_on_statement2))
 
     result = run("pipeline", "run", "--election", "1")
@@ -871,7 +892,7 @@ def test_separation_failure_is_committed_and_reported(
     assert result.stderr == SEPARATION_FAILED_RUN_1
     row = run("pipeline", "list", "--election", "1").output.splitlines()[1].split("\t")
     assert (row[1], row[5], row[6], row[10]) == (
-        "failed", "1", "70", "validation failed: statement_separation"
+        "failed", "1", "40", "validation failed: statement_separation"
     )
     checks = run("pipeline", "checks", "--run", "1")
     assert checks.exit_code == 0, checks.output
@@ -884,7 +905,7 @@ def test_separation_failure_is_committed_and_reported(
     ]
     # The failed run keeps its candidate Dataset Version and every Party Position.
     positions = run("pipeline", "positions", "--dataset-version", "1").output.splitlines()
-    assert len(positions) == 141
+    assert len(positions) == 81
     assert positions[3:5] == [
         f"2\t1\t1\t1\t2\t\t{PAGES[1][1]}",
         f"2\t2\t1\t2\t2\t\t{PAGES[2][1]}",
@@ -894,10 +915,8 @@ def test_separation_failure_is_committed_and_reported(
 def test_validate_reports_a_separation_failure(
     run, seeded, db_url, no_provider, monkeypatch
 ) -> None:
-    _validating_run(
-        db_url, fake_provider(position_findings=_party2_agrees_on_statement2), WHOLE_POOL
-    )
-    _whole_pool_env(monkeypatch)
+    _keep_40(monkeypatch)
+    _validating_run(db_url, fake_provider(position_findings=_party2_agrees_on_statement2))
 
     result = run("pipeline", "validate", "--run", "1")
 
@@ -918,7 +937,11 @@ COUNT_FAILED_RUN_1 = (
     'Error: pipeline run 1 failed: validation failed: statement_count; '
     'see "ideology pipeline checks --run 1"\n'
 )
-COUNT_20_ROW = "statement_count\tfailed\t\t\tquestionnaire has 20 statements; expected 25 to 35"
+COUNT_20_ROW = "statement_count\tfailed\t\t\tquestionnaire has 20 statements; expected 35 to 40"
+# The 20-Statement version stores lengths (20); the defaults give 15, 20 for 20.
+LENGTHS_20_ROW = (
+    "statement_count\tfailed\t\t\tquestionnaire lengths are 20; expected 15, 20"
+)
 
 
 def test_default_run_prints_six_passed_checks(run, seeded, use_fake) -> None:
@@ -933,7 +956,9 @@ def test_default_run_prints_six_passed_checks(run, seeded, use_fake) -> None:
     assert len(result.output.splitlines()) == 8
 
 
-TWENTY = ValidationSettings(min_statements=20, max_statements=20)
+TWENTY = ValidationSettings(
+    min_statements=20, max_statements=20, questionnaire_lengths=(), min_statement_parties=2
+)
 
 
 def test_count_failure_is_committed_and_reported(run, seeded, db_url, no_provider) -> None:
@@ -958,6 +983,7 @@ def test_count_failure_is_committed_and_reported(run, seeded, db_url, no_provide
         "statement_separation\tpassed\t\t\t",
         "statement_uniqueness\tpassed\t\t\t",
         COUNT_20_ROW,
+        LENGTHS_20_ROW,
         "topic_spread\tpassed\t\t\t",
         "context_note\tpassed\t\t\t",
     ]
@@ -988,6 +1014,7 @@ def test_configured_statement_range_is_used_by_pipeline_run(
     use_fake(fake_provider())
     monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "20")
     monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "20")
+    monkeypatch.setenv("VALIDATION_QUESTIONNAIRE_LENGTHS", "none")
 
     result = run("pipeline", "run", "--election", "1")
 
@@ -999,8 +1026,8 @@ def test_configured_statement_range_is_used_by_pipeline_run(
 def test_duplicate_and_topic_share_are_left_out_by_the_selection(
     run, seeded, use_fake
 ) -> None:
-    # pipeline-coverage-selection: the later duplicate (pool 5) is left out and
-    # economy is capped at 7 picks, so both checks pass. The run-level failures
+    # The later duplicate (pool 5) is left out and economy is capped at 10 picks
+    # (4 in the first 15, 9 in the first 30), so both checks pass. The run-level failures
     # of these checks are covered in test_validation_runs.py.
     use_fake(
         fake_provider(
@@ -1013,7 +1040,7 @@ def test_duplicate_and_topic_share_are_left_out_by_the_selection(
     assert result.exit_code == 0, result.output
     assert run("pipeline", "checks", "--run", "1").output.splitlines()[4:] == SHAPE_PASSED_ROWS
     statements = run("pipeline", "statements", "--dataset-version", "1").output.splitlines()
-    assert sum(line.split("\t")[1] == "economy" for line in statements[1:]) == 7
+    assert sum(line.split("\t")[1] == "economy" for line in statements[1:]) == 10
 
 
 @pytest.mark.parametrize(
@@ -1031,9 +1058,15 @@ def test_duplicate_and_topic_share_are_left_out_by_the_selection(
         ),
         (
             "VALIDATION_MIN_STATEMENTS",
-            "40",
-            "Invalid statement count range: VALIDATION_MIN_STATEMENTS (40) is greater than "
-            "VALIDATION_MAX_STATEMENTS (35)",
+            "45",
+            "Invalid statement count range: VALIDATION_MIN_STATEMENTS (45) is greater than "
+            "VALIDATION_MAX_STATEMENTS (40)",
+        ),
+        (
+            "VALIDATION_QUESTIONNAIRE_LENGTHS",
+            "30,15",
+            "Invalid VALIDATION_QUESTIONNAIRE_LENGTHS '30,15'; expected increasing positive "
+            "integers below VALIDATION_MIN_STATEMENTS (35), or none",
         ),
     ],
 )
@@ -1083,8 +1116,8 @@ def test_validate_reports_a_count_failure(run, seeded, db_url, no_provider) -> N
 
 
 PASSED_RUN = (
-    "Pipeline run {run}: passed (dataset version {version}, 35 statements, "
-    "70 party positions)\n"
+    "Pipeline run {run}: passed (dataset version {version}, 40 statements, "
+    "80 party positions)\n"
 )
 
 
@@ -1122,7 +1155,7 @@ def test_run_publishes_then_supersedes(run, seeded, use_fake) -> None:
     assert (statements.exit_code, positions.exit_code) == (0, 0)
     assert statements.output == statements_before
     assert positions.output == positions_before
-    assert len(positions.output.splitlines()) == 71
+    assert len(positions.output.splitlines()) == 81
 
 
 def test_failing_run_after_a_publish_keeps_its_output(
@@ -1224,15 +1257,15 @@ def test_cli_reuse_from_prints_and_reuses(run, seeded, db_url, use_fake) -> None
 
     assert result.exit_code == 0, result.output
     assert result.output.startswith(
-        "Pipeline run 2: reusing identical calls of run 1 (13 recorded calls)\n"
+        "Pipeline run 2: reusing identical calls of run 1 (17 recorded calls)\n"
     )
     # Run 1 recorded no anchors and published version 1, so run 2 lists it as
     # anchors (pipeline-statement-clarity-context): only the reduce is new.
     assert [r.task for r in provider.calls] == ["generate_statements"]
     report = run("pipeline", "report", "--run", "2").output
     assert "resumed_from: 1\n" in report
-    assert "reused_calls: 12\n" in report
-    assert "statement_anchors: dataset version 1, 35 anchors," in report
+    assert "reused_calls: 16\n" in report
+    assert "statement_anchors: dataset version 1, 40 anchors," in report
 
 
 def test_reuse_from_refuses_an_unknown_run(run, seeded, db_url, use_fake) -> None:

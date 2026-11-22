@@ -362,9 +362,11 @@ def test_plan_counts_chunks_plus_one_reduce_per_party_with_chunks() -> None:
         doc(3, 4, "  "),
     ]
     # e2e-real-2026-election: one findings call per chunk and Statement batch;
-    # the default plans for the largest pool (80 Statements = 4 batches).
+    # the default plans for the largest pool (140 Statements = 7 batches since
+    # pipeline-statement-priority-tiers; it was 80 = 4 batches).
     assert plan_position_calls(documents, statement_count=len(STATEMENTS)) == 3 + 2
-    assert plan_position_calls(documents) == 3 * 4 + 2
+    assert plan_position_calls(documents) == 3 * 7 + 2
+    assert plan_position_calls(documents, statement_count=80) == 3 * 4 + 2
     assert plan_position_calls(documents, statement_count=61) == 3 * 4 + 2
     assert plan_position_calls(documents, statement_count=60) == 3 * 3 + 2
     assert plan_position_calls(documents, statement_count=41) == 3 * 3 + 2
@@ -386,7 +388,22 @@ def test_plan_matches_the_calls_made_when_every_party_has_findings() -> None:
 
 
 def test_cap_constant() -> None:
-    assert MAX_POSITION_CALLS_PER_RUN == 300
+    assert MAX_POSITION_CALLS_PER_RUN == 600
+
+
+def test_2026_shape_plans_488_calls_within_the_budget() -> None:
+    # pipeline-statement-priority-tiers, scenario 2: 68 chunks over 12 Parties and
+    # the 140 maximum give 68 x 7 + 12 = 488 calls, which passes the 600 cap.
+    per_party = [6] * 8 + [5] * 4  # 68 one-page documents
+    assert sum(per_party) == 68
+    documents = []
+    number = 0
+    for party_id, count in enumerate(per_party, start=1):
+        for _ in range(count):
+            number += 1
+            documents.append(doc(party_id, number, "x" * 30_000))
+    assert plan_position_calls(documents) == 68 * 7 + 12 == 488
+    positions_module.check_position_budget(documents)
 
 
 def test_requests_bound_to_pool_size() -> None:
@@ -702,7 +719,8 @@ def test_plan_position_calls_multiplies_chunks_by_the_batches_of_the_pool() -> N
     assert plan_position_calls(documents, statement_count=21) == 3 * 2 + 2
     assert plan_position_calls(documents, statement_count=60) == 3 * 3 + 2
     assert plan_position_calls(documents, statement_count=80) == 3 * 4 + 2
-    assert plan_position_calls(documents) == plan_position_calls(documents, statement_count=80)
+    assert plan_position_calls(documents, statement_count=140) == 3 * 7 + 2
+    assert plan_position_calls(documents) == plan_position_calls(documents, statement_count=140)
     fake = provider()
     extract(fake, documents, statements=[f"A{n}." for n in range(1, 26)])
     assert len(fake.calls) == plan_position_calls(documents, statement_count=25)

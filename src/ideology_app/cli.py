@@ -1173,6 +1173,11 @@ SELECTION_POOL_HEADER = [
     "pool", "position", "topic", "stances", "distinct", "spread", "tier", "status", "anchor",
     "text", "context_note",
 ]
+# Selection v3 (pipeline-statement-priority-tiers): ranked by Parties with a side.
+SELECTION_POOL_HEADER_V3 = [
+    "pool", "rank", "position", "tier", "topic", "parties", "favour", "against", "status",
+    "anchor", "text", "context_note",
+]
 
 
 def _agenda_line(agenda: dict[str, Any] | None) -> str:
@@ -1291,6 +1296,8 @@ def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object
             ("findings_check", NOT_RECORDED),
         ]
     failures = selection["projected_failures"]
+    if selection["version"] == "v3":
+        return _selection_lines_v3(selection)
     summary = (
         f"{selection['version']}, pool {selection['pool_size']}, "
         f"selected {selection['selected_count']}, rule {selection['count_rule']}, "
@@ -1312,7 +1319,67 @@ def _selection_lines(selection: dict[str, Any] | None) -> list[tuple[str, object
     ]
 
 
+def _slashed(values: list[int]) -> str:
+    return "/".join(str(v) for v in values) if values else "none"
+
+
+def _selection_lines_v3(selection: dict[str, Any]) -> list[tuple[str, object]]:
+    """``_selection_lines`` for a selection v3 report (lengths, caps, sides per length)."""
+    failures = selection["projected_failures"]
+    lengths = selection["lengths"]
+    summary = (
+        f"{selection['version']}, pool {selection['pool_size']}, "
+        f"eligible {selection['eligible_count']}, "
+        f"selected {selection['selected_count']}, rule {selection['count_rule']}, "
+        f"lengths {_slashed(lengths)}, topic_caps {_slashed(selection['topic_caps'])}, "
+        f"min_parties {selection['settings']['min_statement_parties']}, "
+        f"projected_failures {', '.join(failures) if failures else 'none'}"
+    )
+    size = selection["pool_size"]
+    coverage = "; ".join(
+        f"party {p['party_id']} "
+        + (
+            " ".join(
+                f"{length}:{sides}"
+                for length, sides in zip(lengths, p["selected_sides"], strict=True)
+            )
+            or "none"
+        )
+        + f" (pool {p['pool_sides']}/{size})"
+        for p in selection["parties"]
+    )
+    return [
+        ("statement_agenda", _agenda_line(selection.get("agenda"))),
+        ("statement_anchors", _anchors_line(selection)),
+        ("statement_selection", summary),
+        ("selection_coverage", coverage or "none"),
+        ("findings_check", _findings_line(selection)),
+    ]
+
+
+def _selection_header(selection: dict[str, Any]) -> list[str]:
+    return SELECTION_POOL_HEADER_V3 if selection["version"] == "v3" else SELECTION_POOL_HEADER
+
+
 def _selection_rows(selection: dict[str, Any]) -> list[list[object]]:
+    if selection["version"] == "v3":
+        return [
+            [
+                entry["pool"],
+                entry["rank"],
+                entry["position"],
+                entry["tier"],
+                entry["topic"],
+                entry["parties"],
+                entry["favour"],
+                entry["against"],
+                entry["status"],
+                entry["anchor"],
+                _one_line(entry["text"]),
+                _one_line(entry["context_note"]),
+            ]
+            for entry in selection["pool"]
+        ]
     return [
         [
             entry["pool"],
@@ -1335,14 +1402,26 @@ def _selection_rows(selection: dict[str, Any]) -> list[list[object]]:
 def _sorted_pairs(values: dict[str, Any] | None) -> str:
     if values is None:
         return NOT_RECORDED
-    return ", ".join(f"{key}={_setting_value(values[key])}" for key in sorted(values))
+    return ", ".join(f"{key}={_setting_value(key, values[key])}" for key in sorted(values))
 
 
-def _setting_value(value: object) -> object:
-    """A list (the context note word list) is shown as its length: ``N words``."""
+def _setting_value(key: str, value: object) -> object:
+    """The questionnaire lengths as ``15,30`` (``none`` when empty); any other list
+    (the context note word list) as its length: ``N words``."""
     if isinstance(value, (list, tuple)):
+        if key == "questionnaire_lengths":
+            return ",".join(str(v) for v in value) or "none"
         return f"{len(value)} words"
     return value
+
+
+def _lengths_line(report: pipelines.RunReport) -> str:
+    """``questionnaire_lengths``: the stored lengths, ``not recorded`` before they existed."""
+    if report.dataset_version_id is None:
+        return "none"
+    if report.questionnaire_lengths is None:
+        return NOT_RECORDED
+    return ", ".join(str(length) for length in report.questionnaire_lengths) or "none"
 
 
 @pipeline.command("report")
@@ -1397,6 +1476,7 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
             else report.dataset_version_status.value,
         ),
         ("statements", "none" if report.statement_count is None else report.statement_count),
+        ("questionnaire_lengths", _lengths_line(report)),
         *_selection_lines(report.statement_selection),
         ("publication", _publication(report)),
     ]
@@ -1408,7 +1488,10 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
     if report.statement_selection is not None:
         click.echo("")
         click.echo("statement pool:")
-        _print_rows(SELECTION_POOL_HEADER, _selection_rows(report.statement_selection))
+        _print_rows(
+            _selection_header(report.statement_selection),
+            _selection_rows(report.statement_selection),
+        )
         findings = _findings(report.statement_selection)
         if findings is not None and findings["discarded"] > 0:
             click.echo("")

@@ -37,17 +37,17 @@ from ideology_app.pipeline import (
 from ideology_app.pipeline.prompts import CandidateList
 
 # The default fake run: 2 candidate calls + 1 reduce, then per Party one chunk
-# in 4 findings calls (70 pool Statements in batches of 20) + 1 reduce.
+# in 6 findings calls (120 pool Statements in batches of 20) + 1 reduce.
 DEFAULT_TASKS = [
     "statement_candidates",
     "statement_candidates",
     "generate_statements",
-    *["position_findings"] * 4,
+    *["position_findings"] * 6,
     "party_positions",
-    *["position_findings"] * 4,
+    *["position_findings"] * 6,
     "party_positions",
 ]
-CALLS = len(DEFAULT_TASKS)  # 13
+CALLS = len(DEFAULT_TASKS)  # 17
 
 
 @pytest.fixture(autouse=True)
@@ -427,20 +427,20 @@ def test_resume_on_the_same_settings_reuses_every_task(seeded: Engine) -> None:
     assert _reused_by_task(calls(seeded, resumed_id)) == {
         "statement_candidates": [True, True],
         "generate_statements": [True],
-        "position_findings": [True] * 8,
+        "position_findings": [True] * 12,
         "party_positions": [True, False],
     }
 
 
 def test_resume_of_a_run_recorded_with_a_wider_range(seeded: Engine) -> None:
-    # Stands for a run recorded with other pool bounds: a 90-Statement pool.
+    # Stands for a run recorded with other pool bounds: a 150-Statement pool.
     wide = Stopping(
-        fake_provider(generate_statements=statements_payload(90)),
+        fake_provider(generate_statements=statements_payload(150)),
         5,
         LLMProviderError("usage limit beyond max wait"),
     )
     stopped_id = queue(seeded, wide)
-    stopped = execute_run(seeded, stopped_id, wide, ValidationSettings(max_statements=90))
+    stopped = execute_run(seeded, stopped_id, wide, ValidationSettings(max_statements=150))
     assert stopped.status is PipelineRunStatus.FAILED
     assert [r.task for r in calls(seeded, stopped_id)] == DEFAULT_TASKS[:4]
 
@@ -449,14 +449,14 @@ def test_resume_of_a_run_recorded_with_a_wider_range(seeded: Engine) -> None:
     outcome = execute_run(seeded, resumed_id, provider)
 
     assert outcome.status is PipelineRunStatus.PASSED
-    assert outcome.statement_count == 35
+    assert outcome.statement_count == 40
     # statement_candidates is byte-identical, so it is reused; generate_statements
     # (another schema) and the position calls (other N, other Statements) miss.
     assert [c.task for c in provider.calls] == DEFAULT_TASKS[2:]
     assert _reused_by_task(calls(seeded, resumed_id)) == {
         "statement_candidates": [True, True],
         "generate_statements": [False],
-        "position_findings": [False] * 8,
+        "position_findings": [False] * 12,
         "party_positions": [False, False],
     }
 
@@ -494,7 +494,7 @@ def test_reuse_from_a_run_with_a_dataset_version(seeded: Engine, source: str) ->
     assert _reused_by_task(rows) == {
         "statement_candidates": [True, True],
         "generate_statements": [reduce_reused],
-        "position_findings": [True] * 8,
+        "position_findings": [True] * 12,
         "party_positions": [True, True],
     }
     assert [r.task for r in provider.calls] == (
@@ -514,13 +514,14 @@ def test_reuse_from_calls_the_provider_for_changed_requests(seeded: Engine) -> N
     # Another pool bound changes the generate_statements request, so it goes to
     # the provider; it returns the same pool, so the position calls are reused.
     outcome = execute_run(
-        seeded, reused_id, provider, ValidationSettings(min_statements=25, max_statements=65)
+        seeded, reused_id, provider,
+        ValidationSettings(max_statements=120, min_statement_parties=2),
     )
     assert outcome.status is PipelineRunStatus.PASSED
     assert _reused_by_task(calls(seeded, reused_id)) == {
         "statement_candidates": [True, True],
         "generate_statements": [False],
-        "position_findings": [True] * 8,
+        "position_findings": [True] * 12,
         "party_positions": [True, True],
     }
     assert [c.task for c in provider.calls] == ["generate_statements"]

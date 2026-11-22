@@ -57,7 +57,9 @@ from ideology_app.pipeline.prompts import (
 from ideology_app.pipeline.quote_repair import Repair, repair_finding
 from ideology_app.validation.evidence_quotes import find_quote_miss, normalize_pages
 
-MAX_POSITION_CALLS_PER_RUN = 300
+# pipeline-statement-priority-tiers: 600 (was 300). A 140-Statement pool plans
+# 68 x 7 + 12 = 488 calls for the 2026 Election and 79 x 7 + 9 = 562 for 2023.
+MAX_POSITION_CALLS_PER_RUN = 600
 FINDINGS_STATEMENTS_PER_CALL = 20
 FINDINGS_CHECK_VERSION = "v2"
 PAGE_NOT_IN_CHUNK = "page_not_in_chunk"

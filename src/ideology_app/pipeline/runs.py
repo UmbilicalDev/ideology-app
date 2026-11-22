@@ -10,7 +10,8 @@ is already Published.
 Statement generation returns a Statement Pool (built from the Party-balanced
 Agenda, ``agenda.balance_candidates``); Party Positions are extracted
 for the whole pool, and ``selection.select_statements`` (deterministic, no LLM)
-chooses the Questionnaire's Statements before anything is written.
+chooses the Questionnaire's Statements, in priority order, and its
+questionnaire lengths before anything is written.
 Dataset Versions, Statements and Party Positions are only ever inserted here,
 together in one commit with the run's ``statement_selection``; Validation results are inserted with the run's
 ``passed`` / ``failed`` status and the ``validation_settings`` it used. The only update is the Dataset Version status
@@ -324,12 +325,15 @@ def _finish(
     positions: dict[int, list[PositionResult]] | None,
     failure_reason: str | None,
     selection: dict[str, Any] | None = None,
+    lengths: Sequence[int] | None = None,
 ) -> RunOutcome:
     """Record the result: a complete candidate Dataset Version, or ``failed``. Commits.
 
-    The Dataset Version, its Statements, every Party Position and the run's
-    ``statement_selection`` report are inserted in this one commit, so a
-    Dataset Version never exists without them. A failed run stores no selection.
+    The Dataset Version (with its ``questionnaire_lengths``, ``lengths``; None
+    leaves NULL), its Statements in the given order, every Party Position and
+    the run's ``statement_selection`` report are inserted in this one commit, so
+    a Dataset Version never exists without them; the lengths are never updated.
+    A failed run stores no selection.
     """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
@@ -348,6 +352,7 @@ def _finish(
             election_id=run.election_id,
             pipeline_run_id=run.id,
             status=DatasetVersionStatus.CANDIDATE,
+            questionnaire_lengths=None if lengths is None else list(lengths),
         )
         session.add(version)
         session.flush()
@@ -462,6 +467,7 @@ def execute_run(
                 "agenda": pool.agenda.report,
                 "findings": findings.report(),
             },
+            lengths=selection.lengths,
         )
     except (LLMError, GenerationError) as exc:
         return _fail(engine, run_id, usage, str(exc))

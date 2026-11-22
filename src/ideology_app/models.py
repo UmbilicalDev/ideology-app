@@ -352,6 +352,11 @@ class DatasetVersion(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         sa.DateTime(timezone=True), default=_utcnow
     )
+    # The offered questionnaire lengths, ascending, the last being the Statement
+    # count (pipeline-statement-priority-tiers, ``0015``). Written once by
+    # ``pipeline.runs._finish`` in the insert and never updated; NULL on versions
+    # created before lengths existed (they offer only their full length).
+    questionnaire_lengths: Mapped[list[int] | None] = mapped_column(sa.JSON)
 
     election: Mapped[Election] = relationship(back_populates="dataset_versions")
     pipeline_run: Mapped[PipelineRun] = relationship(back_populates="dataset_version")

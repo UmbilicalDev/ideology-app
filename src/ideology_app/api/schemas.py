@@ -80,6 +80,13 @@ class DatasetVersionOut(_Out):
     created_at: str = Field(description="UTC, YYYY-MM-DDTHH:MM:SSZ.")
     statements: list[StatementOut]
     parties: list[PartyOut]
+    questionnaire_lengths: list[int] = Field(
+        description=(
+            "Offered questionnaire lengths, ascending; the last is the number of "
+            "Statements. A questionnaire of length N is the first N Statements. "
+            "Dataset Versions created before lengths existed offer only their full length."
+        )
+    )
 
 
 class LegalHolderOut(_Out):

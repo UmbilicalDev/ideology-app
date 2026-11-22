@@ -67,16 +67,17 @@ export function MethodologyPage() {
           <section aria-labelledby="methodology-statements-title">
             <h2 id="methodology-statements-title">Cómo se redactan las afirmaciones</h2>
             <p>
-              Una inteligencia artificial lee los programas por fragmentos y propone afirmaciones
-              candidatas: propuestas políticas con las que se puede estar de acuerdo o en
-              desacuerdo. Después, un procedimiento automático, sin inteligencia artificial y sin
+              Una inteligencia artificial lee los programas por fragmentos y recoge como
+              afirmaciones candidatas todas las propuestas políticas concretas que encuentra, hasta
+              30 por fragmento: propuestas con las que se puede estar de acuerdo o en desacuerdo.
+              Después, un procedimiento automático, sin inteligencia artificial y sin
               azar, toma el mismo número de candidatas de cada partido, sea cual sea la extensión de
               su programa, repartidas entre los temas que más trata cada programa. Un partido con
               menos candidatas aporta todas las que tiene.
             </p>
             <p>
               Con esas candidatas, la inteligencia artificial redacta una lista más amplia, de unas
-              70 afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación
+              120 afirmaciones, y asigna a cada una un tema. Cada afirmación expresa una orientación
               política con una dirección clara, como subir o bajar un impuesto, y no una medida de
               detalle, para que el mayor número posible de partidos se pueda situar en ella. Debe
               entenderse por sí sola y en lenguaje llano: expresa la medida por su contenido y en
@@ -100,7 +101,8 @@ export function MethodologyPage() {
             <p>
               Sus instrucciones le piden una redacción neutral, sin adjetivos valorativos ni nombres
               de partidos o de políticos, una sola propuesta por afirmación, temas variados,
-              orientaciones en las que los partidos discrepen y no añadir nada que no esté en las
+              orientaciones en las que unos partidos estén a favor y otros en contra, mejor si las
+              tratan muchos programas, y no añadir nada que no esté en las
               candidatas ni en las afirmaciones anteriores. Nadie modifica a mano el resultado.
             </p>
           </section>
@@ -138,24 +140,30 @@ export function MethodologyPage() {
             <h2 id="methodology-selection-title">Cómo se eligen las afirmaciones del cuestionario</h2>
             <p>
               La inteligencia artificial propone más afirmaciones de las que tendrá el cuestionario,
-              entre 60 y 80, y sitúa a cada partido en todas ellas. Después, un procedimiento
-              automático, sin inteligencia artificial y sin azar, elige entre 25 y 35 para el
-              cuestionario.
+              entre 100 y 140, y sitúa a cada partido en todas ellas. Después, un procedimiento
+              automático, sin inteligencia artificial y sin azar, elige hasta 40 y las ordena.
             </p>
             <p>
               Deja fuera las afirmaciones cuya nota de contexto no cumple las comprobaciones, las
-              repetidas y las que no separan a los partidos, porque
-              todos los que tienen posición coinciden, y no deja que un tema supere el 30&nbsp;% del
-              cuestionario. Entre las demás, elige primero las que dan posición al partido que menos
-              tiene hasta ese momento; en caso de empate, las que muestran más posiciones distintas
-              y, después, las que se propusieron antes. Todos los partidos cuentan igual.
+              repetidas, las que no separan a los partidos, porque no hay al menos uno a favor y
+              otro en contra, y aquellas en las que menos de 3 partidos están a favor o en contra.
+              Ordena las demás por el número de partidos que están a favor o en contra; en caso de
+              empate, primero las más repartidas entre los dos lados y, después, las que se
+              propusieron antes. Todos los partidos cuentan igual.
             </p>
             <p>
-              El cuestionario tiene el mayor número de afirmaciones con el que todos los partidos
-              tienen posición en al menos el 50&nbsp;% de ellas. Si no es posible cumplir estas
-              condiciones, el procedimiento se acerca todo lo que puede y las comprobaciones
-              posteriores impiden publicar el resultado. Las afirmaciones conservan el texto y el
-              orden con que se propusieron.
+              Así, las primeras afirmaciones son las que tratan más partidos, y las comprobaciones
+              se aplican también a las primeras 15 y a las primeras 30, para que un cuestionario más
+              corto, formado por las primeras, sea igual de equilibrado. Ningún tema supera el
+              30&nbsp;% de las primeras 15, de las primeras 30 ni del total: una afirmación que lo
+              superaría pasa al primer puesto en el que cabe.
+            </p>
+            <p>
+              El cuestionario completo tiene entre 35 y 40 afirmaciones: el mayor número con el que
+              todos los partidos están a favor o en contra en al menos el 50&nbsp;% de ellas. Si no
+              es posible cumplir estas condiciones, el procedimiento se acerca todo lo que puede y
+              las comprobaciones posteriores impiden publicar el resultado. Las afirmaciones
+              conservan el texto con que se propusieron.
             </p>
           </section>
 
@@ -167,14 +175,17 @@ export function MethodologyPage() {
                 cada cita aparece literalmente en el programa del partido, empezando en la página
                 indicada, sin tener en cuenta mayúsculas, tildes, espacios ni signos de puntuación;
               </li>
-              <li>cada partido tiene posición en al menos el 50&nbsp;% de las afirmaciones;</li>
               <li>
-                en cada afirmación hay al menos dos posiciones distintas entre los partidos que
-                tienen posición;
+                cada partido está a favor o en contra en al menos el 50&nbsp;% de las afirmaciones,
+                y también de las primeras 15 y de las primeras 30;
               </li>
+              <li>en cada afirmación hay al menos un partido a favor y otro en contra;</li>
               <li>no hay dos afirmaciones con el mismo texto;</li>
-              <li>el cuestionario tiene entre 25 y 35 afirmaciones;</li>
-              <li>ningún tema reúne más del 30&nbsp;% de las afirmaciones;</li>
+              <li>el cuestionario completo tiene entre 35 y 40 afirmaciones;</li>
+              <li>
+                ningún tema reúne más del 30&nbsp;% de las afirmaciones, ni de las primeras 15 ni de
+                las primeras 30;
+              </li>
               <li>
                 cada afirmación tiene una nota de contexto de entre 30 y 300 caracteres que no usa
                 ninguna palabra valorativa de una lista fija.

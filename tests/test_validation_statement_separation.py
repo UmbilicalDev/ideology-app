@@ -87,7 +87,7 @@ def test_run_checks_returns_three_results_in_order() -> None:
         ("statement_separation", False),
     ]
     assert results[2].entries == (
-        entry(2, "all 2 parties with a stance have value 1"),
+        entry(2, "no party is against (2 in favour)"),
     )
 
 
@@ -95,15 +95,43 @@ def test_run_checks_returns_three_results_in_order() -> None:
 
 
 def test_one_statement_with_equal_values_is_named() -> None:
+    # pipeline-statement-priority-tiers: (2, 0) has nobody against, so it fails too.
     result = STATEMENT_SEPARATION.run(data({1: (1, -1), 2: (1, 1), 3: (2, 0)}))
 
     assert result == [
         ReportEntry(
-            "statement 2 does not separate parties: all 2 parties with a stance have value 1",
+            "statement 2 does not separate parties: no party is against (2 in favour)",
             statement_id=102,
-        )
+        ),
+        entry(3, "no party is against (1 in favour)"),
     ]
     assert result[0].party_id is None
+
+
+# pipeline-statement-priority-tiers, scenario 4: separation by side.
+
+
+def test_only_in_favour_does_not_separate() -> None:
+    assert STATEMENT_SEPARATION.run(data({1: (2, -1, 1), 2: (1, 2, 2), 3: (1, -1, 1)}, (1, 2, 3))) == [
+        entry(2, "no party is against (3 in favour)")
+    ]
+
+
+def test_only_against_does_not_separate() -> None:
+    assert STATEMENT_SEPARATION.run(data({1: (-1, -2)})) == [
+        entry(1, "no party is in favour (2 against)")
+    ]
+
+
+def test_only_zero_does_not_separate() -> None:
+    assert STATEMENT_SEPARATION.run(data({1: (0, 0)})) == [
+        entry(1, "no party is in favour or against")
+    ]
+
+
+def test_one_on_each_side_separates_whatever_the_zeros() -> None:
+    assert STATEMENT_SEPARATION.run(data({1: (1, -1, 0)}, (1, 2, 3))) == []
+    assert STATEMENT_SEPARATION.run(data({1: (2, -1)})) == []
 
 
 def test_three_parties_with_one_different_value_separate() -> None:
@@ -112,7 +140,17 @@ def test_three_parties_with_one_different_value_separate() -> None:
 
 def test_all_neutral_values_do_not_separate() -> None:
     assert STATEMENT_SEPARATION.run(data({1: (2, 2, -2), 2: (0, 0, 0)}, (1, 2, 3))) == [
-        entry(2, "all 3 parties with a stance have value 0")
+        entry(2, "no party is in favour or against")
+    ]
+
+
+def test_different_values_on_one_side_do_not_separate() -> None:
+    # Five-value semantics would pass {+1, +2}; the side rule does not.
+    assert STATEMENT_SEPARATION.run(data({1: (1, 2)})) == [
+        entry(1, "no party is against (2 in favour)")
+    ]
+    assert STATEMENT_SEPARATION.run(data({1: (0, 2)})) == [
+        entry(1, "no party is against (1 in favour)")
     ]
 
 
@@ -129,7 +167,7 @@ def test_no_stance_is_ignored_when_the_others_differ() -> None:
 
 def test_no_stance_is_ignored_when_the_others_are_equal() -> None:
     assert STATEMENT_SEPARATION.run(data({1: (1, NO, 1)}, (1, 2, 3))) == [
-        entry(1, "all 2 parties with a stance have value 1")
+        entry(1, "no party is against (2 in favour)")
     ]
 
 
@@ -147,7 +185,7 @@ def test_statement_without_any_position_rows() -> None:
 
 def test_only_one_party_with_a_stance() -> None:
     assert STATEMENT_SEPARATION.run(data({1: (NO, -2, NO)}, (1, 2, 3))) == [
-        entry(1, "only party 2 has a stance (value -2)")
+        entry(1, "no party is in favour (1 against)")
     ]
 
 
@@ -182,14 +220,14 @@ def test_zero_statements_report_nothing(party_ids: tuple[int, ...]) -> None:
 def test_foreign_party_positions_are_ignored() -> None:
     foreign = position(9, 1, -1)
     assert STATEMENT_SEPARATION.run(data({1: (1, 1)}, extra=[foreign])) == [
-        entry(1, "all 2 parties with a stance have value 1")
+        entry(1, "no party is against (2 in favour)")
     ]
 
 
 def test_foreign_party_alone_does_not_count_as_a_stance() -> None:
     foreign = position(9, 1, -1)
     assert STATEMENT_SEPARATION.run(data({1: (NO, 1)}, extra=[foreign])) == [
-        entry(1, "only party 2 has a stance (value 1)")
+        entry(1, "no party is against (1 in favour)")
     ]
 
 
@@ -198,7 +236,7 @@ def test_unknown_statement_positions_are_ignored() -> None:
     # position number if they were counted.
     unknown = [position(1, 1, -2, statement_id=999), position(2, 1, 2, statement_id=999)]
     assert STATEMENT_SEPARATION.run(data({1: (1, 1)}, extra=unknown)) == [
-        entry(1, "all 2 parties with a stance have value 1")
+        entry(1, "no party is against (2 in favour)")
     ]
 
 
@@ -213,10 +251,11 @@ def test_several_offenders_in_statement_order() -> None:
     )
 
     assert STATEMENT_SEPARATION.run(reordered) == [
-        entry(1, "all 2 parties with a stance have value 1"),
+        entry(1, "no party is against (2 in favour)"),
         entry(3, "no party has a stance"),
-        entry(4, "only party 1 has a stance (value -2)"),
-        entry(6, "all 2 parties with a stance have value -1"),
+        entry(4, "no party is in favour (1 against)"),
+        entry(5, "no party is against (1 in favour)"),
+        entry(6, "no party is in favour (2 against)"),
     ]
 
 
