@@ -165,10 +165,12 @@ Variables de entorno (lee `src/ideology_app/config.py`):
 | `LLM_CLAUDE_CODE_TIMEOUT_SECONDS` | `900` | Límite de una llamada a la CLI. |
 | `LLM_CLAUDE_CODE_MAX_WAIT_HOURS` | `48` | Espera máxima total por el límite de uso de la suscripción. |
 | `GENERATION_MODE` | `precomputed` | `precomputed` o `live`. |
-| `VALIDATION_MIN_PARTY_COVERAGE_PERCENT` | `50` | Cobertura mínima de cada partido. |
-| `VALIDATION_MIN_STATEMENTS` | `25` | Mínimo de afirmaciones. |
-| `VALIDATION_MAX_STATEMENTS` | `35` | Máximo de afirmaciones. |
-| `VALIDATION_MAX_TOPIC_SHARE_PERCENT` | `30` | Peso máximo de un tema. |
+| `VALIDATION_MIN_PARTY_COVERAGE_PERCENT` | `50` | Cobertura mínima de cada partido (solo cuentan las posiciones a favor o en contra), en cada longitud ofrecida del cuestionario. |
+| `VALIDATION_MIN_STATEMENTS` | `35` | Mínimo de afirmaciones del cuestionario completo. |
+| `VALIDATION_MAX_STATEMENTS` | `40` | Máximo de afirmaciones del cuestionario completo. |
+| `VALIDATION_MAX_TOPIC_SHARE_PERCENT` | `30` | Peso máximo de un tema, en cada longitud ofrecida del cuestionario. |
+| `VALIDATION_QUESTIONNAIRE_LENGTHS` | `15,30` | Longitudes cortas que ofrece cada Dataset Version (las primeras N afirmaciones), separadas por comas, crecientes y menores que `VALIDATION_MIN_STATEMENTS`; `none` para no ofrecer ninguna. |
+| `VALIDATION_MIN_STATEMENT_PARTIES` | `3` | Mínimo de partidos a favor o en contra para que la selección use una afirmación. |
 | `VALIDATION_CONTEXT_NOTE_MIN_CHARS` | `30` | Longitud mínima de la nota de contexto de cada afirmación (sin espacios al principio y al final; de 1 a 500). |
 | `VALIDATION_CONTEXT_NOTE_MAX_CHARS` | `300` | Longitud máxima de la nota de contexto (de 1 a 500, no menor que el mínimo). |
 | `VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS` | lista fija (69 palabras, `config.DEFAULT_CONTEXT_NOTE_EVALUATIVE_WORDS`) | Palabras valorativas que una nota de contexto no puede usar, separadas por comas; sustituye a la lista por defecto. |
@@ -216,7 +218,7 @@ Para reanudar una ejecución hay que usar el mismo proveedor y el mismo modelo.
 4. Lanza la ejecución nueva (para la elección 1; cambia `--election` para otra). Copia el comando entero; solo puedes cambiar el nombre del directorio de logs:
 
    ```bash
-   caffeinate -is env -u VALIDATION_MIN_PARTY_COVERAGE_PERCENT -u VALIDATION_MIN_STATEMENTS -u VALIDATION_MAX_STATEMENTS -u VALIDATION_MAX_TOPIC_SHARE_PERCENT -u VALIDATION_CONTEXT_NOTE_MIN_CHARS -u VALIDATION_CONTEXT_NOTE_MAX_CHARS -u VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS -u LLM_PROVIDER -u LLM_MODEL -u LLM_CLAUDE_CODE_BIN -u LLM_CLAUDE_CODE_TIMEOUT_SECONDS -u LLM_CLAUDE_CODE_MAX_WAIT_HOURS DATABASE_URL=sqlite:///data/ideology.db LLM_PROVIDER=claude_code LLM_MODEL=claude-sonnet-5-5 GENERATION_MODE=precomputed .venv/bin/ideology pipeline run --election 1 --yes 2>&1 | tee -ai "$HOME/ideology-logs/run.log"
+   caffeinate -is env -u VALIDATION_MIN_PARTY_COVERAGE_PERCENT -u VALIDATION_MIN_STATEMENTS -u VALIDATION_MAX_STATEMENTS -u VALIDATION_MAX_TOPIC_SHARE_PERCENT -u VALIDATION_CONTEXT_NOTE_MIN_CHARS -u VALIDATION_CONTEXT_NOTE_MAX_CHARS -u VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS -u VALIDATION_QUESTIONNAIRE_LENGTHS -u VALIDATION_MIN_STATEMENT_PARTIES -u LLM_PROVIDER -u LLM_MODEL -u LLM_CLAUDE_CODE_BIN -u LLM_CLAUDE_CODE_TIMEOUT_SECONDS -u LLM_CLAUDE_CODE_MAX_WAIT_HOURS DATABASE_URL=sqlite:///data/ideology.db LLM_PROVIDER=claude_code LLM_MODEL=claude-sonnet-5-5 GENERATION_MODE=precomputed .venv/bin/ideology pipeline run --election 1 --yes 2>&1 | tee -ai "$HOME/ideology-logs/run.log"
    ```
 
 5. Sin `--yes`, sobre la base compartida la CLI muestra un aviso y pregunta `Continue? [y/N]`. Si la entrada estándar no es una terminal, se niega: `Error: refusing to generate on the shared database without confirmation; pass --yes`.

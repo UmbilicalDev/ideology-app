@@ -479,7 +479,7 @@ def test_fresh_starts_from_zero(engine: Engine, use_provider: Callable[[Any], An
     result = ok(invoke("pipeline", "run", "--election", "1", "--fresh", "--yes"))
 
     assert "Pipeline run 2: passed" in result.output
-    assert len(provider.calls) == 13
+    assert len(provider.calls) == 17
     with Session(engine) as s:
         assert s.get(PipelineRun, 2).resumed_from_run_id is None  # type: ignore[union-attr]
 
@@ -516,7 +516,7 @@ def test_reuse_from_is_still_guarded(
     fresh = ok(
         invoke("pipeline", "run", "--election", "1", "--reuse-from", "1", "--fresh", "--yes")
     )
-    assert "Pipeline run 3: reusing identical calls of run 1 (13 recorded calls)" in fresh.output
+    assert "Pipeline run 3: reusing identical calls of run 1 (17 recorded calls)" in fresh.output
     # pipeline-statement-clarity-context: run 1 recorded no anchors (nothing was
     # Published before it), so run 3 takes the current Published version (run
     # 1's own) as anchors and only its reduce request changes.
@@ -606,7 +606,8 @@ def test_a_finished_run_or_another_model_gives_no_guard(
 def test_a_run_that_failed_validation_gives_no_guard(
     engine: Engine, use_provider: Callable[[Any], Any]
 ) -> None:
-    # Every Party agrees everywhere: statement_separation fails, the version stays.
+    # Every Party agrees everywhere: no Statement is selected, statement_count
+    # fails, and the (empty) version stays.
     use_provider(fake_provider(position_findings=findings_response(value=1)))
     result = invoke("pipeline", "run", "--election", "1", "--yes")
     assert result.exit_code == 1
@@ -699,8 +700,8 @@ def test_resume_on_another_machine(
     assert "Pipeline run 2: resuming from run 1 (3 recorded calls)" in result.output
     assert "Pipeline run 2: passed" in result.output
     db_a, db_b = machine_a / "data" / "ideology.db", machine_b / "data" / "ideology.db"
-    assert len(provider.calls) == 10
-    assert [c[3] for c in calls_of(db_b, 2)] == [True] * 3 + [False] * 10
+    assert len(provider.calls) == 14
+    assert [c[3] for c in calls_of(db_b, 2)] == [True] * 3 + [False] * 14
     assert calls_of(db_b, 1) == calls_of(db_a, 1)
     assert [c[2] for c in calls_of(db_b, 2)][:3] == [c[2] for c in calls_of(db_a, 1)]
     assert run_count(db_a) == 1 and run_count(db_b) == 2

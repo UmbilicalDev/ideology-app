@@ -283,6 +283,7 @@ function versionBody(): Record<string, unknown> {
         ],
       },
     ],
+    questionnaire_lengths: [1, 2],
   };
 }
 
@@ -347,6 +348,7 @@ describe("createPublicApiClient getDatasetVersion", () => {
           ],
         },
       ],
+      questionnaireLengths: [1, 2],
     });
   });
 
@@ -358,7 +360,8 @@ describe("createPublicApiClient getDatasetVersion", () => {
     const version = await api.getDatasetVersion(3);
     expect(version.parties[0]?.positions[0]?.evidence?.url).toBeNull();
 
-    const empty = { ...versionBody(), statements: [], parties: [] };
+    const { questionnaire_lengths: _lengths, ...withoutLengths } = versionBody();
+    const empty = { ...withoutLengths, statements: [], parties: [] };
     const emptyVersion = await createPublicApiClient({ fetch: fetchReturning(jsonResponse(empty)) }).getDatasetVersion(3);
     expect(emptyVersion.statements).toEqual([]);
     expect(emptyVersion.parties).toEqual([]);
@@ -374,6 +377,18 @@ describe("createPublicApiClient getDatasetVersion", () => {
       const version = await api.getDatasetVersion(3);
       expect(version.parties[0]?.logoUrl).toBeNull();
     }
+  });
+
+  test("a missing questionnaire_lengths reads as the full length (bodies before it existed)", async () => {
+    const body = mutated((b) => { delete b["questionnaire_lengths"]; });
+    const version = await createPublicApiClient({ fetch: fetchReturning(jsonResponse(body)) }).getDatasetVersion(3);
+    expect(version.questionnaireLengths).toEqual([2]);
+  });
+
+  test("a single full length is accepted", async () => {
+    const body = mutated((b) => { b["questionnaire_lengths"] = [2]; });
+    const version = await createPublicApiClient({ fetch: fetchReturning(jsonResponse(body)) }).getDatasetVersion(3);
+    expect(version.questionnaireLengths).toEqual([2]);
   });
 
   test("a null or missing context_note is null (bodies cached before context_note existed)", async () => {
@@ -432,6 +447,23 @@ describe("createPublicApiClient getDatasetVersion", () => {
     ['context_note ""', (b) => { b["statements"][0]["context_note"] = ""; }, "statements[0].context_note must be null or a non-empty string"],
     ["context_note 7", (b) => { b["statements"][1]["context_note"] = 7; }, "statements[1].context_note must be null or a non-empty string"],
     ["context_note {}", (b) => { b["statements"][0]["context_note"] = {}; }, "statements[0].context_note must be null or a non-empty string"],
+    ...([
+      ["null", null],
+      ["[]", []],
+      ["[2, 1]", [2, 1]],
+      ["[1, 1, 2]", [1, 1, 2]],
+      ["[0, 2]", [0, 2]],
+      ["[1]", [1]],
+      ["[1, 3]", [1, 3]],
+      ["[1.5, 2]", [1.5, 2]],
+      ['["1", 2]', ["1", 2]],
+      ['"1,2"', "1,2"],
+    ] as const).map(([label, value]): [string, Mutate, string] => [
+      `questionnaire_lengths ${label}`,
+      (b) => { b["questionnaire_lengths"] = value; },
+      "dataset_version.questionnaire_lengths must be strictly increasing positive integers " +
+        "ending at the statement count (2)",
+    ]),
     ["party id 1.5", (b) => { b["parties"][0]["id"] = 1.5; }, "parties[0].id must be a positive integer"],
     ["a missing short_name", (b) => { delete b["parties"][0]["short_name"]; }, "parties[0].short_name must be a string"],
     ...[

@@ -43,7 +43,7 @@ TABLES_AT_0005 = TABLES_AT_0004 | POSITION_TABLES
 VALIDATION_TABLES = {"validation_results", "validation_report_entries"}
 TABLES_AT_0009 = TABLES_AT_0005 | VALIDATION_TABLES
 ALL_TABLES = TABLES_AT_0009 | {"pipeline_run_calls"}
-HEAD = "0014"
+HEAD = "0015"
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -1511,3 +1511,103 @@ def test_offline_postgresql_render_of_0014() -> None:
     down_sql = down.getvalue()
     assert "ALTER TABLE statements DROP COLUMN context_note;" in down_sql
     assert "ALTER TABLE pipeline_runs DROP COLUMN anchor_dataset_version_id;" in down_sql
+
+
+# Migration 0015: Dataset Version questionnaire lengths
+# (pipeline-statement-priority-tiers).
+
+
+def _index_sql(url: str) -> str:
+    engine = make_engine(url)
+    try:
+        with engine.connect() as conn:
+            return conn.execute(
+                sa.text("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = :name"),
+                {"name": PUBLISHED_INDEX},
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+
+def _table_sql(url: str, table: str) -> str:
+    engine = make_engine(url)
+    try:
+        with engine.connect() as conn:
+            return conn.execute(
+                sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :name"),
+                {"name": table},
+            ).scalar_one()
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_0015_adds_a_nullable_json_column_and_keeps_rows(db_url: str) -> None:
+    run_migrations(db_url, "0014")
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+    finally:
+        engine.dispose()
+    versions_before = _all_rows(db_url, "dataset_versions")
+    index_before = _index_sql(db_url)
+    table_before = _table_sql(db_url, "dataset_versions")
+    counts = _counts(db_url, ALL_ROW_TABLES)
+
+    run_migrations(db_url, "0015")
+
+    assert _version(db_url) == "0015"
+    column = _columns(db_url, "dataset_versions")["questionnaire_lengths"]
+    assert column["nullable"] is True and isinstance(column["type"], sa.JSON)
+    # No data migration: existing versions keep every value and get NULL.
+    assert _counts(db_url, ALL_ROW_TABLES) == counts
+    assert _all_rows(db_url, "dataset_versions") == [(*row, None) for row in versions_before]
+    # Not recreated: the partial index keeps its WHERE clause, the table its DDL.
+    assert _index_sql(db_url) == index_before
+    assert "WHERE status = 'published'" in _index_sql(db_url)
+    after = _table_sql(db_url, "dataset_versions").splitlines()
+    before = table_before.splitlines()
+    # SQLite's ADD COLUMN appends the column to the last column line only.
+    changed = [i for i, (a, b) in enumerate(zip(before, after, strict=True)) if a != b]
+    assert len(changed) == 1 and "questionnaire_lengths JSON" in after[changed[0]]
+
+
+def test_downgrade_to_0014_drops_only_the_lengths_and_keeps_children(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        with engine.begin() as conn:
+            conn.execute(sa.text("UPDATE dataset_versions SET questionnaire_lengths = '[1]'"))
+    finally:
+        engine.dispose()
+    columns = set(_columns(db_url, "dataset_versions"))
+    counts = _counts(db_url, ALL_ROW_TABLES)
+    assert counts["statements"] == 1 and counts["party_positions"] == 1
+
+    downgrade(db_url, "0014")
+
+    assert _version(db_url) == "0014"
+    assert set(_columns(db_url, "dataset_versions")) == columns - {"questionnaire_lengths"}
+    assert _counts(db_url, ALL_ROW_TABLES) == counts
+    assert "WHERE status = 'published'" in _index_sql(db_url)
+    run_migrations(db_url)
+    assert _version(db_url) == HEAD
+
+
+def test_offline_postgresql_render_of_0015() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0014:0015",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0015:0014",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "ALTER TABLE dataset_versions ADD COLUMN questionnaire_lengths JSON;" in up_sql
+    assert "DROP INDEX" not in up_sql and "CREATE TABLE" not in up_sql
+    assert "ALTER TABLE dataset_versions DROP COLUMN questionnaire_lengths;" in down.getvalue()

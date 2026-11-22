@@ -208,6 +208,15 @@ export function CheckIcon() {
   );
 }
 
+/** An outlined right-pointing triangle (▷), the how-it-works bullet. */
+export function TriangleBulletIcon() {
+  return (
+    <Icon>
+      <path d="M9 7.5v9l7-4.5z" />
+    </Icon>
+  );
+}
+
 export function CheckCircleIcon() {
   return (
     <Icon>

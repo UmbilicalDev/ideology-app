@@ -156,7 +156,7 @@ def test_candidate_request_holds_the_chunk_and_versioned_prompt() -> None:
     assert request.system == STATEMENT_CANDIDATES.system
     assert "[página 1]\nTexto {con llaves}" in request.prompt
     assert request.schema is STATEMENT_CANDIDATES.schema
-    assert request.max_tokens == 4096
+    assert request.max_tokens == 8192
 
 
 def test_reduce_request_dedupes_and_sorts_candidates() -> None:
@@ -170,13 +170,13 @@ def test_reduce_request_dedupes_and_sorts_candidates() -> None:
     request = reduce_request(drafts)
     assert request.task == "generate_statements"
     assert request.system == GENERATE_STATEMENTS.system
-    assert request.max_tokens == 32768
+    assert request.max_tokens == 49152
     assert "- [economy] Beta.\n- [economy] Zeta.\n- [health] Zeta.\n- [housing] Alfa." in (
         request.prompt
     )
     assert request.prompt.count("Zeta.") == 2
-    assert "70 afirmaciones" in request.prompt
-    assert "(como mínimo 60 y como máximo 80)" in request.prompt
+    assert "120 afirmaciones" in request.prompt
+    assert "(como mínimo 100 y como máximo 140)" in request.prompt
 
 
 def test_generation_returns_statements_as_given_and_counts_usage() -> None:
@@ -265,7 +265,8 @@ def test_schema_mismatch_is_an_output_error() -> None:
 # bounds the Statement Pool size (pool_bounds of the run's ValidationSettings).
 
 
-@pytest.mark.parametrize("count", [20, 35, 59, 81])
+# pipeline-statement-priority-tiers, scenario 2: 99 and 141 fail (pool 100..140).
+@pytest.mark.parametrize("count", [20, 40, 99, 141])
 def test_out_of_range_pool_fails_the_call(count: int) -> None:
     provider = fake_provider(generate_statements=statements_payload(count))
     usage = Usage()
@@ -277,7 +278,7 @@ def test_out_of_range_pool_fails_the_call(count: int) -> None:
     assert usage.calls == 1  # only the candidates call succeeded
 
 
-@pytest.mark.parametrize("count", [60, 70, 80])
+@pytest.mark.parametrize("count", [100, 120, 140])
 def test_pool_size_at_the_default_limits_passes(count: int) -> None:
     provider = fake_provider(generate_statements=statements_payload(count))
     assert len(generate_statements(provider, chunks_of("a"), Usage()).statements) == count
@@ -286,18 +287,18 @@ def test_pool_size_at_the_default_limits_passes(count: int) -> None:
 @pytest.mark.parametrize(
     ("low", "high", "bounds"),
     [
-        (25, 35, (60, 80, 70)),
-        (10, 12, (60, 80, 70)),
-        (36, 65, (65, 80, 70)),
-        (40, 75, (75, 80, 75)),
-        (80, 80, (80, 80, 80)),
-        (1, 90, (90, 90, 90)),
+        (35, 40, (100, 140, 120)),
+        (10, 12, (100, 140, 120)),
+        (36, 105, (105, 140, 120)),
+        (40, 125, (125, 140, 125)),
+        (140, 140, (140, 140, 140)),
+        (1, 150, (150, 150, 150)),
     ],
 )
 def test_pool_schema_bounds_follow_settings(
     low: int, high: int, bounds: tuple[int, int, int]
 ) -> None:
-    settings = ValidationSettings(min_statements=low, max_statements=high)
+    settings = ValidationSettings(min_statements=low, max_statements=high, questionnaire_lengths=())
     assert pool_bounds(settings) == bounds
     request = reduce_request([StatementDraft(text="Alfa.", topic="housing")], settings)
     assert issubclass(request.schema, StatementSet)
@@ -308,16 +309,16 @@ def test_pool_schema_bounds_follow_settings(
 
 
 def test_configured_range_drives_the_pool_schema() -> None:
-    settings = ValidationSettings(min_statements=1, max_statements=90)
-    provider = fake_provider(generate_statements=statements_payload(90))
+    settings = ValidationSettings(min_statements=1, max_statements=150, questionnaire_lengths=())
+    provider = fake_provider(generate_statements=statements_payload(150))
     pool = generate_statements(provider, chunks_of("a"), Usage(), settings=settings)
-    assert len(pool.statements) == 90
+    assert len(pool.statements) == 150
     request = provider.calls[-1]
     bounds = request.schema.model_json_schema()["properties"]["statements"]
-    assert (bounds["minItems"], bounds["maxItems"]) == (90, 90)
-    assert "90 afirmaciones (como mínimo 90 y como máximo 90)" in request.prompt
+    assert (bounds["minItems"], bounds["maxItems"]) == (150, 150)
+    assert "150 afirmaciones (como mínimo 150 y como máximo 150)" in request.prompt
 
-    narrow = fake_provider(generate_statements=statements_payload(80))
+    narrow = fake_provider(generate_statements=statements_payload(140))
     with pytest.raises(LLMOutputError, match="does not match StatementSet"):
         generate_statements(narrow, chunks_of("a"), Usage(), settings=settings)
 
@@ -326,22 +327,22 @@ def test_default_settings_bound_the_reduce_request() -> None:
     drafts = [StatementDraft(text="Alfa.", topic="housing")]
     request = reduce_request(drafts)
     assert request.schema is reduce_request(drafts, ValidationSettings()).schema
-    assert pool_bounds() == pool_bounds(ValidationSettings()) == (60, 80, 70)
+    assert pool_bounds() == pool_bounds(ValidationSettings()) == (100, 140, 120)
     bounds = request.schema.model_json_schema()["properties"]["statements"]
-    assert (bounds["minItems"], bounds["maxItems"]) == (60, 80)
-    assert request.schema is not StatementSet  # the 1..80 base type is never sent
+    assert (bounds["minItems"], bounds["maxItems"]) == (100, 140)
+    assert request.schema is not StatementSet  # the 1..140 base type is never sent
 
 
 @pytest.mark.parametrize(
     ("low", "high", "line"),
     [
-        (25, 35, "70 afirmaciones (como mínimo 60 y como máximo 80)"),
-        (40, 75, "75 afirmaciones (como mínimo 75 y como máximo 80)"),
-        (1, 90, "90 afirmaciones (como mínimo 90 y como máximo 90)"),
+        (35, 40, "120 afirmaciones (como mínimo 100 y como máximo 140)"),
+        (40, 125, "125 afirmaciones (como mínimo 125 y como máximo 140)"),
+        (1, 150, "150 afirmaciones (como mínimo 150 y como máximo 150)"),
     ],
 )
 def test_pool_prompt_asks_for_target(low: int, high: int, line: str) -> None:
-    settings = ValidationSettings(min_statements=low, max_statements=high)
+    settings = ValidationSettings(min_statements=low, max_statements=high, questionnaire_lengths=())
     request = reduce_request([StatementDraft(text="Alfa.", topic="housing")], settings)
     assert f"Elabora una lista de {line}, en el orden en que deben presentarse." in (
         request.prompt
@@ -361,7 +362,7 @@ def test_reduce_request_lists_anchors_in_the_given_order() -> None:
         "Afirmaciones del cuestionario publicado anteriormente (una por línea, con su número "
         "y su tema entre corchetes):\n\n"
         "[1] [employment] Debe subir el salario mínimo.\n[2] [taxation] Debe bajar el IVA."
-        "\n\nElabora una lista de 70 afirmaciones"
+        "\n\nElabora una lista de 120 afirmaciones"
     ) in request.prompt
     anchor = request.schema.model_json_schema()["$defs"]["PoolStatement"]["properties"]["anchor"]
     assert anchor["anyOf"][0] == {"maximum": 2, "minimum": 1, "type": "integer"}

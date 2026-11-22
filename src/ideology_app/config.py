@@ -44,9 +44,14 @@ class GenerationMode(StrEnum):
 DEFAULT_GENERATION_MODE = GenerationMode.PRECOMPUTED
 
 DEFAULT_MIN_PARTY_COVERAGE_PERCENT = 50
-DEFAULT_MIN_STATEMENTS = 25
-DEFAULT_MAX_STATEMENTS = 35
+# pipeline-statement-priority-tiers (user decision 2026-11-21): the full set
+# has 35..40 Statements (was 25..35); shorter questionnaires are its first 15
+# and first 30 Statements; a Statement needs at least 3 Parties with a side.
+DEFAULT_MIN_STATEMENTS = 35
+DEFAULT_MAX_STATEMENTS = 40
 DEFAULT_MAX_TOPIC_SHARE_PERCENT = 30
+DEFAULT_QUESTIONNAIRE_LENGTHS: tuple[int, ...] = (15, 30)
+DEFAULT_MIN_STATEMENT_PARTIES = 3
 
 # Context notes (pipeline-statement-clarity-context). The structural cap equals
 # ``pipeline.prompts.CONTEXT_NOTE_SCHEMA_MAX`` and the ``statements.context_note``
@@ -130,6 +135,13 @@ class ValidationSettings:
     (``1 <= min <= max <= CONTEXT_NOTE_MAX_CHARS_LIMIT``); and
     ``context_note_evaluative_words``: the non-empty list of words or phrases,
     each with a letter or digit, a note must not use (check ``context_note``).
+    ``questionnaire_lengths``: the shorter questionnaire lengths a Dataset
+    Version offers besides its full set (strictly increasing integers of at
+    least 1, each below ``min_statements``; ``()`` for none). Statement
+    Selection records them on the version and checks ``party_coverage`` and
+    ``topic_spread`` run on each prefix.
+    ``min_statement_parties``: the fewest Parties (at least 1) that must be in
+    favour or against a pool Statement for Statement Selection to rank it.
     A later threshold check adds its field here.
     """
 
@@ -140,6 +152,8 @@ class ValidationSettings:
     context_note_min_chars: int = DEFAULT_CONTEXT_NOTE_MIN_CHARS
     context_note_max_chars: int = DEFAULT_CONTEXT_NOTE_MAX_CHARS
     context_note_evaluative_words: tuple[str, ...] = DEFAULT_CONTEXT_NOTE_EVALUATIVE_WORDS
+    questionnaire_lengths: tuple[int, ...] = DEFAULT_QUESTIONNAIRE_LENGTHS
+    min_statement_parties: int = DEFAULT_MIN_STATEMENT_PARTIES
 
     def __post_init__(self) -> None:
         if not _is_int_in(self.min_party_coverage_percent, 0, 100):
@@ -170,6 +184,25 @@ class ValidationSettings:
                 "context_note_evaluative_words must be a non-empty tuple of strings "
                 "that each contain a letter or digit"
             )
+        if not _valid_lengths(self.questionnaire_lengths, self.min_statements):
+            raise ValueError(
+                "questionnaire_lengths must be a tuple of strictly increasing integers "
+                "of at least 1, each below min_statements"
+            )
+        if not _is_int_in(self.min_statement_parties, 1, None):
+            raise ValueError("min_statement_parties must be an integer of at least 1")
+
+
+def _valid_lengths(lengths: object, below: int) -> bool:
+    """True for a tuple of strictly increasing non-``bool`` ints >= 1, each < ``below``."""
+    if not isinstance(lengths, tuple):
+        return False
+    previous = 0
+    for length in lengths:
+        if not _is_int_in(length, previous + 1, below - 1):
+            return False
+        previous = length
+    return True
 
 
 def _has_word_character(value: str) -> bool:
@@ -313,21 +346,56 @@ def _word_list_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     return words
 
 
+def _lengths_env(name: str, default: tuple[int, ...], below: int) -> tuple[int, ...]:
+    """Comma-separated questionnaire lengths read from ``name``, or ``default``.
+
+    ``none`` (any case) means no shorter length. Each entry is ASCII digits
+    (trimmed); the list must be strictly increasing, from 1, each below ``below``.
+    """
+    raw = _env(name)
+    if raw is None:
+        if not _valid_lengths(default, below):
+            shown = ",".join(str(length) for length in default)
+            raise ConfigError(
+                f"Invalid {name}: the default {shown} is not below "
+                f"VALIDATION_MIN_STATEMENTS ({below}); set lower lengths or none"
+            )
+        return default
+    error = ConfigError(
+        f"Invalid {name} {raw!r}; expected increasing positive integers below "
+        f"VALIDATION_MIN_STATEMENTS ({below}), or none"
+    )
+    if raw.lower() == "none":
+        return ()
+    parts = [part.strip() for part in raw.split(",")]
+    if not all(part.isascii() and part.isdigit() for part in parts):
+        raise error
+    lengths = tuple(int(part) for part in parts)
+    if not _valid_lengths(lengths, below):
+        raise error
+    return lengths
+
+
 def validation_settings() -> ValidationSettings:
     """Return the Validation thresholds from the environment.
 
     ``VALIDATION_MIN_PARTY_COVERAGE_PERCENT`` (default 50) and
     ``VALIDATION_MAX_TOPIC_SHARE_PERCENT`` (default 30) are integers from 0 to
-    100; ``VALIDATION_MIN_STATEMENTS`` (default 25) and
-    ``VALIDATION_MAX_STATEMENTS`` (default 35) are integers of at least 1, and
+    100; ``VALIDATION_MIN_STATEMENTS`` (default 35) and
+    ``VALIDATION_MAX_STATEMENTS`` (default 40) are integers of at least 1, and
     the min must not be greater than the max. Anything else (decimals, ``%``,
     signs) raises ``ConfigError``. ``VALIDATION_CONTEXT_NOTE_MIN_CHARS``
     (default 30) and ``VALIDATION_CONTEXT_NOTE_MAX_CHARS`` (default 300) are
     integers from 1 to ``CONTEXT_NOTE_MAX_CHARS_LIMIT`` (500), min not above
     max; ``VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS`` is a comma-separated
     list that replaces the default list (unset or blank: the default).
-    Variables are checked in this order: coverage, min, max, range, share,
-    note min, note max, note range, words; the first error wins.
+    ``VALIDATION_QUESTIONNAIRE_LENGTHS`` (default ``15,30``) is a
+    comma-separated list of strictly increasing positive integers, each below
+    ``VALIDATION_MIN_STATEMENTS``, or ``none`` (any case) for no shorter
+    length; ``VALIDATION_MIN_STATEMENT_PARTIES`` (default 3) is an integer of
+    at least 1. Variables are checked in this order: coverage, min, max, range,
+    share, note min, note max, note range, words, lengths, min parties; the
+    first error wins.
     """
     coverage = _percent_env(
         "VALIDATION_MIN_PARTY_COVERAGE_PERCENT", DEFAULT_MIN_PARTY_COVERAGE_PERCENT
@@ -360,6 +428,12 @@ def validation_settings() -> ValidationSettings:
     words = _word_list_env(
         "VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS", DEFAULT_CONTEXT_NOTE_EVALUATIVE_WORDS
     )
+    lengths = _lengths_env(
+        "VALIDATION_QUESTIONNAIRE_LENGTHS", DEFAULT_QUESTIONNAIRE_LENGTHS, min_statements
+    )
+    min_parties = _positive_int_env(
+        "VALIDATION_MIN_STATEMENT_PARTIES", DEFAULT_MIN_STATEMENT_PARTIES
+    )
     return ValidationSettings(
         min_party_coverage_percent=coverage,
         min_statements=min_statements,
@@ -368,6 +442,8 @@ def validation_settings() -> ValidationSettings:
         context_note_min_chars=note_min,
         context_note_max_chars=note_max,
         context_note_evaluative_words=words,
+        questionnaire_lengths=lengths,
+        min_statement_parties=min_parties,
     )
 
 

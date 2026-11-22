@@ -266,7 +266,39 @@ function parseDatasetVersion(body: unknown): DatasetVersion {
   const parties = requireArray(body, "parties", path).map((party, index) =>
     parseParty(party, `parties[${index}]`, statements),
   );
-  return { id, electionId, createdAt, statements, parties };
+  const questionnaireLengths = parseQuestionnaireLengths(body, path, statements.length);
+  return { id, electionId, createdAt, statements, parties, questionnaireLengths };
+}
+
+// `questionnaire_lengths` (pipeline-statement-priority-tiers): strictly
+// increasing positive integers ending at the Statement count. A missing key
+// (an older server) reads as the full length only.
+function parseQuestionnaireLengths(
+  body: Record<string, unknown>,
+  path: string,
+  statementCount: number,
+): readonly number[] {
+  if (!("questionnaire_lengths" in body)) {
+    return [statementCount];
+  }
+  const raw = body["questionnaire_lengths"];
+  const message =
+    `${path}.questionnaire_lengths must be strictly increasing positive integers ` +
+    `ending at the statement count (${statementCount})`;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new ContractError(message);
+  }
+  let previous = 0;
+  for (const value of raw) {
+    if (typeof value !== "number" || !Number.isInteger(value) || value <= previous) {
+      throw new ContractError(message);
+    }
+    previous = value;
+  }
+  if (previous !== statementCount) {
+    throw new ContractError(message);
+  }
+  return [...raw] as number[];
 }
 
 function parseLegalHolder(value: unknown, path: string): LegalHolder {

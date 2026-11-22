@@ -12,7 +12,7 @@ import resultsDarkPoster from "../../assets/how-it-works/results-dark.webp";
 import resultsDarkVideo from "../../assets/how-it-works/results-dark.mp4";
 import resultsLightPoster from "../../assets/how-it-works/results-light.webp";
 import resultsLightVideo from "../../assets/how-it-works/results-light.mp4";
-import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, PauseIcon, PlayIcon } from "../../ui/icons";
+import { ChevronLeftIcon, ChevronRightIcon, PauseIcon, PlayIcon, TriangleBulletIcon } from "../../ui/icons";
 import { useMediaQuery } from "../common/useMediaQuery";
 
 interface Media {
@@ -245,7 +245,7 @@ export function HowItWorksCarousel({
                 <ul className="how-slide__points">
                   {slide.points.map((point) => (
                     <li key={point}>
-                      <CheckIcon />
+                      <TriangleBulletIcon />
                       <span>{point}</span>
                     </li>
                   ))}

@@ -112,3 +112,18 @@ def test_old_dataset_versions_have_no_context_notes(engine: Engine) -> None:
             "SELECT count(*) FROM pipeline_runs WHERE anchor_dataset_version_id IS NOT NULL"
         ).scalar()
     assert (notes, anchors) == (0, 0)
+
+
+def test_old_dataset_versions_have_no_questionnaire_lengths(engine: Engine) -> None:
+    # pipeline-statement-priority-tiers scenario 15: 0015 adds the column with no
+    # data migration; Dataset Versions 1-5 keep NULL (read as their full length).
+    with engine.connect() as conn:
+        stored = conn.exec_driver_sql(
+            "SELECT count(*) FROM dataset_versions WHERE questionnaire_lengths IS NOT NULL"
+        ).scalar()
+        index = conn.exec_driver_sql(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' "
+            "AND name = 'uq_dataset_versions_published_election_id'"
+        ).scalar()
+    assert stored == 0
+    assert "WHERE status = 'published'" in index

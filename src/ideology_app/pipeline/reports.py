@@ -33,7 +33,9 @@ class RunReport:
 
     ``validated_at`` is the earliest Validation result's ``created_at`` (``None``
     before Validation). ``dataset_version_*`` and ``statement_count`` are
-    ``None`` when the run has no Dataset Version. ``statement_selection`` is
+    ``None`` when the run has no Dataset Version; ``questionnaire_lengths`` is
+    the version's stored lengths (``None`` without a version and for versions
+    created before ``pipeline-statement-priority-tiers``). ``statement_selection`` is
     the stored Statement Selection report (``None`` for a run without a
     Dataset Version and for runs before ``pipeline-coverage-selection``). ``live_*`` name the Election's
     Published Dataset Version (``None`` before its first publish). ``results``
@@ -62,6 +64,7 @@ class RunReport:
     dataset_version_id: int | None
     dataset_version_status: DatasetVersionStatus | None
     statement_count: int | None
+    questionnaire_lengths: list[int] | None
     statement_selection: dict[str, Any] | None
     live_dataset_version_id: int | None
     live_run_id: int | None
@@ -118,6 +121,11 @@ def get_run_report(session: Session, run_id: int) -> RunReport:
         dataset_version_id=None if version is None else version.id,
         dataset_version_status=None if version is None else version.status,
         statement_count=statement_count,
+        questionnaire_lengths=(
+            None
+            if version is None or version.questionnaire_lengths is None
+            else list(version.questionnaire_lengths)
+        ),
         statement_selection=(
             None if run.statement_selection is None else dict(run.statement_selection)
         ),

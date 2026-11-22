@@ -40,6 +40,7 @@ const VERSION: DatasetVersion = {
   createdAt: "2026-10-20T09:30:00Z",
   statements: STATEMENTS,
   parties: [party(1, "Uno", 1), party(2, "Dos", -1)],
+  questionnaireLengths: [STATEMENTS.length],
 };
 
 const ELECTION: Election = {

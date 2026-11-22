@@ -10,6 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from ideology_app.pipeline import (
     CONTEXT_NOTE_SCHEMA_MAX,
+    FINDINGS_MAX,
     GENERATE_STATEMENTS,
     PARTY_POSITIONS,
     POOL_MAX_STATEMENTS,
@@ -47,8 +48,10 @@ from ideology_app.pipeline.prompts import _COMMON_RULES
 # To change a prompt: bump its version, then replace its entry here with the new
 # (task, version) and the fingerprint printed by the failing test.
 FINGERPRINTS = {
-    ("statement_candidates", "v1"): "a2073f8c4dcc630a08056db3bef2f59f3e412532693fd2b364af902bbfbe1177",
-    ("generate_statements", "v6"): "5ef86697e9a0b579a80ab8fa9e6e91c89d814f59c0d897491011e776c1e03ac1",
+    # Re-pinned by pipeline-statement-priority-tiers (statement_candidates v2,
+    # generate_statements v7); the position_findings and party_positions pins are unchanged.
+    ("statement_candidates", "v2"): "f8f131e97788e22b1963715f618d8e497026d599259257f9c35475a63d6f6f0b",
+    ("generate_statements", "v7"): "a4c2b443ce942c61f5ca8130b2e7215887a5cb5780babb957e32ff9b7fd8d678",
     ("position_findings", "v5"): "988fb77e0034909faa79574b65c49889d496a4790c54e65a43e580d921f03690",
     ("party_positions", "v2"): "cd473fcb60cd0ad4c7cbbd0e30c4d5c1d2bfeb37340bcd4aa7801277f1eee9e3",
 }
@@ -57,15 +60,16 @@ FINGERPRINTS = {
 # schema: a builder change then fails the pin too.
 REFERENCE_SCHEMAS = {
     "statement_candidates": lambda: CandidateList,
-    "generate_statements": lambda: statement_set_schema(60, 80, 32),
+    "generate_statements": lambda: statement_set_schema(100, 140, 32),
     "position_findings": lambda: finding_list_schema(30),
     "party_positions": lambda: position_list_schema(30, 10),
 }
 
-# request_hash("fake", "fake-model", candidate_request("[página 1]\nTexto")) computed
-# on base commit b992e57, before pipeline-output-bounds: the statement_candidates
-# request must stay byte-identical so recorded calls stay reusable.
-CANDIDATE_REQUEST_HASH = "2936c24068bdc5d815241addb8324d71f4032fc878e880cd953fb36feccf9dab"
+# request_hash("fake", "fake-model", candidate_request("[página 1]\nTexto")).
+# Re-pinned by pipeline-statement-priority-tiers for statement_candidates v2 (was
+# 2936c240..., computed on b992e57): v2 deliberately voids every recorded candidate
+# call. From here on the request must stay byte-identical so recorded calls stay reusable.
+CANDIDATE_REQUEST_HASH = "bd2c72bde6f6c22088981185cf3a20d94cce51654fc9d278286bceb6bfb3cc3e"
 
 # request_hash("fake", "fake-model", ...) of the position requests below. The
 # party_positions hash was computed on main cf062e4, before pipeline-verified-findings
@@ -127,18 +131,21 @@ def test_fingerprint_detects_a_change() -> None:
     positions = (PARTY_POSITIONS.task, PARTY_POSITIONS.version)
     assert fingerprint(PARTY_POSITIONS, position_list_schema(30, 11)) != FINGERPRINTS[positions]
     generate = (GENERATE_STATEMENTS.task, GENERATE_STATEMENTS.version)
-    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(60, 81)) != FINGERPRINTS[generate]
+    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(100, 141)) != FINGERPRINTS[
+        generate
+    ]
     # The anchor bound is part of the pinned schema too.
-    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(60, 80, 31)) != FINGERPRINTS[
+    assert fingerprint(GENERATE_STATEMENTS, statement_set_schema(100, 140, 31)) != FINGERPRINTS[
         generate
     ]
 
 
 def test_statement_candidates_request_is_byte_identical() -> None:
-    # Its recorded calls must stay reusable by --resume-from (pipeline-output-bounds).
-    assert STATEMENT_CANDIDATES.version == "v1"
+    # Its recorded calls must stay reusable by --resume-from (pipeline-output-bounds);
+    # v2 (pipeline-statement-priority-tiers) is the one deliberate change since.
+    assert STATEMENT_CANDIDATES.version == "v2"
     assert fingerprint(STATEMENT_CANDIDATES, STATEMENT_CANDIDATES.schema) == FINGERPRINTS[
-        ("statement_candidates", "v1")
+        ("statement_candidates", "v2")
     ]
     request = candidate_request("[página 1]\nTexto")
     assert request.schema is CandidateList
@@ -166,8 +173,8 @@ def _pinned_position_requests() -> tuple[LLMRequest[Any], LLMRequest[Any]]:
 def test_position_requests_are_byte_identical() -> None:
     # pipeline-verified-findings changes no request: same versions, same hashes.
     assert PROMPT_VERSIONS == {
-        "statement_candidates": "v1",
-        "generate_statements": "v6",
+        "statement_candidates": "v2",
+        "generate_statements": "v7",
         "position_findings": "v5",
         "party_positions": "v2",
     }
@@ -191,8 +198,8 @@ def test_a_verification_verdict_does_not_change_the_positions_request() -> None:
 
 def test_prompt_versions_and_constants() -> None:
     assert PROMPT_VERSIONS == {
-        "statement_candidates": "v1",
-        "generate_statements": "v6",
+        "statement_candidates": "v2",
+        "generate_statements": "v7",
         "position_findings": "v5",
         "party_positions": "v2",
     }
@@ -201,10 +208,11 @@ def test_prompt_versions_and_constants() -> None:
     assert PARTY_POSITIONS.schema is PositionList
     assert PARTY_POSITIONS.max_tokens == 8192
     assert STATEMENT_CANDIDATES.schema is CandidateList
-    assert STATEMENT_CANDIDATES.max_tokens == 4096
+    assert STATEMENT_CANDIDATES.max_tokens == 8192
     assert GENERATE_STATEMENTS.schema is StatementSet
-    assert GENERATE_STATEMENTS.max_tokens == 32768
-    assert (POOL_MIN_STATEMENTS, POOL_MAX_STATEMENTS, POOL_TARGET_STATEMENTS) == (60, 80, 70)
+    assert GENERATE_STATEMENTS.max_tokens == 49152
+    assert (POOL_MIN_STATEMENTS, POOL_MAX_STATEMENTS, POOL_TARGET_STATEMENTS) == (100, 140, 120)
+    assert FINDINGS_MAX == 80
     assert len(TOPICS) == 18 and len(set(TOPICS)) == 18
     assert TOPICS[0] == "economy" and TOPICS[-1] == "infrastructure_transport"
 
@@ -215,8 +223,12 @@ def test_prompt_versions_and_constants() -> None:
 def test_system_prompt_states_the_rules(spec: PromptSpec) -> None:
     for topic in TOPICS:
         assert topic in spec.system
-    for rule in ("español de España", "Una sola proposición", "neutral", "5 puntos"):
+    for rule in ("español de España", "Una sola proposición", "neutral", COMMON_RULE_V7):
         assert rule in spec.system
+    # pipeline-statement-priority-tiers: the five-point scale is gone from both.
+    assert "escala de 5 puntos" not in spec.system
+    assert "5 puntos" not in spec.system
+    assert "responderían de forma diferente" not in spec.system
 
 
 def test_reduce_prompt_adds_list_rules() -> None:
@@ -283,7 +295,34 @@ GENERATE_STATEMENTS_V6_RULE_LINES = (
     "- No repitas la afirmación ni añadas propuestas.",
 )
 
-GENERATE_STATEMENTS_V6_SYSTEM = (
+# The v7 rule lines (pipeline-statement-priority-tiers, Technical Approach section 1).
+COMMON_RULE_V7 = (
+    "- Cada afirmación es una propuesta política en forma afirmativa con la que un votante "
+    "puede estar de acuerdo o en desacuerdo."
+)
+CANDIDATES_V2_RULE = (
+    "- Extrae cada propuesta concreta del fragmento, también las de detalle y las que solo "
+    "aparecen una vez, sin elegir entre ellas; devuelve como máximo 30 candidatas por "
+    "fragmento y, si hay más, las que el fragmento desarrolla con más detalle. Si el "
+    "fragmento no contiene propuestas políticas, devuelve una lista vacía."
+)
+CANDIDATES_V2_SYSTEM = (
+    "Eres un analista político que prepara un cuestionario de orientación de voto para "
+    "unas elecciones generales en España. Lees fragmentos de programas electorales y "
+    "extraes todas las propuestas políticas concretas que contienen, como afirmaciones "
+    "candidatas del cuestionario.\n\n"
+    f"{_COMMON_RULES}\n"
+    f"{CANDIDATES_V2_RULE}"
+)
+GENERATE_STATEMENTS_V7_NEW_LINES = (
+    "- Prefiere las orientaciones que tratan más programas: el cuestionario empieza por las "
+    "afirmaciones en las que se sitúan más candidaturas y deja fuera las que tratan muy "
+    "pocas.",
+    "- Elige orientaciones en las que unos programas estén a favor y otros en contra; evita "
+    "las que casi cualquier programa suscribiría.",
+)
+
+GENERATE_STATEMENTS_V7_SYSTEM = (
     "Eres un analista político que prepara un cuestionario de orientación de voto para "
     "unas elecciones generales en España. Recibes afirmaciones candidatas extraídas, en "
     "igual número, de los programas electorales de varias candidaturas, y las afirmaciones "
@@ -301,8 +340,8 @@ GENERATE_STATEMENTS_V6_SYSTEM = (
     "- Agrupa en una misma orientación las candidatas de programas distintos que van en esa "
     "dirección o en la contraria, para que el mayor número posible de programas se pueda "
     "situar en ella.\n"
-    "- Elige orientaciones en las que los programas discrepen; evita las que casi cualquier "
-    "programa suscribiría.\n"
+    + "\n".join(GENERATE_STATEMENTS_V7_NEW_LINES)
+    + "\n"
     + "\n".join(GENERATE_STATEMENTS_V6_RULE_LINES[5:7])
     + "\n"
     "- Cubre los temas de forma amplia: ningún tema debe superar aproximadamente una cuarta "
@@ -321,12 +360,15 @@ FINDINGS_V3_NEW_RULES = (
 )
 
 
-def test_reduce_prompt_v6_states_the_clarity_anchor_and_note_rules() -> None:
-    # pipeline-statement-clarity-context, scenario 5: every rule line verbatim.
-    for line in GENERATE_STATEMENTS_V6_RULE_LINES:
+def test_reduce_prompt_v7_states_the_clarity_anchor_and_note_rules() -> None:
+    # pipeline-statement-clarity-context, scenario 5: every rule line verbatim (kept
+    # by v7), plus the v7 lines of pipeline-statement-priority-tiers.
+    for line in (*GENERATE_STATEMENTS_V6_RULE_LINES, *GENERATE_STATEMENTS_V7_NEW_LINES):
         assert line + "\n" in GENERATE_STATEMENTS.system + "\n", line
-    assert GENERATE_STATEMENTS.system == GENERATE_STATEMENTS_V6_SYSTEM
-    assert GENERATE_STATEMENTS.max_tokens == 32768
+    assert GENERATE_STATEMENTS.system == GENERATE_STATEMENTS_V7_SYSTEM
+    assert GENERATE_STATEMENTS.max_tokens == 49152
+    # The v6 "discrepen" line is replaced by the side rule.
+    assert "en las que los programas discrepen" not in GENERATE_STATEMENTS.system
     # v5 lines that v6 replaces are gone.
     assert "nómbrala (por ejemplo, \"la reforma laboral de 2012\")" not in (
         GENERATE_STATEMENTS.system
@@ -335,6 +377,19 @@ def test_reduce_prompt_v6_states_the_clarity_anchor_and_note_rules() -> None:
     # The common rules are unchanged and still shared with statement_candidates.
     assert _COMMON_RULES in STATEMENT_CANDIDATES.system
     assert _COMMON_RULES in GENERATE_STATEMENTS.system
+
+
+def test_statement_candidates_v2_extracts_every_proposal() -> None:
+    # pipeline-statement-priority-tiers, scenario 1: the section 1 texts exactly.
+    assert STATEMENT_CANDIDATES.system == CANDIDATES_V2_SYSTEM
+    assert COMMON_RULE_V7 + "\n" in _COMMON_RULES
+    assert CANDIDATES_V2_RULE in STATEMENT_CANDIDATES.system
+    assert STATEMENT_CANDIDATES.template.endswith(
+        "{chunk}\n\n"
+        "Extrae todas las propuestas políticas concretas de este fragmento como "
+        "afirmaciones candidatas."
+    )
+    assert "como máximo 12" not in STATEMENT_CANDIDATES.system
 
 
 def test_reduce_template_v6_lists_anchors_and_note_limits() -> None:
@@ -390,9 +445,9 @@ def test_statement_draft_accepts_limits_and_keeps_text_as_given() -> None:
 def test_candidate_list_limits() -> None:
     item = {"text": "Subir el salario mínimo.", "topic": "employment"}
     assert CandidateList.model_validate({"candidates": []}).candidates == []
-    assert len(CandidateList.model_validate({"candidates": [item] * 12}).candidates) == 12
+    assert len(CandidateList.model_validate({"candidates": [item] * 30}).candidates) == 30
     with pytest.raises(ValidationError):
-        CandidateList.model_validate({"candidates": [item] * 13})
+        CandidateList.model_validate({"candidates": [item] * 31})
 
 
 def test_statement_set_limits() -> None:
@@ -404,9 +459,9 @@ def test_statement_set_limits() -> None:
     }
     with pytest.raises(ValidationError):
         StatementSet.model_validate({"statements": []})
-    assert len(StatementSet.model_validate({"statements": [item] * 80}).statements) == 80
+    assert len(StatementSet.model_validate({"statements": [item] * 140}).statements) == 140
     with pytest.raises(ValidationError):
-        StatementSet.model_validate({"statements": [item] * 81})
+        StatementSet.model_validate({"statements": [item] * 141})
 
 
 # Party Position prompts and schemas.
@@ -661,3 +716,11 @@ def test_bounded_item_types_keep_their_base_names() -> None:
 def test_builders_reject_invalid_bounds(build) -> None:
     with pytest.raises(ValueError):
         build()
+
+
+def test_findings_schema_stays_at_80_for_the_larger_pool() -> None:
+    # pipeline-statement-priority-tiers, scenario 2: FINDINGS_MAX, not the pool maximum.
+    for count in (20, 140, 141):
+        schema = finding_list_schema(count).model_json_schema()
+        assert schema["properties"]["findings"]["maxItems"] == FINDINGS_MAX == 80
+    assert PositionList.model_json_schema()["properties"]["positions"]["maxItems"] == 80

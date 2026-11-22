@@ -4,14 +4,15 @@ import type { Election } from "@ideology-app/core";
  * Parties left out of an Election's Dataset Version, explained on the results
  * screens (own result and Share Link) above the ranking. Keyed by Election
  * type and date, not id, so it holds in every database. Copy from the user
- * (2026-11-20); the reason is recorded in
+ * (2026-11-20; Frente Obrero added and the text made plural 2026-11-22); the
+ * EAJ-PNV reason is recorded in
  * `data/elections/es-general-2026-11-29/election.toml`.
  */
 const EXCLUDED_PARTIES: Readonly<Record<string, readonly string[]>> = {
   "general/2026-11-29": [
-    "El PNV (EAJ-PNV) no dispone de un programa electoral con suficientes propuestas concretas " +
-      "y definidas para calcular su afinidad política. Por este motivo, no se incluye en los " +
-      "resultados.",
+    "El PNV (EAJ-PNV) y Frente Obrero no disponen de un programa electoral con suficientes " +
+      "propuestas concretas y definidas para calcular su afinidad política. Por este motivo, " +
+      "no se incluyen en los resultados.",
   ],
 };
 

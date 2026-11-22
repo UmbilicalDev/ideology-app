@@ -103,7 +103,7 @@ def test_run1_shape_gives_quota_12_and_108_lines() -> None:
         "version": AGENDA_VERSION,
         "pool_max": 60,
         "floor": 7,
-        "quota_max": 24,
+        "quota_max": 40,
         "quota": 12,
         "lines": 108,
         "parties": [
@@ -122,9 +122,10 @@ def test_run1_shape_gives_quota_12_and_108_lines() -> None:
 def test_two_large_parties_get_the_floor() -> None:
     per_chunk = party_chunks(1, flat(100)) + party_chunks(2, flat(100))
     agenda = balance_candidates(per_chunk, pool_max=60)
-    assert agenda.quota == max(30, 24) == 30
-    assert [p["picked"] for p in agenda.report["parties"]] == [30, 30]
-    assert agenda.report["lines"] == 60
+    # Agenda v2: the floor is 30, the cap 40 (was 24), so each gives 40.
+    assert agenda.quota == max(30, min(PARTY_QUOTA_MAX, 100)) == 40
+    assert [p["picked"] for p in agenda.report["parties"]] == [40, 40]
+    assert agenda.report["lines"] == 80
 
 
 def test_three_parties_with_a_short_one() -> None:
@@ -138,8 +139,19 @@ def test_three_parties_with_a_short_one() -> None:
 def test_quota_is_capped_at_party_quota_max() -> None:
     per_chunk = [x for i in range(1, 10) for x in party_chunks(i, flat(200))]
     agenda = balance_candidates(per_chunk, pool_max=60)
-    assert agenda.quota == PARTY_QUOTA_MAX == 24
-    assert len(agenda.candidates) == 9 * 24
+    assert agenda.quota == PARTY_QUOTA_MAX == 40
+    assert len(agenda.candidates) == 9 * 40
+
+
+def test_agenda_v2_gives_40_per_party_for_the_140_pool() -> None:
+    # pipeline-statement-priority-tiers, scenario 3: 12 Parties with >= 40 unique each.
+    assert AGENDA_VERSION == "v2"
+    per_chunk = [x for i in range(1, 13) for x in party_chunks(i, flat(45))]
+    agenda = balance_candidates(per_chunk, pool_max=140)
+    assert agenda.report["floor"] == 12
+    assert agenda.quota == 40
+    assert [p["picked"] for p in agenda.report["parties"]] == [40] * 12
+    assert len(agenda.candidates) == 480
 
 
 # Scenario 2: shortfall, nothing invented
@@ -291,10 +303,11 @@ def test_generation_feeds_the_agenda_to_the_reduce_without_party_labels() -> Non
     assert usage.calls == len(chunks) + 1 == 80  # the map + reduce formula
     reduce = provider.calls[-1]
     assert reduce.task == "generate_statements"
-    assert reduce.prompt.count("\n- [") == 108
+    # Pool max 140 over 9 Parties: floor and quota 16; Party 7 has only 12.
+    assert reduce.prompt.count("\n- [") == 140
     assert reduce.prompt == reduce_request(pool.agenda.candidates).prompt
-    assert pool.agenda.report["quota"] == 12
-    assert [p["picked"] for p in pool.agenda.report["parties"]] == [12] * 9
+    assert pool.agenda.report["quota"] == 16
+    assert [p["picked"] for p in pool.agenda.report["parties"]] == [16] * 6 + [12, 16, 16]
     for name, short in PARTIES:
         assert name not in reduce.system + reduce.prompt
         assert short not in reduce.system + reduce.prompt

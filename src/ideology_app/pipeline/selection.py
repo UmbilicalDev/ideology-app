@@ -1,37 +1,51 @@
-"""Statement Selection: choose the Questionnaire's Statements from the Statement Pool.
+"""Statement Selection: choose and order the Questionnaire's Statements from the Statement Pool.
 
 Pure: no database, LLM, clock or randomness, and no iteration over unordered
 sets, so the same pool, Party Positions, Party ids and settings always give the
 same selection and report. Every Party is treated the same: the order of
 ``party_ids`` and which Party owns which values never matter.
 
-The rules (``pipeline-coverage-selection``; rule 0 since
-``pipeline-statement-clarity-context``, ``SELECTION_VERSION`` v2), with pool
-numbers 1-based:
+The rules (``SELECTION_VERSION`` v3, ``pipeline-statement-priority-tiers``;
+v2 chose by worst-Party coverage and kept pool order), with pool numbers
+1-based. A Party is *in favour* of a Statement at +1/+2 and *against* it at
+−1/−2; 0 and ``no stance`` count on neither side. ``parties`` is the number of
+Parties in favour or against, ``separation`` the smaller of the two sides.
 
-0. Statements whose context note fails ``validation.check_context_note`` on the
-   pool are ineligible (status ``context_invalid``), so a note that would fail
-   Validation costs one Statement, not the run.
-1. Duplicates (``validation.check_statement_uniqueness`` on the eligible
-   Statements) are left out; the first eligible copy in pool order stays.
-2. Statements that separate the Parties (``check_statement_separation``) are
-   tier 1; the others are tier 2 (every Statement with fewer than two Parties).
-3. No topic gets more than ``topic_cap`` picks:
-   ``max(1, max_topic_share_percent * min_statements // 100)``, so any count of
-   at least ``min_statements`` passes ``topic_spread``.
-4. Greedy leximin: repeatedly pick the tier-1 Statement whose stances most
-   raise the worst-covered Party's count (then the next worst, and so on), ties
-   by more distinct values, then a larger spread, then the lower pool number,
-   until ``max_statements``. Tier 2 is used only to reach ``min_statements``.
-5. Count: the largest prefix of that sequence, from ``min_statements`` up, on
-   which ``check_party_coverage`` passes; if none passes, the one with the best
-   worst-Party coverage ratio (ties: the larger).
+Each pool Statement gets exactly one status:
 
-The selected Statements keep their pool order, text, topic and context note,
-and are renumbered 1..n; their Party Positions keep value and Evidence.
-Anchors (``PoolStatement.anchor``) get no preference: an anchor's topic stays
-exactly when its rewritten Statement wins the same choice. Rules 0 and 1 depend
-only on Statement text and notes, so Party symmetry is unaffected.
+0. ``context_invalid``: its context note fails ``validation.check_context_note``
+   on the pool, so a note that would fail Validation costs one Statement, not
+   the run.
+1. ``duplicate``: ``validation.check_statement_uniqueness`` on the Statements
+   left by rule 0; the first copy in pool order stays.
+2. ``not_separating``: no Party in favour or none against (every Statement when
+   the Election has fewer than two Parties). Never used to fill up a count.
+3. ``few_parties``: fewer than ``settings.min_statement_parties`` Parties in
+   favour or against.
+4. Otherwise it is *ranked* by ``(-parties, -separation, pool number)``.
+
+Placement fills positions 1..``max_statements`` in ranking order: at position
+k it takes the first ranked Statement whose topic has fewer than ``cap(k)``
+picks; one skipped there is tried again at k+1. The caps (``topic_caps``) are
+``max(1, max_topic_share_percent * L // 100)`` for each offered shorter length
+L (``settings.questionnaire_lengths``) and then for ``min_statements``;
+``cap(k)`` is the cap of the first length ``>= k``, else the last one. So every
+offered prefix of a selection of at least ``min_statements`` passes
+``topic_spread``. Placement stops at ``max_statements`` or when nothing fits.
+
+Count: the largest prefix of that sequence, from ``min_statements`` up, on
+which ``check_party_coverage`` passes for the full set; if none passes, the
+one with the best worst-Party coverage ratio (ties: the larger); with no more
+than ``min_statements`` placed, all of them (``short``). Cutting the tail never
+changes a shorter prefix.
+
+The selected Statements are written in priority order (position 1 = the most
+Parties), keeping their text, topic and context note, with their Party
+Positions (value and Evidence) renumbered 1..n. ``Selection.lengths`` are the
+offered lengths below n, then n, so a questionnaire of length N is always the
+first N Statements. Anchors (``PoolStatement.anchor``) get no preference.
+Rules 0 and 1 depend only on Statement text and notes, so Party symmetry is
+unaffected.
 """
 
 from collections import Counter
@@ -53,10 +67,10 @@ from ideology_app.validation import (
 )
 from ideology_app.validation.context_note import check_context_note
 from ideology_app.validation.party_coverage import check_party_coverage
-from ideology_app.validation.statement_separation import check_statement_separation
+from ideology_app.validation.statement_count import expected_lengths
 from ideology_app.validation.statement_uniqueness import check_statement_uniqueness
 
-SELECTION_VERSION = "v2"
+SELECTION_VERSION = "v3"
 
 RULE_COVERAGE_MET = "coverage_met"
 RULE_BEST_COVERAGE = "best_coverage"
@@ -65,6 +79,8 @@ RULE_SHORT = "short"
 STATUS_SELECTED = "selected"
 STATUS_CONTEXT_INVALID = "context_invalid"
 STATUS_DUPLICATE = "duplicate"
+STATUS_NOT_SEPARATING = "not_separating"
+STATUS_FEW_PARTIES = "few_parties"
 STATUS_TOPIC_FULL = "topic_full"
 STATUS_NOT_PICKED = "not_picked"
 
@@ -74,21 +90,46 @@ _PROJECTED_CHECKS = tuple(check for check in CHECKS if check.name != EVIDENCE_QU
 
 @dataclass(frozen=True)
 class Selection:
-    """The selected Statements (pool order), their Positions renumbered 1..n, and the report.
+    """The selected Statements (priority order), their Positions renumbered 1..n, and the report.
 
     ``positions`` maps each Party id of the input to one ``PositionResult`` per
-    selected Statement, in order. ``report`` is plain JSON data, stored on the
-    run as ``pipeline_runs.statement_selection``.
+    selected Statement, in order. ``lengths`` are the offered questionnaire
+    lengths (ascending, the last is n; ``()`` when nothing is selected), stored
+    on the Dataset Version. ``report`` is plain JSON data, stored on the run as
+    ``pipeline_runs.statement_selection``.
     """
 
     statements: tuple[PoolStatement, ...]
     positions: dict[int, list[PositionResult]]
     report: dict[str, Any]
+    lengths: tuple[int, ...] = ()
+
+
+def topic_caps(settings: ValidationSettings) -> tuple[int, ...]:
+    """The topic cap of each offered shorter length, then of ``min_statements``."""
+    share = settings.max_topic_share_percent
+    return tuple(
+        max(1, share * length // 100)
+        for length in (*settings.questionnaire_lengths, settings.min_statements)
+    )
 
 
 def topic_cap(settings: ValidationSettings) -> int:
-    """The most Statements one topic may get in a selection."""
-    return max(1, settings.max_topic_share_percent * settings.min_statements // 100)
+    """The most Statements one topic may get in a whole selection (the last cap)."""
+    return topic_caps(settings)[-1]
+
+
+def _cap_at(position: int, settings: ValidationSettings, caps: Sequence[int]) -> int:
+    """``cap(k)``: the cap of the first offered shorter length ``>= position``, else the last."""
+    for length, cap in zip(settings.questionnaire_lengths, caps, strict=False):
+        if position <= length:
+            return cap
+    return caps[-1]
+
+
+def _sides(value: int | None) -> bool:
+    """True when ``value`` is in favour or against (not 0, not ``no stance``)."""
+    return value is not None and value != 0
 
 
 def _validation_input(
@@ -97,23 +138,27 @@ def _validation_input(
     values: Mapping[int, Mapping[int, int | None]],
     party_ids: Sequence[int],
     settings: ValidationSettings,
+    lengths: tuple[int, ...] = (),
 ) -> ValidationInput:
-    """The pool Statements ``numbers`` as Validation data (id = position = pool number)."""
+    """The pool Statements ``numbers``, in that order, as Validation data.
+
+    Statement id = pool number; position = index in ``numbers`` (1-based).
+    """
     return ValidationInput(
         statements=tuple(
             StatementRow(
                 id=n,
-                position=n,
+                position=i,
                 text=pool[n - 1].text,
                 topic=pool[n - 1].topic,
                 context_note=pool[n - 1].context_note,
             )
-            for n in numbers
+            for i, n in enumerate(numbers, start=1)
         ),
         positions=tuple(
             PositionRow(
                 statement_id=n,
-                statement_position=n,
+                statement_position=i,
                 party_id=party_id,
                 value=values[n][party_id],
                 document_id=None,
@@ -121,11 +166,12 @@ def _validation_input(
                 page=None,
                 url=None,
             )
-            for n in numbers
+            for i, n in enumerate(numbers, start=1)
             for party_id in party_ids
         ),
         party_ids=tuple(party_ids),
         settings=settings,
+        lengths=lengths,
     )
 
 
@@ -136,7 +182,7 @@ def _count(
     party_ids: Sequence[int],
     settings: ValidationSettings,
 ) -> tuple[int, str]:
-    """How many picks of ``sequence`` to keep, and the rule that decided it."""
+    """How many Statements of ``sequence`` to keep, and the rule that decided it."""
     length = len(sequence)
     low = settings.min_statements
     if length <= low:
@@ -148,7 +194,7 @@ def _count(
     best_n, best_worst = low, -1
     for n in range(low, length + 1):
         worst = min(
-            (sum(values[s][p] is not None for s in sequence[:n]) for p in party_ids),
+            (sum(_sides(values[s][p]) for s in sequence[:n]) for p in party_ids),
             default=0,
         )
         # worst / n >= best_worst / best_n, compared as integers; ties go to the larger n.
@@ -163,7 +209,7 @@ def select_statements(
     party_ids: Sequence[int],
     settings: ValidationSettings,
 ) -> Selection:
-    """Choose the Questionnaire's Statements from ``pool`` (see the module docstring).
+    """Choose and order the Questionnaire's Statements from ``pool`` (see the module docstring).
 
     ``positions`` maps Party id to its ``PositionResult``s, numbered by 1-based
     pool position (``extract_positions`` over the pool); a missing entry is
@@ -182,14 +228,10 @@ def select_statements(
         return None if result is None else result.value
 
     values = {n: {p: value(n, p) for p in party_ids} for n in numbers}
-    stances: dict[int, int] = {}
-    distinct: dict[int, int] = {}
-    spread: dict[int, int] = {}
-    for n in numbers:
-        found = [v for v in values[n].values() if v is not None]
-        stances[n] = len(found)
-        distinct[n] = len(dict.fromkeys(found))
-        spread[n] = max(found) - min(found) if len(found) >= 2 else 0
+    favour = {n: sum(v is not None and v > 0 for v in values[n].values()) for n in numbers}
+    against = {n: sum(v is not None and v < 0 for v in values[n].values()) for n in numbers}
+    sided = {n: favour[n] + against[n] for n in numbers}
+    separation = {n: min(favour[n], against[n]) for n in numbers}
 
     pool_data = _validation_input(numbers, pool, values, party_ids, settings)
     context_invalid = {e.statement_id for e in check_context_note(pool_data)}
@@ -202,37 +244,38 @@ def select_statements(
         first = first_by_text.setdefault(normalize_for_match(pool[n - 1].text), n)
         if n in duplicates:
             duplicate_of[n] = first
-    if len(party_ids) < 2:
-        not_separating = set(numbers)
-    else:
-        not_separating = {e.statement_id for e in check_statement_separation(pool_data)}
-    unique = [n for n in eligible if n not in duplicates]
-    tier = {n: 2 if n in not_separating else 1 for n in unique}
 
-    cap = topic_cap(settings)
-    coverage = {p: 0 for p in party_ids}
+    filtered: dict[int, str] = {}
+    for n in eligible:
+        if n in duplicates:
+            continue
+        if len(party_ids) < 2 or favour[n] == 0 or against[n] == 0:
+            filtered[n] = STATUS_NOT_SEPARATING
+        elif sided[n] < settings.min_statement_parties:
+            filtered[n] = STATUS_FEW_PARTIES
+    ranked = sorted(
+        (n for n in eligible if n not in duplicates and n not in filtered),
+        key=lambda n: (-sided[n], -separation[n], n),
+    )
+    rank = {n: i for i, n in enumerate(ranked, start=1)}
+
+    caps = topic_caps(settings)
     per_topic: Counter[str] = Counter()
     sequence: list[int] = []
-
-    def key(n: int) -> tuple[tuple[int, ...], int, int, int]:
-        after = sorted(coverage[p] + (values[n][p] is not None) for p in party_ids)
-        return (tuple(after), distinct[n], spread[n], -n)
-
-    for wanted_tier, limit in ((1, settings.max_statements), (2, settings.min_statements)):
-        remaining = [n for n in unique if tier[n] == wanted_tier]
-        while len(sequence) < limit:
-            allowed = [n for n in remaining if per_topic[pool[n - 1].topic] < cap]
-            if not allowed:
-                break
-            pick = max(allowed, key=key)
-            remaining.remove(pick)
-            sequence.append(pick)
-            per_topic[pool[pick - 1].topic] += 1
-            for p in party_ids:
-                coverage[p] += values[pick][p] is not None
+    remaining = list(ranked)
+    while len(sequence) < settings.max_statements:
+        cap = _cap_at(len(sequence) + 1, settings, caps)
+        pick = next((n for n in remaining if per_topic[pool[n - 1].topic] < cap), None)
+        if pick is None:
+            break
+        remaining.remove(pick)
+        sequence.append(pick)
+        per_topic[pool[pick - 1].topic] += 1
+    last_cap = _cap_at(len(sequence) + 1, settings, caps)
 
     count, rule = _count(sequence, pool, values, party_ids, settings)
-    selected = sorted(sequence[:count])
+    selected = sequence[:count]
+    lengths = expected_lengths(count, settings)
     new_position = {n: i for i, n in enumerate(selected, start=1)}
     statements = tuple(pool[n - 1] for n in selected)
     renumbered = {
@@ -245,9 +288,9 @@ def select_statements(
         for party_id in positions
     }
 
-    selected_data = _validation_input(selected, pool, values, party_ids, settings)
+    selected_data = _validation_input(selected, pool, values, party_ids, settings, lengths)
     projected = [r.name for r in run_checks(selected_data, _PROJECTED_CHECKS) if not r.passed]
-    pick_index = {n: i for i, n in enumerate(sequence, start=1)}
+    placed = set(sequence)
 
     def status(n: int) -> str:
         if n in new_position:
@@ -256,28 +299,39 @@ def select_statements(
             return STATUS_CONTEXT_INVALID
         if n in duplicates:
             return STATUS_DUPLICATE
-        if n not in pick_index and per_topic[pool[n - 1].topic] >= cap:
+        if n in filtered:
+            return filtered[n]
+        if n not in placed and per_topic[pool[n - 1].topic] >= last_cap:
             return STATUS_TOPIC_FULL
         return STATUS_NOT_PICKED
 
+    def tier(position: int | None) -> int | None:
+        if position is None:
+            return None
+        return next(length for length in lengths if length >= position)
+
     report: dict[str, Any] = {
         "version": SELECTION_VERSION,
-        # JSON-native: the context note word list as a list, not a tuple.
+        # JSON-native: tuples (word list, lengths) as lists.
         "settings": {
             key: list(value) if isinstance(value, tuple) else value
             for key, value in asdict(settings).items()
         },
-        "topic_cap": cap,
+        "lengths": list(lengths),
+        "topic_caps": list(caps),
         "party_ids": list(party_ids),
         "pool_size": len(pool),
+        "eligible_count": len(ranked),
         "selected_count": len(selected),
         "count_rule": rule,
         "projected_failures": projected,
         "parties": [
             {
                 "party_id": p,
-                "pool_stances": sum(values[n][p] is not None for n in numbers),
-                "selected_stances": sum(values[n][p] is not None for n in selected),
+                "pool_sides": sum(_sides(values[n][p]) for n in numbers),
+                "selected_sides": [
+                    sum(_sides(values[n][p]) for n in selected[:length]) for length in lengths
+                ],
             }
             for p in party_ids
         ],
@@ -289,19 +343,20 @@ def select_statements(
                 "context_note": pool[n - 1].context_note,
                 "anchor": pool[n - 1].anchor,
                 "values": [values[n][p] for p in party_ids],
-                "stances": stances[n],
-                "distinct": distinct[n],
-                "spread": spread[n],
-                "tier": tier.get(n),
+                "parties": sided[n],
+                "favour": favour[n],
+                "against": against[n],
+                "separation": separation[n],
                 "status": status(n),
                 "duplicate_of": duplicate_of.get(n),
-                "pick": pick_index.get(n),
+                "rank": rank.get(n),
                 "position": new_position.get(n),
+                "tier": tier(new_position.get(n)),
             }
             for n in numbers
         ],
     }
-    return Selection(statements, renumbered, report)
+    return Selection(statements, renumbered, report, lengths)
 
 
 def anchor_summary(
@@ -337,8 +392,11 @@ def anchor_summary(
 __all__ = [
     "SELECTION_VERSION",
     "STATUS_CONTEXT_INVALID",
+    "STATUS_FEW_PARTIES",
+    "STATUS_NOT_SEPARATING",
     "Selection",
     "anchor_summary",
     "select_statements",
     "topic_cap",
+    "topic_caps",
 ]

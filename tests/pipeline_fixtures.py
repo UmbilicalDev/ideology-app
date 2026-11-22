@@ -43,7 +43,14 @@ CONFIG_ENV_VARS = (
     "VALIDATION_CONTEXT_NOTE_MIN_CHARS",
     "VALIDATION_CONTEXT_NOTE_MAX_CHARS",
     "VALIDATION_CONTEXT_NOTE_EVALUATIVE_WORDS",
+    "VALIDATION_QUESTIONNAIRE_LENGTHS",
+    "VALIDATION_MIN_STATEMENT_PARTIES",
 )
+
+# The seeded Election has 2 Parties, so a pool Statement can have at most 2
+# Parties with a side. ``offline_guard`` sets VALIDATION_MIN_STATEMENT_PARTIES
+# to this value; the code default (3) is unchanged and tested in test_config.
+SEEDED_MIN_STATEMENT_PARTIES = "2"
 
 PARTIES = (("Partido Alfa", "PA"), ("Bloque Beta", "BB"))
 
@@ -59,9 +66,13 @@ PARTY_VALUES = {1: 1, 2: -1}
 
 
 def offline_guard(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Unset LLM and Validation settings and block every socket connection."""
+    """Unset LLM and Validation settings and block every socket connection.
+
+    Sets ``VALIDATION_MIN_STATEMENT_PARTIES`` to 2 for the 2-Party seeded Election.
+    """
     for name in CONFIG_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENT_PARTIES", SEEDED_MIN_STATEMENT_PARTIES)
 
     def _blocked(*args: object, **kwargs: object) -> None:
         raise AssertionError("network access is blocked in pipeline tests")
@@ -155,7 +166,7 @@ def context_note(n: int) -> str:
 
 
 def statements_payload(
-    count: int = 70,
+    count: int = 120,
     *,
     topic: tuple[str, int] | None = None,
     duplicate: tuple[int, int] | None = None,
@@ -347,3 +358,29 @@ def invent_quote_after_extraction(
         return positions
 
     monkeypatch.setattr(runs_module, "extract_positions", _wrapped)
+
+
+def keep_pool_prefix(monkeypatch: pytest.MonkeyPatch, count: int = 35) -> None:
+    """Make every run keep pool Statements 1..``count`` in pool order, whatever their stances.
+
+    Selection v3 (pipeline-statement-priority-tiers) never keeps a Statement that
+    does not separate the Parties, so a sparse run selects (almost) nothing. Tests
+    of Party Position storage and of the Validation failure paths use this seam to
+    write a known Dataset Version: it wraps ``runs.select_statements``, keeps its
+    report and stores the lengths the settings give for ``count``.
+    """
+    from ideology_app.pipeline.selection import Selection
+    from ideology_app.validation.statement_count import expected_lengths
+
+    real = runs_module.select_statements
+
+    def _select(pool: Any, positions: Any, party_ids: Any, settings: Any) -> Selection:
+        selection = real(pool, positions, party_ids, settings)
+        kept = {
+            party: [r for r in results if r.statement_number <= count]
+            for party, results in positions.items()
+        }
+        return Selection(tuple(pool[:count]), kept, selection.report,
+                         expected_lengths(count, settings))
+
+    monkeypatch.setattr(runs_module, "select_statements", _select)

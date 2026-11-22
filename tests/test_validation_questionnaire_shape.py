@@ -31,7 +31,7 @@ from ideology_app.validation import (
     StatementRow,
     ValidationInput,
 )
-from ideology_app.validation.statement_count import check_statement_count
+from ideology_app.validation.statement_count import check_statement_count, expected_lengths
 from ideology_app.validation.statement_uniqueness import check_statement_uniqueness
 from ideology_app.validation.topic_spread import check_topic_spread
 
@@ -39,6 +39,8 @@ from ideology_app.validation.topic_spread import check_topic_spread
 @pytest.fixture(autouse=True)
 def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     offline_guard(monkeypatch)
+    # These tests read the code defaults from an empty environment.
+    monkeypatch.delenv("VALIDATION_MIN_STATEMENT_PARTIES", raising=False)
 
 
 def rows(texts: Sequence[str], topics: Sequence[str] | None = None) -> tuple[StatementRow, ...]:
@@ -57,13 +59,18 @@ def distinct(count: int) -> list[str]:
 
 
 def data(
-    statements: tuple[StatementRow, ...], settings: ValidationSettings | None = None
+    statements: tuple[StatementRow, ...],
+    settings: ValidationSettings | None = None,
+    lengths: tuple[int, ...] | None = None,
 ) -> ValidationInput:
+    """Plain data; ``lengths`` None stores the lengths the settings give (check 5 passes them)."""
+    settings = settings or ValidationSettings()
     return ValidationInput(
         statements=statements,
         positions=(),
         party_ids=(1, 2),
-        settings=settings or ValidationSettings(),
+        settings=settings,
+        lengths=expected_lengths(len(statements), settings) if lengths is None else lengths,
     )
 
 
@@ -72,8 +79,13 @@ def counted(count: int, settings: ValidationSettings | None = None) -> Validatio
     return data(rows(distinct(count), topics), settings)
 
 
-def spread(topics: Sequence[str], settings: ValidationSettings | None = None) -> ValidationInput:
-    return data(rows(distinct(len(topics)), topics), settings)
+def spread(
+    topics: Sequence[str],
+    settings: ValidationSettings | None = None,
+    lengths: tuple[int, ...] = (),
+) -> ValidationInput:
+    """Statements on ``topics``; by default no stored lengths (the full set only)."""
+    return data(rows(distinct(len(topics)), topics), settings, lengths)
 
 
 # Registry
@@ -113,30 +125,70 @@ def test_checks_are_pure_and_deterministic() -> None:
 
 def test_twenty_statements_give_one_run_level_entry() -> None:
     result = STATEMENT_COUNT.run(counted(20))
-    assert result == [ReportEntry("questionnaire has 20 statements; expected 25 to 35")]
+    assert result == [ReportEntry("questionnaire has 20 statements; expected 35 to 40")]
     assert (result[0].statement_id, result[0].party_id) == (None, None)
 
 
-@pytest.mark.parametrize("count", [24, 36, 1, 60])
+@pytest.mark.parametrize("count", [34, 41, 1, 60])
 def test_counts_outside_the_default_range_fail(count: int) -> None:
     assert STATEMENT_COUNT.run(counted(count)) == [
-        ReportEntry(f"questionnaire has {count} statements; expected 25 to 35")
+        ReportEntry(f"questionnaire has {count} statements; expected 35 to 40")
     ]
 
 
-@pytest.mark.parametrize("count", [25, 30, 35])
+@pytest.mark.parametrize("count", [35, 38, 40])
 def test_counts_inside_the_default_range_pass(count: int) -> None:
     assert STATEMENT_COUNT.run(counted(count)) == []
 
 
 def test_zero_statements_fail_the_count() -> None:
     assert STATEMENT_COUNT.run(data(())) == [
-        ReportEntry("questionnaire has 0 statements; expected 25 to 35")
+        ReportEntry("questionnaire has 0 statements; expected 35 to 40")
+    ]
+
+
+# pipeline-statement-priority-tiers, scenario 7: the stored lengths.
+
+
+def test_expected_lengths_follow_the_settings() -> None:
+    settings = ValidationSettings()
+    assert expected_lengths(40, settings) == (15, 30, 40)
+    assert expected_lengths(35, settings) == (15, 30, 35)
+    assert expected_lengths(30, settings) == (15, 30)
+    assert expected_lengths(20, settings) == (15, 20)
+    assert expected_lengths(10, settings) == (10,)
+    assert expected_lengths(0, settings) == ()
+    assert expected_lengths(40, ValidationSettings(questionnaire_lengths=())) == (40,)
+
+
+def test_stored_lengths_matching_the_settings_pass() -> None:
+    assert STATEMENT_COUNT.run(counted(40)) == []
+
+
+def test_a_missing_shorter_length_is_reported() -> None:
+    result = STATEMENT_COUNT.run(data(rows(distinct(40)), lengths=(15, 40)))
+    assert result == [ReportEntry("questionnaire lengths are 15, 40; expected 15, 30, 40")]
+    assert (result[0].statement_id, result[0].party_id) == (None, None)
+
+
+def test_stored_null_is_read_as_the_full_length() -> None:
+    # A version before 0015 (NULL lengths) offers only its full length.
+    assert STATEMENT_COUNT.run(data(rows(distinct(40)), lengths=())) == [
+        ReportEntry("questionnaire lengths are 40; expected 15, 30, 40")
+    ]
+    no_shorter = ValidationSettings(questionnaire_lengths=())
+    assert STATEMENT_COUNT.run(data(rows(distinct(40)), no_shorter, lengths=())) == []
+
+
+def test_count_and_lengths_failures_are_both_reported() -> None:
+    assert STATEMENT_COUNT.run(data(rows(distinct(20)), lengths=(20,))) == [
+        ReportEntry("questionnaire has 20 statements; expected 35 to 40"),
+        ReportEntry("questionnaire lengths are 20; expected 15, 20"),
     ]
 
 
 def test_custom_range_is_read_from_settings() -> None:
-    settings = ValidationSettings(min_statements=10, max_statements=20)
+    settings = ValidationSettings(min_statements=10, max_statements=20, questionnaire_lengths=())
     assert STATEMENT_COUNT.run(counted(20, settings)) == []
     assert STATEMENT_COUNT.run(counted(10, settings)) == []
     assert STATEMENT_COUNT.run(counted(21, settings)) == [
@@ -148,7 +200,7 @@ def test_custom_range_is_read_from_settings() -> None:
 
 
 def test_single_value_range_accepts_only_that_count() -> None:
-    settings = ValidationSettings(min_statements=30, max_statements=30)
+    settings = ValidationSettings(min_statements=30, max_statements=30, questionnaire_lengths=())
     assert STATEMENT_COUNT.run(counted(30, settings)) == []
     for count in (29, 31):
         assert STATEMENT_COUNT.run(counted(count, settings)) == [
@@ -305,6 +357,39 @@ def test_default_fake_spread_passes() -> None:
     assert TOPIC_SPREAD.run(counted(30)) == []
 
 
+# pipeline-statement-priority-tiers, scenario 6: every offered length (prefix).
+
+
+def test_a_topic_crowding_the_first_15_fails_that_prefix_only() -> None:
+    topics = ["housing"] * 5 + [f"topic{n}" for n in range(35)]
+    result = TOPIC_SPREAD.run(spread(topics, lengths=(15, 30, 40)))
+    assert result == [
+        ReportEntry("first 15 statements: topic housing has 5 of 15 statements (34%); maximum is 30%")
+    ]
+    assert TOPIC_SPREAD.run(spread(topics)) == []
+
+
+def test_entries_follow_length_then_first_appearance() -> None:
+    topics = ["health"] * 5 + ["economy"] * 5 + [f"topic{n}" for n in range(5)] + (
+        ["economy"] * 5 + [f"other{n}" for n in range(20)]
+    )
+    assert TOPIC_SPREAD.run(spread(topics, lengths=(15, 30, 40))) == [
+        ReportEntry("first 15 statements: topic health has 5 of 15 statements (34%); maximum is 30%"),
+        ReportEntry("first 15 statements: topic economy has 5 of 15 statements (34%); maximum is 30%"),
+        ReportEntry("first 30 statements: topic economy has 10 of 30 statements (34%); maximum is 30%"),
+    ]
+
+
+def test_the_full_set_message_is_unchanged_with_lengths() -> None:
+    # 12 of 40 is exactly the maximum (passes); 13 of 40 fails, with no prefix.
+    topics = [f"topic{n}" for n in range(28)] + ["economy"] * 12
+    assert TOPIC_SPREAD.run(spread(topics, lengths=(15, 30, 40))) == []
+    topics = [f"topic{n}" for n in range(27)] + ["economy"] * 13
+    assert TOPIC_SPREAD.run(spread(topics, lengths=(15, 30, 40))) == [
+        ReportEntry("topic economy has 13 of 40 statements (33%); maximum is 30%")
+    ]
+
+
 # Scenario 4: settings and configuration
 
 
@@ -315,10 +400,12 @@ def test_settings_defaults() -> None:
         settings.min_statements,
         settings.max_statements,
         settings.max_topic_share_percent,
-    ) == (50, 25, 35, 30)
+    ) == (50, 35, 40, 30)
     assert (DEFAULT_MIN_STATEMENTS, DEFAULT_MAX_STATEMENTS, DEFAULT_MAX_TOPIC_SHARE_PERCENT) == (
-        25, 35, 30
+        35, 40, 30
     )
+    assert settings.questionnaire_lengths == (15, 30)
+    assert settings.min_statement_parties == 3
 
 
 @pytest.mark.parametrize("field", ["min_statements", "max_statements"])
@@ -331,9 +418,9 @@ def test_settings_reject_bad_counts(field: str, value: object) -> None:
 
 def test_settings_reject_min_above_max() -> None:
     with pytest.raises(ValueError, match="min_statements must not be greater than max_statements"):
-        ValidationSettings(min_statements=31, max_statements=30)
+        ValidationSettings(min_statements=31, max_statements=30, questionnaire_lengths=())
     with pytest.raises(ValueError):
-        ValidationSettings(min_statements=40)
+        ValidationSettings(min_statements=41, questionnaire_lengths=())
 
 
 @pytest.mark.parametrize("value", [-1, 101, 30.0, "30", True, None])
@@ -354,13 +441,13 @@ def test_env_unset_gives_defaults() -> None:
 @pytest.mark.parametrize(
     ("name", "raw", "field", "expected"),
     [
-        ("VALIDATION_MIN_STATEMENTS", "", "min_statements", 25),
-        ("VALIDATION_MIN_STATEMENTS", "   ", "min_statements", 25),
-        ("VALIDATION_MIN_STATEMENTS", " 28 ", "min_statements", 28),
-        ("VALIDATION_MIN_STATEMENTS", "1", "min_statements", 1),
-        ("VALIDATION_MAX_STATEMENTS", " 28 ", "max_statements", 28),
+        ("VALIDATION_MIN_STATEMENTS", "", "min_statements", 35),
+        ("VALIDATION_MIN_STATEMENTS", "   ", "min_statements", 35),
+        ("VALIDATION_MIN_STATEMENTS", " 38 ", "min_statements", 38),
+        ("VALIDATION_MIN_STATEMENTS", "31", "min_statements", 31),
+        ("VALIDATION_MAX_STATEMENTS", " 38 ", "max_statements", 38),
         ("VALIDATION_MAX_STATEMENTS", "60", "max_statements", 60),
-        ("VALIDATION_MAX_STATEMENTS", "", "max_statements", 35),
+        ("VALIDATION_MAX_STATEMENTS", "", "max_statements", 40),
         ("VALIDATION_MAX_TOPIC_SHARE_PERCENT", " 28 ", "max_topic_share_percent", 28),
         ("VALIDATION_MAX_TOPIC_SHARE_PERCENT", "0", "max_topic_share_percent", 0),
         ("VALIDATION_MAX_TOPIC_SHARE_PERCENT", "100", "max_topic_share_percent", 100),
@@ -394,12 +481,12 @@ def test_invalid_topic_share_env_raises(monkeypatch: pytest.MonkeyPatch, raw: st
 
 
 def test_min_above_default_max_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "40")
+    monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "45")
     with pytest.raises(ConfigError) as info:
         validation_settings()
     assert str(info.value) == (
-        "Invalid statement count range: VALIDATION_MIN_STATEMENTS (40) is greater than "
-        "VALIDATION_MAX_STATEMENTS (35)"
+        "Invalid statement count range: VALIDATION_MIN_STATEMENTS (45) is greater than "
+        "VALIDATION_MAX_STATEMENTS (40)"
     )
 
 
@@ -408,12 +495,13 @@ def test_max_below_default_min_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ConfigError) as info:
         validation_settings()
     assert str(info.value) == (
-        "Invalid statement count range: VALIDATION_MIN_STATEMENTS (25) is greater than "
+        "Invalid statement count range: VALIDATION_MIN_STATEMENTS (35) is greater than "
         "VALIDATION_MAX_STATEMENTS (20)"
     )
 
 
 def test_custom_range_and_share_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VALIDATION_QUESTIONNAIRE_LENGTHS", "none")
     monkeypatch.setenv("VALIDATION_MIN_STATEMENTS", "10")
     monkeypatch.setenv("VALIDATION_MAX_STATEMENTS", "10")
     monkeypatch.setenv("VALIDATION_MAX_TOPIC_SHARE_PERCENT", "50")
@@ -423,6 +511,7 @@ def test_custom_range_and_share_from_env(monkeypatch: pytest.MonkeyPatch) -> Non
         min_statements=10,
         max_statements=10,
         max_topic_share_percent=50,
+        questionnaire_lengths=(),
     )
 
 
@@ -441,12 +530,12 @@ def test_custom_range_and_share_from_env(monkeypatch: pytest.MonkeyPatch) -> Non
         ),
         # max before range
         (
-            {"VALIDATION_MIN_STATEMENTS": "40", "VALIDATION_MAX_STATEMENTS": "x"},
+            {"VALIDATION_MIN_STATEMENTS": "45", "VALIDATION_MAX_STATEMENTS": "x"},
             "Invalid VALIDATION_MAX_STATEMENTS",
         ),
         # range before share
         (
-            {"VALIDATION_MIN_STATEMENTS": "40", "VALIDATION_MAX_TOPIC_SHARE_PERCENT": "x"},
+            {"VALIDATION_MIN_STATEMENTS": "45", "VALIDATION_MAX_TOPIC_SHARE_PERCENT": "x"},
             "Invalid statement count range",
         ),
         # coverage before share

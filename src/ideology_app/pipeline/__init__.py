@@ -40,6 +40,7 @@ from ideology_app.pipeline.positions import (
 )
 from ideology_app.pipeline.prompts import (
     CONTEXT_NOTE_SCHEMA_MAX,
+    FINDINGS_MAX,
     GENERATE_STATEMENTS,
     PARTY_POSITIONS,
     POOL_MAX_STATEMENTS,
@@ -75,6 +76,7 @@ from ideology_app.pipeline.selection import (
     anchor_summary,
     select_statements,
     topic_cap,
+    topic_caps,
 )
 from ideology_app.pipeline.runs import (
     INTERRUPTED_REASON,
@@ -104,6 +106,7 @@ __all__ = [
     "CONTEXT_NOTE_SCHEMA_MAX",
     "CheckpointProvider",
     "CHUNK_MAX_CHARS",
+    "FINDINGS_MAX",
     "GENERATE_STATEMENTS",
     "INTERRUPTED_REASON",
     "MAX_LLM_CALLS_PER_RUN",
@@ -172,5 +175,6 @@ __all__ = [
     "select_statements",
     "statement_set_schema",
     "topic_cap",
+    "topic_caps",
     "validate_run",
 ]

@@ -48,9 +48,16 @@ TOPICS: tuple[str, ...] = get_args(Topic)
 # e2e-real-2026-election: 60..80 (was 45..60). With 11 Parties a 53-Statement
 # pool held stances for some Parties on only 16 Statements, too few for any
 # selection to reach the coverage minimum.
-POOL_MIN_STATEMENTS = 60
-POOL_MAX_STATEMENTS = 80
-POOL_TARGET_STATEMENTS = 70
+# pipeline-statement-priority-tiers: 100..140 (target 120), so the ranking by
+# Parties with a side has enough multi-Party Statements for up to 40.
+POOL_MIN_STATEMENTS = 100
+POOL_MAX_STATEMENTS = 140
+POOL_TARGET_STATEMENTS = 120
+
+# The most findings one ``position_findings`` call may return. Fixed at 80 (the
+# old pool maximum) so that request stays byte-identical when the pool moves;
+# Statement batches of ``FINDINGS_STATEMENTS_PER_CALL`` (20) never need more.
+FINDINGS_MAX = 80
 
 StatementText = Annotated[
     str, StringConstraints(min_length=1, max_length=300, pattern=r"\S")
@@ -67,7 +74,7 @@ class StatementDraft(BaseModel):
 class CandidateList(BaseModel):
     """Statement candidates found in one chunk of manifesto text."""
 
-    candidates: list[StatementDraft] = Field(max_length=12)
+    candidates: list[StatementDraft] = Field(max_length=30)
 
 
 # The structural cap of a context note; equals ``config.CONTEXT_NOTE_MAX_CHARS_LIMIT``
@@ -168,34 +175,38 @@ _COMMON_RULES = f"""Reglas para cada afirmación:
 - Escribe en español de España.
 - Una sola proposición por afirmación: nunca unas dos políticas con "y", "o" ni "y/o".
 - Redacción neutral: sin adjetivos valorativos, sin nombres de partidos ni de políticos y sin atribuciones (nada de "el programa propone...").
-- Cada afirmación es una propuesta política en forma afirmativa con la que un votante puede estar de acuerdo o en desacuerdo en una escala de 5 puntos.
-- Prefiere propuestas que los distintos partidos responderían de forma diferente.
+- Cada afirmación es una propuesta política en forma afirmativa con la que un votante puede estar de acuerdo o en desacuerdo.
 - Usa solo estas etiquetas de tema: {_TOPIC_LIST}."""
 
 STATEMENT_CANDIDATES = PromptSpec(
     task="statement_candidates",
-    version="v1",
+    version="v2",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Lees fragmentos de programas "
-        "electorales y extraes propuestas políticas concretas que sirvan como "
-        "afirmaciones del cuestionario.\n\n"
+        "electorales y extraes todas las propuestas políticas concretas que contienen, "
+        "como afirmaciones candidatas del cuestionario.\n\n"
         f"{_COMMON_RULES}\n"
-        "- Devuelve como máximo 12 candidatas por fragmento; si el fragmento no "
-        "contiene propuestas políticas, devuelve una lista vacía."
+        "- Extrae cada propuesta concreta del fragmento, también las de detalle y las "
+        "que solo aparecen una vez, sin elegir entre ellas; devuelve como máximo 30 "
+        "candidatas por fragmento y, si hay más, las que el fragmento desarrolla con "
+        "más detalle. Si el fragmento no contiene propuestas políticas, devuelve una "
+        "lista vacía."
     ),
     template=(
         "Fragmento de programa electoral (cada página va precedida de su marcador):\n\n"
         "{chunk}\n\n"
-        "Extrae las propuestas políticas de este fragmento como afirmaciones candidatas."
+        "Extrae todas las propuestas políticas concretas de este fragmento como "
+        "afirmaciones candidatas."
     ),
     schema=CandidateList,
-    max_tokens=4096,
+    # pipeline-statement-priority-tiers: up to 30 candidates of about 140 tokens.
+    max_tokens=8192,
 )
 
 GENERATE_STATEMENTS = PromptSpec(
     task="generate_statements",
-    version="v6",
+    version="v7",
     system=(
         "Eres un analista político que prepara un cuestionario de orientación de voto "
         "para unas elecciones generales en España. Recibes afirmaciones candidatas "
@@ -236,8 +247,11 @@ GENERATE_STATEMENTS = PromptSpec(
         "- Agrupa en una misma orientación las candidatas de programas distintos que "
         "van en esa dirección o en la contraria, para que el mayor número posible de "
         "programas se pueda situar en ella.\n"
-        "- Elige orientaciones en las que los programas discrepen; evita las que casi "
-        "cualquier programa suscribiría.\n"
+        "- Prefiere las orientaciones que tratan más programas: el cuestionario empieza "
+        "por las afirmaciones en las que se sitúan más candidaturas y deja fuera las que "
+        "tratan muy pocas.\n"
+        "- Elige orientaciones en las que unos programas estén a favor y otros en "
+        "contra; evita las que casi cualquier programa suscribiría.\n"
         "- Varía el sentido de las afirmaciones: no todas deben proponer aumentar o "
         "ampliar algo; usa también reducir o limitar cuando así lo planteen las "
         "candidatas.\n"
@@ -276,9 +290,9 @@ GENERATE_STATEMENTS = PromptSpec(
         "usa ninguna de estas palabras: {evaluative_words}."
     ),
     schema=StatementSet,
-    # 80 Statements of up to 300 characters plus a context note each: about
-    # twice v5's 8-9k output tokens.
-    max_tokens=32768,
+    # v7 (pipeline-statement-priority-tiers): up to 140 Statements with a context
+    # note each, about 190 tokens per item (~27k); v6's 32768 left too little margin.
+    max_tokens=49152,
 )
 
 # Party Position extraction: findings per chunk, then one reduce per Party.
@@ -302,7 +316,7 @@ class Finding(BaseModel):
 class FindingList(BaseModel):
     """The findings of one chunk; empty when it addresses no Statement."""
 
-    findings: list[Finding] = Field(max_length=POOL_MAX_STATEMENTS)
+    findings: list[Finding] = Field(max_length=FINDINGS_MAX)
 
 
 class PositionChoice(BaseModel):
@@ -316,7 +330,9 @@ class PositionChoice(BaseModel):
 class PositionList(BaseModel):
     """A Party's stances; an omitted Statement means ``no stance``."""
 
-    positions: list[PositionChoice] = Field(max_length=POOL_MAX_STATEMENTS)
+    # Base type only (requests bound it with ``position_list_schema``); kept at
+    # ``FINDINGS_MAX`` so the pinned ``party_positions`` schema does not move.
+    positions: list[PositionChoice] = Field(max_length=FINDINGS_MAX)
 
 
 # The static FindingList and PositionList above are base types only: requests
@@ -326,7 +342,7 @@ class PositionList(BaseModel):
 @cache
 def _finding_list_schema(statement_count: int) -> type[FindingList]:
     finding = _subclass(Finding, statement=(int, Field(ge=1, le=statement_count)))
-    return _subclass(FindingList, findings=(list[finding], Field(max_length=POOL_MAX_STATEMENTS)))
+    return _subclass(FindingList, findings=(list[finding], Field(max_length=FINDINGS_MAX)))
 
 
 def finding_list_schema(statement_count: int) -> type[FindingList]:

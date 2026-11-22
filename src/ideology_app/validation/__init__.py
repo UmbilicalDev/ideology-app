@@ -3,8 +3,10 @@
 Depends on ``models`` and ``config`` (for ``ValidationSettings``) only; never
 imports ``pipeline``, ``llm`` or ``pdf_text``. To add a check, write
 ``validation/<name>.py`` exporting a ``Check`` and append it to ``CHECKS``
-(registry order is run order; current checks: evidence quotes, party coverage,
-statement separation, statement uniqueness, statement count, topic spread,
+(registry order is run order; current checks: evidence quotes, party coverage
+(by side, per offered questionnaire length),
+statement separation (a Party on each side), statement uniqueness, statement
+count (and stored lengths), topic spread (per offered length),
 context note); a
 threshold it needs is a ``ValidationSettings`` field read from the environment
 in ``config``. ``pipeline.runs.validate_run`` stores the results.
@@ -25,6 +27,7 @@ from ideology_app.validation.base import (
     StatementRow,
     ValidationInput,
     load_input,
+    offered_lengths,
 )
 from ideology_app.validation.context_note import CONTEXT_NOTE
 from ideology_app.validation.evidence_quotes import (
@@ -83,6 +86,7 @@ __all__ = [
     "load_input",
     "normalize_for_match",
     "normalize_pages",
+    "offered_lengths",
     "quote_starts_on",
     "run_checks",
 ]
