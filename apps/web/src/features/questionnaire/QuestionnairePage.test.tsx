@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, test, vi } from "vitest";
 
@@ -366,6 +366,43 @@ describe("QuestionnairePage", () => {
       expect(pressed()).toBe("false");
       expect(star.classList.contains("important-toggle--flash")).toBe(false);
       expect(document.activeElement).toBe(toggle());
+    });
+
+    test("Escape dismisses the Important tooltip until the toggle is pointed at or focused again", async () => {
+      await openQuestionnaire();
+      const hint = document.getElementById("important-hint")!;
+      act(() => toggle().focus());
+      expect(hint.classList.contains("important-hint--dismissed")).toBe(false);
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(hint.classList.contains("important-hint--dismissed")).toBe(true);
+      // The tooltip stays the toggle's description while hidden.
+      expect(toggle().getAttribute("aria-describedby")).toContain("important-hint");
+
+      act(() => {
+        toggle().blur();
+        toggle().focus();
+      });
+      expect(hint.classList.contains("important-hint--dismissed")).toBe(false);
+      fireEvent.keyDown(document, { key: "Escape" });
+      fireEvent.pointerOver(toggle());
+      expect(hint.classList.contains("important-hint--dismissed")).toBe(false);
+    });
+
+    test("under reduced motion turning Important on sets no glow class", async () => {
+      vi.stubGlobal(
+        "matchMedia",
+        (query: string) =>
+          ({
+            matches: query === "(prefers-reduced-motion: reduce)",
+            media: query,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+          }) as unknown as MediaQueryList,
+      );
+      await openQuestionnaire();
+      fireEvent.click(toggle());
+      expect(pressed()).toBe("true");
+      expect(toggle().classList.contains("important-toggle--flash")).toBe(false);
     });
 
     test("Scenario 5: at the cap the toggle is aria-disabled, says why, and an already marked one can be unpressed", async () => {
