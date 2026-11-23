@@ -1278,7 +1278,7 @@ a.button-secondary {
    and the Important row fade in from 16px towards the way the Voter went
    (from the right after an answer, from the left for Anterior; none after
    Repetir). Short and small, since it repeats on every Statement; the top
-   row and the answer buttons never move. */
+   row and the answer buttons are never animated. */
 .statement-step[data-enter] {
   animation: step-enter 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
