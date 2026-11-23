@@ -1529,10 +1529,24 @@ a.button-secondary {
     visibility 0.15s;
 }
 
-.important-toggle:hover + .important-hint,
+/* Hover only where hover is real: on touch a tap leaves :hover applied and the
+   tooltip would cover the answer buttons. */
+@media (hover: hover) {
+  .important-toggle:hover + .important-hint {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
 .important-toggle:focus-visible + .important-hint {
   opacity: 1;
   visibility: visible;
+}
+
+/* Escape dismissed it (WCAG 1.4.13); it shows again on the next hover or focus. */
+.important-toggle + .important-hint.important-hint--dismissed {
+  opacity: 0;
+  visibility: hidden;
 }
 
 /* At the cap the always-visible cap message sits where the tooltip would

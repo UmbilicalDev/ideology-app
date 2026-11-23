@@ -296,8 +296,20 @@ function ImportantToggle({
   readonly onToggle: () => void;
 }) {
   // A short glow when the Voter turns the flag on; not on mount, so going
-  // back to an Important Statement does not replay it.
+  // back to an Important Statement does not replay it. Under reduced motion
+  // there is no animation to end, so the class is never set.
   const [flash, setFlash] = useState(false);
+  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  // Escape hides the tooltip however it was opened (WCAG 1.4.13); pointing
+  // at or focusing the toggle again shows it again.
+  const [hintDismissed, setHintDismissed] = useState(false);
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setHintDismissed(true);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
   return (
     <div className="important-row">
       <button
@@ -307,9 +319,11 @@ function ImportantToggle({
         // At the cap it stays focusable and says why it does nothing.
         aria-disabled={atCap ? true : undefined}
         aria-describedby={atCap ? "important-hint important-cap" : "important-hint"}
+        onPointerEnter={() => setHintDismissed(false)}
+        onFocus={() => setHintDismissed(false)}
         onClick={() => {
           if (atCap) return;
-          setFlash(!important);
+          setFlash(!important && !reducedMotion);
           onToggle();
         }}
         onAnimationEnd={(event) => {
@@ -320,9 +334,17 @@ function ImportantToggle({
         <StarIcon className="important-toggle__star" />
         <span>Importante para mí</span>
       </button>
-      {/* Shown as a tooltip on hover or keyboard focus; always the
-          toggle's description for screen readers. */}
-      <p id="important-hint" role="tooltip" className="questionnaire__hint important-hint">
+      {/* Shown as a tooltip on hover (real hover only) or keyboard focus;
+          always the toggle's description for screen readers. */}
+      <p
+        id="important-hint"
+        role="tooltip"
+        className={
+          hintDismissed
+            ? "questionnaire__hint important-hint important-hint--dismissed"
+            : "questionnaire__hint important-hint"
+        }
+      >
         {importantHint(limit)}
       </p>
       {atCap ? (
