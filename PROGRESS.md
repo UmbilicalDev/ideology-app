@@ -1330,3 +1330,13 @@
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md`, "Statement matrix width".
 - Next best step: validate the six dependents of `results-dashboard` against current behaviour (`questionnaire-results-visual-tweaks` and `breakdown-first-sight-cue` touch the matrix).
 
+### Session 110 (validation chain after results-dashboard)
+
+- Date: 2026-11-23
+- Goal: validate, in dependency order, the six `passing` features that depended on `results-dashboard` (user request), repairing each on its own branch off `v2`, PR into `v2`, merge and prune.
+- Completed: `questionnaire-results-visual-tweaks` accepted (PR #115: Important hint shows on hover only under `(hover: hover)`, Escape dismisses it, no glow class under reduced motion; risks entry on memory-only answers updated). `questionnaire-step-transition` accepted (docs-only repair: DESIGN.md no longer claims the answer buttons never move; accepted Low "Answer buttons shift between Statements", to revisit in `questionnaire-length-and-context`).
+- Verification run: `CI=true ./init.sh` exit 0 on each branch (pytest 2081, Vitest 1035); independent validator verdicts revise then accept for both, with real-browser checks at 375 (touch) and desktop, light and dark, both Elections.
+- Evidence captured: `feature_list.json` -> each feature's `evidence`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Answer buttons shift between Statements"; memory-only answers).
+- Next best step: validate `copy-link-feedback`, then `ranking-disclaimer-toggle`, `breakdown-first-sight-cue` and `landing-how-it-works-carousel`.
+
