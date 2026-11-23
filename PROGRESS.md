@@ -1340,5 +1340,6 @@
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Answer buttons shift between Statements"; memory-only answers).
 - `copy-link-feedback` accepted on the first validation; its two optional Lows fixed in the same PR (copied state reset on a failed copy; copied tile frame kept accent while hovered) and the Share Link format risks entry updated to v2.
 - `ranking-disclaimer-toggle` accepted on the first validation; its doc Low (DESIGN.md amber rule and contrast label, tokens.css comment) fixed in the same PR.
-- Next best step: validate `breakdown-first-sight-cue`, then `landing-how-it-works-carousel`.
+- `breakdown-first-sight-cue` accepted after a repair (PR into `v2`): the cue's 1.04 bounce widened the end screen between about 433px and 1100px; `.focus-shell__content` now clips horizontal overflow (focus outlines, sticky elements and tooltips re-checked). New accepted Low: the Baja cobertura tooltip of the last ranking row opens below the sticky ranking card's visible bottom.
+- Next best step: validate `landing-how-it-works-carousel`.
 
