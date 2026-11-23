@@ -2836,7 +2836,8 @@ dialog.inspector {
   border-color: var(--color-accent);
 }
 
-.share-target[data-copied="true"] .share-target__icon {
+.share-target[data-copied="true"] .share-target__icon,
+.share-target[data-copied="true"]:hover .share-target__icon {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }

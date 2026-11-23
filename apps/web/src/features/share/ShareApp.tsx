@@ -63,7 +63,7 @@ function isAbort(error: unknown): boolean {
 export function ShareApp() {
   const [copy, setCopy] = useState<CopyState>({ kind: "idle" });
   const fieldRef = useRef<HTMLInputElement>(null);
-  const [copied, flash] = useCopiedFlash();
+  const [copied, flash, resetCopied] = useCopiedFlash();
   const fallbackAttempt = copy.kind === "fallback" ? copy.attempt : 0;
   const links = appShareLinks(window.location.origin);
 
@@ -87,6 +87,7 @@ export function ShareApp() {
         // Denied or failed: fall through to the field.
       }
     }
+    resetCopied();
     setCopy((previous) => ({
       kind: "fallback",
       via,

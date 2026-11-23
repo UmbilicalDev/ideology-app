@@ -37,7 +37,7 @@ export function ShareResults({
 }) {
   const [copy, setCopy] = useState<CopyState>({ kind: "idle" });
   const [noteOpen, setNoteOpen] = useState(false);
-  const [copied, flash] = useCopiedFlash();
+  const [copied, flash, resetCopied] = useCopiedFlash();
   const fieldRef = useRef<HTMLInputElement>(null);
   const fallbackAttempt = copy.kind === "fallback" ? copy.attempt : 0;
 
@@ -61,6 +61,7 @@ export function ShareResults({
         // Denied or failed: fall through to the field.
       }
     }
+    resetCopied();
     setCopy((previous) => ({
       kind: "fallback",
       url,
