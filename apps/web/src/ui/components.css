@@ -415,6 +415,9 @@ a.topbar__crumb-root:hover {
   max-width: var(--reading-max-width);
   margin: 0 auto;
   padding: var(--page-padding-block) var(--page-gutter) var(--space-2xl);
+  /* The breakdown cue's bounce never widens the page (like .app-shell__canvas);
+     the padding keeps focus outlines inside the clip. */
+  overflow-x: clip;
 }
 
 /* ------------------------------------------------------------------ */
