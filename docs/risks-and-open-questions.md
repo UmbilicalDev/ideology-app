@@ -198,6 +198,8 @@ Planned features: `three-option-scale`, `questionnaire-quick-answer`, `pipeline-
 
 ### Accepted Low findings
 
+- Answer buttons shift between Statements (`questionnaire-step-transition` validation, 2026-11-23; revisit in `questionnaire-length-and-context`, which next changes the Questionnaire): the answer row sits right under the Statement, whose line count varies, so its top moves up to about 180px at 375px (345-525px over the 2026 run, on 25 of 31 moves) and 60px at 1024px. A fast tap where the row used to be can land on the divider or the Important toggle, which the 300 ms answer lock does not cover. Accepted as is (user-chosen layout, nothing animates the row); a fix is a reserved Statement height per breakpoint (about 6 lines at 375px, 3 from 640px), at the cost of empty space under short Statements.
+
 Not worth fixing now. Fix one when you touch that code anyway.
 - (legal-privacy-page) The abuse guard sweeps expired keys only inside a `check_and_consume` call (at most every 60 s), so with no further feedback or sign-in request after a key's 10-minute window the key stays in memory until the next call or a restart. The copy says "se descarta a partir de los 10 minutos", which stays true; a timer-based sweep would be needed for a hard upper bound.
 - (landing-how-it-works-carousel) At the user's request the Landing no longer says that automatic checks verify each quote or that the answers stay in the browser and are never sent or stored. The methodology page and the Share Link note still say it. Revisit if testers ask whether their answers are stored.
