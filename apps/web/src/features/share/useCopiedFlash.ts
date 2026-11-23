@@ -6,8 +6,9 @@ export const COPIED_FLASH_MS = 2000;
 /**
  * A copy button's short `¡Copiado!` state: `flash()` turns it on and it
  * turns itself off after `COPIED_FLASH_MS`; another copy restarts the wait.
+ * `reset()` turns it off at once, for a copy that failed meanwhile.
  */
-export function useCopiedFlash(): readonly [boolean, () => void] {
+export function useCopiedFlash(): readonly [boolean, () => void, () => void] {
   const [stamp, setStamp] = useState(0);
 
   useEffect(() => {
@@ -16,5 +17,5 @@ export function useCopiedFlash(): readonly [boolean, () => void] {
     return () => clearTimeout(timer);
   }, [stamp]);
 
-  return [stamp !== 0, () => setStamp((previous) => previous + 1)];
+  return [stamp !== 0, () => setStamp((previous) => previous + 1), () => setStamp(0)];
 }

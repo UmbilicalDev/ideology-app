@@ -1338,5 +1338,6 @@
 - Verification run: `CI=true ./init.sh` exit 0 on each branch (pytest 2081, Vitest 1035); independent validator verdicts revise then accept for both, with real-browser checks at 375 (touch) and desktop, light and dark, both Elections.
 - Evidence captured: `feature_list.json` -> each feature's `evidence`.
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Answer buttons shift between Statements"; memory-only answers).
-- Next best step: validate `copy-link-feedback`, then `ranking-disclaimer-toggle`, `breakdown-first-sight-cue` and `landing-how-it-works-carousel`.
+- `copy-link-feedback` accepted on the first validation; its two optional Lows fixed in the same PR (copied state reset on a failed copy; copied tile frame kept accent while hovered) and the Share Link format risks entry updated to v2.
+- Next best step: validate `ranking-disclaimer-toggle`, then `breakdown-first-sight-cue` and `landing-how-it-works-carousel`.
 

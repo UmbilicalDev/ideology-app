@@ -139,6 +139,24 @@ describe("ShareResults", () => {
     expect(within(shareSection()).getByRole("button", { name: "Copiar enlace" })).toBe(copyButton);
   }, COPIED_FLASH_MS + 5000);
 
+  test("a copy that fails right after a successful one drops ¡Copiado! and shows the fallback", async () => {
+    let fail = false;
+    defineClipboard({
+      writeText: async () => {
+        if (fail) throw new Error("denied");
+      },
+    });
+    await finish(SCENARIO_1);
+    const copyButton = within(shareSection()).getByRole("button", { name: "Copiar enlace" });
+    fireEvent.click(copyButton);
+    await within(shareSection()).findByRole("button", { name: "¡Copiado!" });
+    fail = true;
+    fireEvent.click(copyButton);
+    await within(shareSection()).findByRole("textbox");
+    expect(copyButton.getAttribute("data-copied")).toBe("false");
+    expect(within(shareSection()).getByRole("button", { name: "Copiar enlace" })).toBe(copyButton);
+  });
+
   test("the share title and Copiar enlace carry decorative icons; the names are unchanged", async () => {
     await finish(SCENARIO_1);
     const section = shareSection();
