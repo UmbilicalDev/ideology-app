@@ -1537,13 +1537,13 @@
     "id": "landing-card-results-notes",
     "area": "web",
     "title": "Wide Election card on desktop and excluded-Party note on the results",
-    "user_visible_behavior": "Two user-requested changes (2026-11-20). (1) From 1024px the Landing's Election card is one row: a larger name (2rem) and the date on the left and a larger 'Realizar cuestionario' button on the right; below 1024px it stays stacked. The card is shorter, so the how-it-works carousel fits on more desktop screens. (2) On the end screen and the shared result of the 2026 general election, the ranking card shows a note 'Partidos no incluidos en el cálculo' explaining that EAJ-PNV is not included because its manifesto lacks enough concrete proposals. Other Elections show no note.",
+    "user_visible_behavior": "Two user-requested changes (2026-11-20). (1) From 1024px the Landing's Election card is one row: a larger name (2rem) and the date on the left and a larger 'Realizar cuestionario' button on the right; below 1024px it stays stacked. The card is shorter, so the how-it-works carousel fits on more desktop screens. (2) On the end screen and the shared result of the 2026 general election, the ranking card shows a note 'Partidos no incluidos en el cálculo' explaining that EAJ-PNV and Frente Obrero are not included because their manifestos lack enough concrete proposals (one plural sentence; Frente Obrero added by user decision 2026-11-22). Other Elections show no note.",
     "depends_on": [
       "ui-2026-focus-tweaks"
     ],
-    "status": "passing",
+    "status": "accepted",
     "verification": [
-      "ExcludedPartiesNotice tests: the 2026 general election gets the EAJ-PNV note, other Elections none; the note renders as a titled role=note and nothing without notes",
+      "ExcludedPartiesNotice tests: the 2026 general election gets the EAJ-PNV and Frente Obrero note, other Elections none; the note renders as a titled role=note and nothing without notes",
       "CI=true ./init.sh passes",
       "Real browser at 375px and desktop widths: Landing card layout, end screen and shared result show the note; console clean; no request carries answers"
     ],
@@ -1558,7 +1558,8 @@
     "title": "Three-option answer scale and 'X de Y coincidencias' in the ranking",
     "user_visible_behavior": "The Answer scale becomes three options: 'En desacuerdo', 'Neutral / No lo sé', 'De acuerdo'. 'Neutral / No lo sé' replaces Saltar: it leaves the Statement without a value (excluded from the Match Score), and the separate Saltar control is removed (user decision 2026-11-21). Party Positions are read by side (−2/−1 = against, +1/+2 = in favour; 0 and no stance excluded). Per Statement the agreement is 100 % on the same side and 0 % on opposite sides, so a Party's affinity is its weighted share of coincidences. Each ranking row reads 'N de M coincidencias' (M = Statements compared with that Party) instead of 'M afirmaciones en común', so the count and the percent can no longer contradict each other. New Share Link layout marker; old v1 links need not keep working (user decision 2026-11-21) but an old link opens a clear message saying it belongs to an earlier version of the questionnaire and the app has changed, with a 'Haz el nuevo cuestionario' link to the current questionnaire (user decision 2026-11-21), never a broken page. /metodologia, CONTEXT.md (Answer), docs/build-brief.md (Matching Rule) and DESIGN.md are updated.",
     "depends_on": [
-      "ui-2026-focus-tweaks"
+      "ui-2026-focus-tweaks",
+      "2026-11-23 independent validation (accept) on v2 0ed67c5: CI=true ./init.sh exit 0 (pytest 2081 passed; Vitest 41 files, 1036 tests passed; vite build ok). Claude desktop Browser pane (Chromium) against web-shared-db :8001 at 1440x900 (dark and light), 1024x768 and 375x812. Landing: at 1440 the card is one row (name 32px/700, date without hairline, 277x60 'Realizar cuestionario' on the right, card 120px tall, carousel bottom 777 above the fold); at 1024 the row holds with the name on two lines (card 160px); at 375 the card is stacked (20px name, hairline, 44px full-width button), scrollWidth = viewport. End screen of Elecciones generales 2026 (32 Statements answered) at 375 and 1440 and its Share Link /resultados#v2-5-... at 375 and 1440: one role=note 'Partidos no incluidos en el cálculo' with the plural EAJ-PNV + Frente Obrero sentence, DOM order ranking-header, ranking-warning, note, ranking at both widths; neither Party in the ranking. 2023 Election end screen (26 answered, 1440) and shared link /resultados#v2-3-...: no note. Console empty; only same-origin GETs (200/206, carousel video range aborts only); no request carries answers. Three doc Lows fixed on branch fix/landing-card-results-notes: risks entry and this entry's behaviour/verification text now name Frente Obrero; Frente Obrero's exclusion reason (user copy, 2026-11-22) recorded in docs/risks-and-open-questions.md and pointed to from ExcludedPartiesNotice.tsx. Status accepted."
     ],
     "status": "accepted",
     "verification": [

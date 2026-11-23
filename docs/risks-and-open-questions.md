@@ -95,7 +95,7 @@ Planned features: `three-option-scale`, `questionnaire-quick-answer`, `pipeline-
 - Anonymous aggregate statistics.
 - OCR for scanned manifestos.
 - Showing parties' past parliamentary voting record alongside the manifesto.
-- Excluded-Party notes (`landing-card-results-notes`): the results note about Parties left out of an Election (today EAJ-PNV in 2026) is hard-coded in the web client by Election type and date (`ExcludedPartiesNotice.tsx`). A future Election with exclusions needs a new entry there; moving the reason into the Election data and the public API would remove that step.
+- Excluded-Party notes (`landing-card-results-notes`): the results note about Parties left out of an Election (today EAJ-PNV and Frente Obrero in 2026) is hard-coded in the web client by Election type and date (`ExcludedPartiesNotice.tsx`). A future Election with exclusions needs a new entry there; moving the reason into the Election data and the public API would remove that step. EAJ-PNV's exclusion reason is recorded in `data/elections/es-general-2026-11-29/election.toml`; Frente Obrero was never part of that bundle, and its reason (not enough concrete proposals in its manifesto) is the user's copy for the note (user decision 2026-11-22), recorded only here and in the component.
 
 ## Assumptions
 
@@ -242,6 +242,7 @@ Not worth fixing now. Fix one when you touch that code anyway.
 - `ideology feedback list` prints bidi and other format characters (Unicode `Cf`) as stored, so a message can reorder how its own line looks in a terminal. Refusing them would break emoji ZWJ sequences; C0/C1 controls (escape codes) are refused, so nothing can drive the terminal (`feedback-api`).
 - The feedback dialog's 429 message says "Espera unos minutos" without reading `Retry-After` (the core client does not expose it); the server window is 600 s (`feedback-dialog`).
 - A browser or password-manager autofill could fill the feedback honeypot (`website`), and the real message would then be silently dropped with the normal thank-you. Mitigated by `autoComplete="off"`, `tabIndex=-1` and an unusual label; revisit if reported (`feedback-dialog`).
+- Focus assertions in Vitest can flake under machine load: on 2026-11-23 one `CI=true ./init.sh` run (while a dev server and a browser validation were running) failed `QuestionnairePage.test.tsx` "Scenarios 1-3: each tap answers and advances…" and `ShareApp.test.tsx` "Scenario 2: clipboard denied…" (focus still on the previous element); the immediate re-run passed 1036/1036. If it recurs, make those assertions wait for focus (`waitFor`) instead of checking it synchronously.
 
 ## Research Tasks
 

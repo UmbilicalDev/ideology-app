@@ -6,7 +6,8 @@ import type { Election } from "@ideology-app/core";
  * type and date, not id, so it holds in every database. Copy from the user
  * (2026-11-20; Frente Obrero added and the text made plural 2026-11-22); the
  * EAJ-PNV reason is recorded in
- * `data/elections/es-general-2026-11-29/election.toml`.
+ * `data/elections/es-general-2026-11-29/election.toml`; Frente Obrero's (never part
+ * of that bundle) in `docs/risks-and-open-questions.md`.
  */
 const EXCLUDED_PARTIES: Readonly<Record<string, readonly string[]>> = {
   "general/2026-11-29": [
