@@ -1341,5 +1341,6 @@
 - `copy-link-feedback` accepted on the first validation; its two optional Lows fixed in the same PR (copied state reset on a failed copy; copied tile frame kept accent while hovered) and the Share Link format risks entry updated to v2.
 - `ranking-disclaimer-toggle` accepted on the first validation; its doc Low (DESIGN.md amber rule and contrast label, tokens.css comment) fixed in the same PR.
 - `breakdown-first-sight-cue` accepted after a repair (PR into `v2`): the cue's 1.04 bounce widened the end screen between about 433px and 1100px; `.focus-shell__content` now clips horizontal overflow (focus outlines, sticky elements and tooltips re-checked). New accepted Low: the Baja cobertura tooltip of the last ranking row opens below the sticky ranking card's visible bottom.
-- Next best step: validate `landing-how-it-works-carousel`.
+- `landing-how-it-works-carousel` accepted on the first validation; two new layout Lows (gap under the text on pages 2-3 below 1024px; narrow text column from 1024px to ~1150px) recorded as accepted Lows. The chain is complete: all six dependents of `results-dashboard` are `accepted` on `v2`.
+- Next best step: merge `v2` into `main` when the user decides (deploys to production); next feature by list order is `e2e-2026-dataset-clarity` (Operator real run).
 
