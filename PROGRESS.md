@@ -1344,3 +1344,12 @@
 - `landing-how-it-works-carousel` accepted on the first validation; two new layout Lows (gap under the text on pages 2-3 below 1024px; narrow text column from 1024px to ~1150px) recorded as accepted Lows. The chain is complete: all six dependents of `results-dashboard` are `accepted` on `v2`.
 - Next best step: merge `v2` into `main` when the user decides (deploys to production); next feature by list order is `e2e-2026-dataset-clarity` (Operator real run).
 
+### Session 111 (landing-card-results-notes validation)
+
+- Date: 2026-11-23
+- Goal: independently validate `landing-card-results-notes`, the last `passing` feature (user request).
+- Completed: independent validator verdict ACCEPT with three documentation Lows, fixed on branch `fix/landing-card-results-notes` (off `v2`): the risks entry "Excluded-Party notes" and the feature's behaviour/verification text now name Frente Obrero as well as EAJ-PNV; Frente Obrero's exclusion reason (the user's copy, 2026-11-22) is recorded in the risks doc and referenced from `ExcludedPartiesNotice.tsx`.
+- Verification run: `CI=true ./init.sh` on the branch: the first run failed two focus assertions under load (QuestionnairePage and ShareApp), the re-run exit 0 (pytest 2081, Vitest 1036, build ok); recorded as a flake risk. Validator browser checks (Claude built-in Chromium) at 375x812, 1024x768 and 1440x900, light and dark, both Elections, end screen and shared result; console empty; no request carries answers.
+- Evidence captured: `feature_list.json` -> `landing-card-results-notes.evidence`. Status `accepted`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md`, "Excluded-Party notes".
+- Next best step: merge `v2` into `main` when the user decides (deploys to production); next feature by list order is `e2e-2026-dataset-clarity` (Operator real run).
