@@ -1339,5 +1339,6 @@
 - Evidence captured: `feature_list.json` -> each feature's `evidence`.
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Answer buttons shift between Statements"; memory-only answers).
 - `copy-link-feedback` accepted on the first validation; its two optional Lows fixed in the same PR (copied state reset on a failed copy; copied tile frame kept accent while hovered) and the Share Link format risks entry updated to v2.
-- Next best step: validate `ranking-disclaimer-toggle`, then `breakdown-first-sight-cue` and `landing-how-it-works-carousel`.
+- `ranking-disclaimer-toggle` accepted on the first validation; its doc Low (DESIGN.md amber rule and contrast label, tokens.css comment) fixed in the same PR.
+- Next best step: validate `breakdown-first-sight-cue`, then `landing-how-it-works-carousel`.
 

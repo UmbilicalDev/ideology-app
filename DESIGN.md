@@ -136,7 +136,7 @@ Exactly two themes, chosen by the operating system; there is no in-app toggle.
 ## Colors
 
 - **Accent** (cyan): links, the active nav item, filled buttons (`accent-fill` with `on-accent`), progress and ranking bars, the checked scale option, the donut, the evidence rule, icon tiles, the focus ring. One accent only.
-- **Highlight** (amber): only the Voter's Important flag (toggle, mark, summary star) and the `Revisado` admin chip. Amber means "marked by you" or "not yet", never a party.
+- **Highlight** (amber): only the Voter's Important flag (toggle, mark, summary star), the ranking warning box (`highlight-soft` with a `highlight-border` frame, `ranking-disclaimer-toggle`) and the `Revisado` admin chip. Amber means "marked by you" or "not yet", never a party.
 - **Neutrals**: `bg` page, `bg-sidebar` sidebar, `surface` cards, `surface-raised` hover and nested tiles, `surface-sunken` inputs, options and positions. `border` hairlines separate; `border-control` frames anything you can operate.
 - **Party logo tile**: fixed white with `on-party-logo-tile` placeholder text, in both themes.
 - **Errors** use text only (`role="alert"`); there is no error colour.
@@ -258,7 +258,7 @@ WCAG 2.1 AA contrast for every text pair in both themes, and at least 3:1 for bo
 | on-accent on accent-fill (buttons, CTA) | 8.3 | 5.4 |
 | on-accent-soft on accent-soft (badges, chip, Copiar enlace) | 10.6 | 6.6 |
 | text on accent-soft (checked option) | 16.4 | 15.6 |
-| on-highlight-soft on highlight-soft (Important, Próximamente) | 10.3 | 6.5 |
+| on-highlight-soft on highlight-soft (Important, ranking warning) | 10.3 | 6.5 |
 | highlight (star) on surface (≥ 3) | 10.7 | 5.0 |
 | text on surface-raised (tooltip, nested) | 13.4 | 16.3 |
 | on-party-logo-tile on party-logo-tile | 10.4 | 10.4 |
