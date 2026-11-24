@@ -1646,89 +1646,290 @@
     "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). Builds on pipeline-coverage-selection (pool + deterministic selection). Tier lengths 15/30/40 are the user's initial proposal; the spec may tune them to what Validation allows."
   },
   {
-    "id": "e2e-2026-dataset-clarity",
-    "area": "data",
-    "title": "Real 2026 run with clear Statements, context notes and priority tiers",
-    "user_visible_behavior": "A real pipeline run for 'Elecciones generales 2026' with the new prompts publishes a new Dataset Version (clear wording, context notes, up to 40 Statements in priority order) in the committed data/ideology.db. Dataset Version 5 stays as history. A manual sanity read by the team checks the feedback examples (Ley de Vivienda, reforma laboral, ley mordaza, regulaciones a empresas) read unambiguously.",
-    "depends_on": [
-      "pipeline-statement-priority-tiers",
-      "three-option-scale"
-    ],
+    "id": "v2-domain-docs",
+    "area": "docs",
+    "title": "Domain docs for constituencies, Proposals and guided ingestion",
+    "user_visible_behavior": "No user-visible change. CONTEXT.md, docs/domain-model.md, docs/build-brief.md and AGENTS.md describe the v2 model: Constituency (the 52 Congreso circunscripciones: 50 provinces, Ceuta, Melilla), Party = candidature with its own name and logo running in a list of Constituencies, Source Documents that declare the Constituencies they apply to (a coalition's joint manifesto takes precedence), Proposal (verbatim measure or commitment from a manifesto, with page, one or more main categories from the topic catalog and free secondary tags), Statements built from groups of Proposals with Party Positions whose Evidence is the Party's Proposals (a Party may be against when a Proposal backs it), per-Constituency validity and priority order, Ingestion Ledger, Excluded Party (no manifesto or not enough content), Operator conflict resolution and Statement Rewording. The invariant 'AI output is never edited by hand' becomes: Proposals and Party Positions are never edited; the Operator may only resolve flagged contradictions and reword a Statement without changing its meaning, both recorded. Non-goal 'per-province filtering' is removed; the 2023 Election is out of v2's UI.",
+    "depends_on": [],
     "status": "not_started",
     "verification": [
-      "Run passes Validation and publishes; ideology db check passes",
-      "pipeline report reviewed; team sanity read recorded",
-      "Real browser walk of the new Dataset Version at 375px and desktop"
+      "Docs reviewed against every decision in 'Constituency redesign'; no contradiction left with CONTEXT.md, domain-model.md, build-brief.md, AGENTS.md",
+      "CI=true ./init.sh passes"
     ],
-    "evidence": [],
-    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). Real LLM run by an Operator (llm-provider-claude-code), one active run at a time on the shared database."
-  },
-  {
-    "id": "questionnaire-length-and-context",
-    "area": "web",
-    "title": "Choose 15, 30 or 40 Statements and read each Statement's context",
-    "user_visible_behavior": "Before the first Statement the Voter picks the questionnaire length: 'Rápido (15)', 'Estándar (30)' or 'Completo (40)' (lengths from the Dataset Version's tiers), each with a line saying they are the issues most Parties address. Under each Statement a collapsed '¿Qué significa?' disclosure shows its context note. The Share Link carries the chosen length (a prefix of the priority order); the results and the Important cap follow the chosen length.",
-    "depends_on": [
-      "questionnaire-quick-answer",
-      "pipeline-statement-priority-tiers"
-    ],
-    "status": "not_started",
-    "verification": [
-      "Vitest: each length shows the first N Statements; Share Link round-trips the length; Important cap follows N; context disclosure is collapsed by default and accessible",
-      "CI=true ./init.sh passes",
-      "Real browser at 375px and desktop with the new Dataset Version; console clean; no request carries answers"
-    ],
-    "evidence": [],
-    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1')."
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR. Docs only; it is the base every later v2 spec reads."
   },
   {
     "id": "topic-catalog",
     "area": "core",
-    "title": "Spanish topic names and a citizen-priority order",
-    "user_visible_behavior": "Each pipeline topic tag (housing, employment, ...) has a Spanish display name and a display order that follows the issues citizens rank as most important in the latest CIS barometer (source and date recorded in the docs). Used by the comparator and any topic grouping; no change to the matching rule.",
+    "title": "Spanish topic catalog in citizen-priority order (Proposal and Statement categories)",
+    "user_visible_behavior": "Each category (housing, employment, ...) has a stable key, a Spanish display name and a display order that follows the issues citizens rank as most important in the latest CIS barometer (question, source and date recorded in the docs). It is the fixed main-category list for Proposals (one or more per Proposal, usually one) and Statements, and the topic order of the Comparador. No change to the matching rule.",
     "depends_on": [],
     "status": "not_started",
     "verification": [
-      "Every topic tag in the pipeline taxonomy has a name and order (test fails on a missing one)",
-      "CIS source and date recorded in docs",
+      "Every category key has a name and order (test fails on a missing one); the pipeline's topic tags map onto it",
+      "CIS source, question and date recorded in docs",
       "CI=true ./init.sh passes"
     ],
-    "evidence": [],
-    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). The order is static configuration, not AI output; the spec must pick the CIS question used and how unmatched topics are ordered."
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR. Rewritten 2026-11-24 from the round-1 entry: it now also defines the categories of Proposals. The spec must pick the CIS question and where categories the CIS does not name go."
+  },
+  {
+    "id": "constituencies-and-candidatures",
+    "area": "data",
+    "title": "Constituencies, candidatures and the Constituencies each manifesto applies to (ingestion phase 1)",
+    "user_visible_behavior": "An Operator declares, per Election, which Parties (candidatures, each with name, short name and logo) run in which of the 52 Constituencies, from the proclaimed candidatures in the BOE (source recorded), and which Constituencies each Source Document applies to. The Source Text Bundle format gains these fields; `ideology data import` loads them and `ideology data check` reports missing or unknown Constituencies. The 52 Constituencies are seeded by a migration with their INE codes and Spanish names.",
+    "depends_on": ["v2-domain-docs"],
+    "status": "not_started",
+    "verification": [
+      "pytest: migration, seed of 52 Constituencies, bundle parsing and import of candidatures and document scopes, errors for unknown Constituencies or a Party without Constituencies",
+      "ideology db check passes on a migrated copy of data/ideology.db",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "ingestion-ledger",
+    "area": "data",
+    "title": "Ingestion Ledger: per-Party state across ingestion phases and manifesto review (phase 2)",
+    "user_visible_behavior": "Each Election has a committed Ingestion Ledger file next to its bundle that records, per Party, the phase reached (candidature declared, manifesto provided and reviewed, Proposals extracted) or Excluded with the reason (no manifesto; discarded at review: no text layer, not a manifesto, clearly incomplete; or fewer than N validated Proposals, N configurable, default 30). Commands update it and report what is pending; phase 4 (Statement generation) refuses to start until every Party is Extracted or Excluded. Excluded Parties are kept for the results note.",
+    "depends_on": ["constituencies-and-candidatures"],
+    "status": "not_started",
+    "verification": [
+      "pytest: ledger transitions, review discard with reason, phase-4 gate refuses with a pending Party and passes when all are Extracted or Excluded",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "proposal-extraction",
+    "area": "pipeline",
+    "title": "Extract every Proposal of each manifesto, verbatim with page and categories (ingestion phase 3)",
+    "user_visible_behavior": "For each reviewed Source Document the pipeline extracts every concrete measure or commitment (a point or paragraph; diagnosis or context text only when relevant) as a Proposal: verbatim text, page, one or more main categories from the topic catalog and free secondary tags. Extraction is incremental and resumable over several runs (progress kept per document); a Proposal is kept only if its text is found on the cited page (same normalised check as Evidence today); Proposals of an unchanged document are reused. A document with fewer than the configured minimum of validated Proposals marks its Party Excluded in the Ingestion Ledger.",
+    "depends_on": ["ingestion-ledger", "topic-catalog"],
+    "status": "not_started",
+    "verification": [
+      "pytest with the fake provider: verbatim/page check drops a misquoted Proposal, resume after interruption makes no repeated calls, reuse for an unchanged document, threshold exclusion recorded in the ledger",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "proposal-conflicts",
+    "area": "pipeline",
+    "title": "Flag contradictions between manifestos of one Party and record the Operator's decision",
+    "user_visible_behavior": "When two Source Documents apply to the same Party in the same Constituency (e.g. a national manifesto and a regional one) and their Proposals contradict, the conflict is flagged. A coalition's joint manifesto takes precedence automatically; any other conflict waits for an Operator decision (which document prevails, with a reason), recorded in the Ingestion Ledger and applied by phase 4. Proposals are never edited.",
+    "depends_on": ["proposal-extraction"],
+    "status": "not_started",
+    "verification": [
+      "pytest with the fake provider: joint-manifesto precedence, a flagged conflict blocks phase 4 until decided, the decision and reason are recorded and applied",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "statements-from-proposals",
+    "area": "pipeline",
+    "title": "Generate Statements from groups of similar Proposals with Proposal-backed Party Positions (ingestion phase 4)",
+    "user_visible_behavior": "Once every Party is Extracted or Excluded and no conflict is pending, a Pipeline Run groups similar Proposals (same category and tags, different wording), generates neutral single-proposition Statements with a Context Note and their category, and records the Proposals each Statement came from. Each Party Position (-2..+2 or no stance) has Evidence that is one or more of that Party's Proposals; a Party may be against when one of its Proposals backs it; a Party with no related Proposal is no stance and the Statement does not count for it. Replaces the agenda/candidate/position steps of the current pipeline.",
+    "depends_on": ["proposal-conflicts"],
+    "status": "not_started",
+    "verification": [
+      "pytest with the fake provider: Statements link to source Proposals, every sided Position's Evidence is a Proposal of that Party, against-positions need a backing Proposal, no-stance when none, Validation checks 1, 2 and 7 still apply",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "constituency-selection-validation",
+    "area": "pipeline",
+    "title": "Per-Constituency Statement validity, priority order and availability",
+    "user_visible_behavior": "For each Constituency the Dataset Version stores the Statements valid there (among the Parties running there, at least one in favour and one against), in a per-Constituency priority order (Parties running there with a side), and its offered lengths (20, 30, 40, 50 where available; 'Todas' when fewer than 20). A Constituency below the configured minimum of valid Statements or of per-Party coverage is published as unavailable with its reason instead of failing the run. Excluded Parties are stored with their reason per Constituency.",
+    "depends_on": ["statements-from-proposals"],
+    "status": "not_started",
+    "verification": [
+      "pytest: per-Constituency validity and order are deterministic and treat Parties identically; unavailable Constituency with reason; offered lengths; existing Dataset Versions unchanged",
+      "ideology db check passes",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR. Replaces the national coverage, separation, count and length rules (checks 3-6, selection v3) for v2 Dataset Versions; the spec decides the per-Constituency minimums."
+  },
+  {
+    "id": "statement-rewording",
+    "area": "pipeline",
+    "title": "Operator rewording of a confusing Statement without changing its meaning",
+    "user_visible_behavior": "An Operator can reword a Statement through a rewording file that is an input of a new run (reusing every recorded call), never by editing the database: the AI text, the new text and the reason are stored; Party Positions and Evidence are unchanged; an automatic LLM equivalence check rejects a rewording that changes the meaning. The result is a new Dataset Version. Voters see only the final text (no marker); /metodologia says the authors may reword AI-generated Statements judged confusing, to make them easier to understand.",
+    "depends_on": ["constituency-selection-validation"],
+    "status": "not_started",
+    "verification": [
+      "pytest with the fake provider: rewording applied in a new Dataset Version, original kept, equivalence rejection fails the rewording, published versions untouched",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "public-dataset-api-v2",
+    "area": "api",
+    "title": "Public API for Constituencies, candidatures, Proposals and per-Constituency questionnaires",
+    "user_visible_behavior": "The read-only API exposes, for a v2 Dataset Version: the Constituencies with availability and reason, the Parties running in each, the Excluded Parties with reasons, each Constituency's ordered Statements and offered lengths, Party Positions with their Proposal Evidence, and Proposals by category for the Comparador. Older Dataset Versions keep their current responses.",
+    "depends_on": ["constituency-selection-validation"],
+    "status": "not_started",
+    "verification": [
+      "pytest API tests for every new field and for an older Dataset Version",
+      "OpenAPI updated",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "dev-dataset",
+    "area": "data",
+    "title": "Fictional dev dataset to run and test the app without real ingestion",
+    "user_visible_behavior": "`ideology dev seed` builds, deterministically with the fake provider and no PDFs, a fictional Election with fictional Parties (no real names) covering: national and regional candidatures, a Party Excluded for missing manifesto and one for too little content, a coalition with a joint manifesto, a resolved conflict, a reworded Statement, Constituencies with different Statement counts (one under 20, one with 50+) and one unavailable Constituency. It refuses the shared database (data/ideology.db) and any production configuration, and is documented as the default data for development and browser checks.",
+    "depends_on": ["public-dataset-api-v2", "statement-rewording"],
+    "status": "not_started",
+    "verification": [
+      "pytest: seed is deterministic, covers every listed case, refuses data/ideology.db and production settings",
+      "CI=true ./init.sh passes",
+      "App starts on the dev database and the API serves it"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "ingestion-guide",
+    "area": "ops",
+    "title": "Guided ingestion procedure for Operators (phases 1-4)",
+    "user_visible_behavior": "A documented procedure plus a project skill/agent that walks an Operator through the phases (1 candidatures per Constituency, 2 provide and review manifestos, 3 extract Proposals, 4 generate Statements, then rewording if needed), telling them which data is missing, in which file and format, reading the Ingestion Ledger to resume where they left off.",
+    "depends_on": ["statement-rewording"],
+    "status": "not_started",
+    "verification": [
+      "Dry run of the guide on the dev dataset and on an empty Election records each prompt and file it asks for",
+      "CI=true ./init.sh passes"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "constituency-picker",
+    "area": "web",
+    "title": "Choose your Constituency (search list and map) before the questionnaire",
+    "user_visible_behavior": "Before the questionnaire the Voter picks their Constituency from a searchable list of the 52 or by clicking an interactive map (Canarias, Ceuta and Melilla in insets) on the same page. Unavailable Constituencies are disabled in both with the reason. Nothing is stored. The Landing shows only Elections with a v2 Dataset Version, so the 2023 Election leaves the UI (its data stays).",
+    "depends_on": ["dev-dataset"],
+    "status": "not_started",
+    "verification": [
+      "Vitest: search filters, map and list select the same Constituency, unavailable ones disabled with reason, accessible names",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, light and dark, keyboard and pointer, with the dev dataset; console clean; no request carries Answers"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR. The implementer asks the user for the province SVG map (licence recorded)."
+  },
+  {
+    "id": "questionnaire-length-and-context",
+    "area": "web",
+    "title": "Choose 20/30/40/50 Statements, read each context note, and answer 5 or 10 more",
+    "user_visible_behavior": "After the Constituency, the Voter picks a length among those its Constituency offers (20, 30, 40, 50; 'Todas (N)' when fewer than 20), each a prefix of that Constituency's priority order. Under each Statement a collapsed '¿Qué significa?' disclosure shows its Context Note. After the last chosen Statement, if more remain, the Voter is offered 'Contestar 5 más', 'Contestar 10 más' (or 'Contestar N más' when fewer remain) or 'Ver resultado', repeatedly until none remain.",
+    "depends_on": ["constituency-picker"],
+    "status": "not_started",
+    "verification": [
+      "Vitest: offered lengths per Constituency count, prefix order, +5/+10/remaining offers and their end, context disclosure collapsed and accessible",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, light and dark, keyboard and pointer, with the dev dataset; console clean; no request carries Answers"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR. Rewritten 2026-11-24 from the round-1 entry (15/30/40)."
+  },
+  {
+    "id": "important-unlimited",
+    "area": "web",
+    "title": "Any number of Statements can be Important",
+    "user_visible_behavior": "The Important cap (a third of the questionnaire) is removed: any Statement can be marked Important and counts double. A Neutral Answer still drops the flag. Methodology copy updated.",
+    "depends_on": ["questionnaire-quick-answer"],
+    "status": "not_started",
+    "verification": [
+      "Vitest: marking more than a third is allowed; Neutral drops the flag; Match Score weights",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, light and dark, keyboard and pointer, with the dev dataset; console clean; no request carries Answers"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR. Changes the accepted questionnaire-important-flag / questionnaire-quick-answer cap rule."
+  },
+  {
+    "id": "share-link-v3",
+    "area": "web",
+    "title": "Share Links carry the Constituency and a variable number of Answers",
+    "user_visible_behavior": "A new Share Link layout encodes the Dataset Version, the Constituency and the Answers (with Important flags) for however many Statements were answered, in the URL fragment only. It reopens the identical result. Every older link (v1, v2, Dataset Version 5) opens the 'Este enlace es de una versión anterior' notice with 'Haz el nuevo cuestionario'.",
+    "depends_on": ["questionnaire-length-and-context", "important-unlimited"],
+    "status": "not_started",
+    "verification": [
+      "Vitest: round-trip for each length and after +5/+10, malformed links, old-layout notice",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, light and dark, keyboard and pointer, with the dev dataset; console clean; no request carries Answers"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "results-by-constituency",
+    "area": "web",
+    "title": "Results rank only the Parties running in the Voter's Constituency",
+    "user_visible_behavior": "The end screen and shared result rank only the Parties that run in the chosen Constituency, scored on the answered Statements, and show a note naming the Parties that run there but were not taken into account (no manifesto or not enough content), read from the Dataset Version instead of the hard-coded notice.",
+    "depends_on": ["share-link-v3"],
+    "status": "not_started",
+    "verification": [
+      "Vitest: ranking limited to the Constituency's Parties, excluded-Party note from data, identical treatment of Parties",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, light and dark, keyboard and pointer, with the dev dataset; console clean; no request carries Answers"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
   },
   {
     "id": "comparator-page",
     "area": "web",
-    "title": "Comparador: Party Positions by topic with Evidence and a similarity score",
-    "user_visible_behavior": "A new page 'Comparador' in the sidebar and drawer, for the current Election's Published Dataset Version. It lists topics in topic-catalog order; choosing one shows its Statements with each selected Party's Position and Evidence (verbatim quote, page, link to the manifesto page). The Voter adds or removes Parties to compare (all Parties offered identically). A similarity score between the selected Parties (share of Statements where they take the same side, among those both address) is shown, with its rule explained. It takes over the Statement matrix and per-Statement breakdown now on the results. It never needs the Voter's Answers.",
-    "depends_on": [
-      "topic-catalog"
-    ],
+    "title": "Comparador: Party Positions and Proposals by topic in a Constituency",
+    "user_visible_behavior": "A new page 'Comparador' in the sidebar and drawer, for the current Election's Published Dataset Version. The Voter first picks a Constituency (same picker), then a topic in topic-catalog order; it shows the Statements of that topic with each selected Party's Position and Evidence (verbatim Proposal, page, link to the manifesto page) and the Parties' Proposals in that category. The Voter adds or removes Parties among those running there (all offered identically). A similarity score between the selected Parties (share of Statements where they take the same side, among those both address) is shown with its rule explained. It never needs the Voter's Answers.",
+    "depends_on": ["topic-catalog", "constituency-picker"],
     "status": "not_started",
     "verification": [
-      "Vitest: topic selection, add/remove Parties, similarity score computation, Evidence rendering, identical treatment of Parties",
+      "Vitest: Constituency and topic selection, add/remove Parties, similarity computation, Evidence rendering, identical treatment of Parties",
       "CI=true ./init.sh passes",
-      "Real browser at 375px and desktop, keyboard and pointer; console clean"
+      "Real browser at 375px and desktop, light and dark, keyboard and pointer, with the dev dataset; console clean; no request carries Answers"
     ],
-    "evidence": [],
-    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1'). Deferred: AI prose summaries of each Party's proposals per topic and paragraph-level locators (only the page is stored)."
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR. Rewritten 2026-11-24: filtered by Constituency and based on Proposals. Deferred: AI prose summaries per topic and paragraph-level locators."
   },
   {
     "id": "results-party-agreements",
     "area": "web",
     "title": "Results: '¿En qué coincido?' per Party instead of the Statement matrix",
-    "user_visible_behavior": "On the end screen and the shared result each ranking row shows 'N de M coincidencias' and an '¿En qué coincido?' control that expands the list of Statements where the Voter and that Party take the same side, each with the Party's Evidence (quote and page/link). The Statement matrix, its filters and the per-Statement breakdown are removed from the results (they live in the Comparador) and the results link to the Comparador. The Landing how-it-works step 3 recording is re-recorded.",
-    "depends_on": [
-      "comparator-page",
-      "three-option-scale"
-    ],
+    "user_visible_behavior": "On the end screen and the shared result each ranking row shows 'N de M coincidencias' and an '¿En qué coincido?' control that expands the Statements where the Voter and that Party take the same side, each with the Party's Evidence (Proposal and page/link). The Statement matrix, its filters and the per-Statement breakdown are removed from the results (they live in the Comparador), and the results link to the Comparador for the same Constituency. The Landing how-it-works recordings are re-recorded.",
+    "depends_on": ["comparator-page", "results-by-constituency"],
     "status": "not_started",
     "verification": [
       "Vitest: expanding a Party lists exactly its coincidences with Evidence; collapsed by default; same markup for every Party",
       "CI=true ./init.sh passes",
-      "Real browser at 375px and desktop, end screen and shared result; console clean; no request carries answers"
+      "Real browser at 375px and desktop, light and dark, keyboard and pointer, with the dev dataset; console clean; no request carries Answers"
     ],
-    "evidence": [],
-    "notes": "Planned 2026-11-21 from real Voter feedback after the first production release (user decisions recorded in docs/risks-and-open-questions.md, 'Voter feedback round 1')."
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "methodology-v2",
+    "area": "web",
+    "title": "Methodology and transparency pages for the v2 model",
+    "user_visible_behavior": "/metodologia and /transparencia explain Constituencies, how Proposals are extracted and validated, how Statements are built and validated per Constituency, Excluded Parties, Operator conflict decisions, and that the authors may reword AI-generated Statements judged confusing. Context notes are not fact-checked.",
+    "depends_on": ["results-party-agreements", "statement-rewording"],
+    "status": "not_started",
+    "verification": [
+      "Vitest for the pages",
+      "CI=true ./init.sh passes",
+      "Real browser at 375px and desktop, light and dark; console clean"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR."
+  },
+  {
+    "id": "e2e-2026-constituencies",
+    "area": "data",
+    "title": "Real 2026 ingestion and run with Constituencies",
+    "user_visible_behavior": "Following the ingestion guide, the Operator ingests the 2026 Election again (candidatures per Constituency, every available manifesto incl. regional Parties, Proposals, Statements) into the committed data/ideology.db and publishes a v2 Dataset Version. Earlier Dataset Versions stay as history. A team sanity read checks the round-1 examples (Ley de Vivienda, reforma laboral, ley mordaza, regulaciones a empresas) and a sample of Constituencies.",
+    "depends_on": ["ingestion-guide", "methodology-v2"],
+    "status": "not_started",
+    "verification": [
+      "Run passes Validation and publishes; ideology db check passes",
+      "pipeline report and Ingestion Ledger reviewed; team sanity read recorded",
+      "Real browser walk of several Constituencies (national-only, regional, Ceuta/Melilla) at 375px and desktop"
+    ],
+    "notes": "Planned 2026-11-24 (user decisions, 'Constituency redesign' in docs/risks-and-open-questions.md). Developed on a feature/* branch cut from v2 and merged into v2 by PR. Replaces e2e-2026-dataset-clarity. Real LLM run by an Operator (llm-provider-claude-code), one active run at a time on the shared database."
   }
 ]
