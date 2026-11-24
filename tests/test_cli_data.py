@@ -6,6 +6,7 @@ Scenarios 1, 2, 4, 5, 6, 8 and 12 through the CLI. Tests never call a real LLM
 
 import dataclasses
 import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,7 @@ from pipeline_fixtures import offline_guard
 
 from ideology_app.cli import NOT_INITIALISED, main
 from ideology_app.db import make_engine
+from ideology_app.ingestion_ledger import LEDGER_NAME
 from ideology_app.pdf_text import EXTRACTOR, NO_TEXT_LAYER, extract_pages
 from ideology_app.source_bundle import parse_source_text
 
@@ -610,3 +612,69 @@ def test_db_check_reports_seed_and_candidature_problems(
         "missing 08; extra none\n"
         "Safe to commit: no\n"
     )
+
+
+# --- Ingestion Ledger problems (ingestion-ledger, L8) ---------------------------------
+
+
+def _ledger_cli(*args: str) -> Result:
+    return CliRunner().invoke(main, ["ingestion", *args])
+
+
+def test_format_2_check_reports_an_out_of_date_or_invalid_ledger(
+    run, migrated, bundle_v2: Path
+) -> None:
+    assert run("data", "import", str(bundle_v2)).exit_code == 0
+    assert _ledger_cli("update", str(bundle_v2)).exit_code == 0
+    assert _ledger_cli("review", str(bundle_v2), "pp.md", "--keep").exit_code == 0
+    ok = f"Database matches bundle {SLUG}: 5 parties, 106 candidatures, 4 documents\n"
+    assert run("data", "check", str(bundle_v2)).output == ok
+    assert run("db", "check").output == "Safe to commit: yes\n"
+
+    # Pending Parties are not problems; an out-of-date ledger is.
+    ledger = bundle_v2 / LEDGER_NAME
+    obj = json.loads(ledger.read_bytes())
+    obj["documents"][0]["content_hash"] = "0" * 64
+    ledger.write_bytes((json.dumps(obj, ensure_ascii=False, indent=2) + "\n").encode())
+    out_of_date = (
+        "ingestion ledger is out of date: Document pp.md: review cleared (content changed) "
+        f'(+1 more); run "ideology ingestion update {bundle_v2}"'
+    )
+
+    check = run("data", "check", str(bundle_v2))
+    assert check.exit_code == 1
+    assert check.output == (
+        f"Error: {out_of_date}\n"
+        f"Error: ingestion ledger of bundle {SLUG} is not valid and up to date: 1 problems\n"
+    )
+    db_check = run("db", "check")
+    assert db_check.exit_code == 1
+    # db check reads the bundle under the relative ELECTIONS_DATA_DIR default.
+    relative = out_of_date.replace(str(bundle_v2), f"data/elections/{SLUG}")
+    assert db_check.output == (
+        f"Error: election 1 ({SLUG}): {relative}\nSafe to commit: no\n"
+    )
+
+    obj["format"] = 2
+    ledger.write_bytes((json.dumps(obj, ensure_ascii=False, indent=2) + "\n").encode())
+    invalid = f"{ledger}: format: unsupported ledger format 2 (expected 1)"
+    assert run("data", "check", str(bundle_v2)).output == (
+        f"Error: {invalid}\n"
+        f"Error: ingestion ledger of bundle {SLUG} is not valid and up to date: 1 problems\n"
+    )
+    assert run("db", "check").output == (
+        f"Error: election 1 ({SLUG}): data/elections/{SLUG}/{LEDGER_NAME}: format: "
+        "unsupported ledger format 2 (expected 1)\nSafe to commit: no\n"
+    )
+
+
+def test_format_1_checks_never_read_a_stray_ledger(
+    run, migrated, bundle: Path, db_url: str
+) -> None:
+    assert run("data", "import", str(bundle)).exit_code == 0
+    (bundle / LEDGER_NAME).write_text("not a ledger", encoding="utf-8")
+
+    check = run("data", "check", str(bundle))
+    assert check.exit_code == 0, check.output
+    assert check.output == f"Database matches bundle {SLUG}: 2 documents\n"
+    assert run("db", "check").output == "Safe to commit: yes\n"
