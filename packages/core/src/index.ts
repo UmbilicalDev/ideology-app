@@ -19,6 +19,8 @@ export type {
   StatementId,
 } from "./domain/match-score";
 export type { Election, ElectionStatus } from "./domain/election";
+export { TOPIC_CATALOG, findTopic } from "./domain/topics";
+export type { TopicEntry, TopicKey } from "./domain/topics";
 export type {
   DatasetVersion,
   Evidence,
