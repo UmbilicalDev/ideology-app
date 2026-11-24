@@ -51,7 +51,7 @@ Both the implementer (self-verification) and the validator (independent check) a
 ## Project Invariants
 
 - Never store voter answers on the server. Share Links carry them in the URL fragment.
-- AI output is never edited by hand. It is published only through Validation.
+- Proposals and Party Positions are never edited; the Operator may only decide flagged contradictions and reword a Statement without changing its meaning, both recorded and published only through Validation.
 - Every Party Position other than `no stance` must have Evidence.
 - Dataset Versions are immutable once created.
 - Tests never call a real LLM; use the fake provider.
