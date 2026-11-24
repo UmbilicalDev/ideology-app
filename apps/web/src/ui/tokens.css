@@ -30,7 +30,7 @@
   --color-accent-soft: rgba(6, 182, 212, 0.1);
   --color-accent-border: rgba(6, 182, 212, 0.35);
   --color-on-accent-soft: #67e8f9;
-  /* Amber: the Voter's Important mark and the "upcoming" status only. */
+  /* Amber: the Voter's Important mark, the ranking warning box and the Revisado chip only. */
   --color-highlight: #fbbf24;
   --color-highlight-soft: rgba(245, 158, 11, 0.12);
   --color-highlight-border: rgba(245, 158, 11, 0.35);

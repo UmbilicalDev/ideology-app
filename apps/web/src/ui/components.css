@@ -415,6 +415,9 @@ a.topbar__crumb-root:hover {
   max-width: var(--reading-max-width);
   margin: 0 auto;
   padding: var(--page-padding-block) var(--page-gutter) var(--space-2xl);
+  /* The breakdown cue's bounce never widens the page (like .app-shell__canvas);
+     the padding keeps focus outlines inside the clip. */
+  overflow-x: clip;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1278,7 +1281,7 @@ a.button-secondary {
    and the Important row fade in from 16px towards the way the Voter went
    (from the right after an answer, from the left for Anterior; none after
    Repetir). Short and small, since it repeats on every Statement; the top
-   row and the answer buttons never move. */
+   row and the answer buttons are never animated. */
 .statement-step[data-enter] {
   animation: step-enter 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
 }
@@ -1529,10 +1532,24 @@ a.button-secondary {
     visibility 0.15s;
 }
 
-.important-toggle:hover + .important-hint,
+/* Hover only where hover is real: on touch a tap leaves :hover applied and the
+   tooltip would cover the answer buttons. */
+@media (hover: hover) {
+  .important-toggle:hover + .important-hint {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
 .important-toggle:focus-visible + .important-hint {
   opacity: 1;
   visibility: visible;
+}
+
+/* Escape dismissed it (WCAG 1.4.13); it shows again on the next hover or focus. */
+.important-toggle + .important-hint.important-hint--dismissed {
+  opacity: 0;
+  visibility: hidden;
 }
 
 /* At the cap the always-visible cap message sits where the tooltip would
@@ -2318,7 +2335,8 @@ a.button-secondary {
 /* Statement matrix (DESIGN.md "Statement matrix"): Statements as rows,
    Parties in ranking order as identical columns. */
 /* Scroll padding keeps a focused cell clear of the sticky header row and the
-   sticky Statement and answer columns, so its focus ring stays visible. */
+   sticky Statement and answer columns, so its focus ring stays visible
+   (ResultsMatrix scrolls a focused cell into view, which honours it). */
 .matrix-scroll {
   overflow: auto;
   scroll-padding-top: var(--matrix-header-height);
@@ -2821,7 +2839,8 @@ dialog.inspector {
   border-color: var(--color-accent);
 }
 
-.share-target[data-copied="true"] .share-target__icon {
+.share-target[data-copied="true"] .share-target__icon,
+.share-target[data-copied="true"]:hover .share-target__icon {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }

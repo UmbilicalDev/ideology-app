@@ -1320,11 +1320,47 @@
 - Known risk or unresolved issue: Frente Obrero's exclusion reason is the user's copy; it is not recorded in `data/elections/es-general-2026-11-29/election.toml`, which lists only the Parties that were imported or tried.
 - Next best step: commit these tweaks separately from `pipeline-statement-priority-tiers` and include them in the round-1 integration (`v2`).
 
-### Session 109 (v2 round 2 planning: Constituency redesign)
+### Session 109 (results-dashboard, third validation and repair)
+
+- Date: 2026-11-23
+- Goal: re-validate `results-dashboard` on `v2` (its last status was REVISE from 2026-10-31) and repair what the validator found.
+- Completed: independent validator verdict REVISE (the 2026-10-31 Medium was not resolved: partly visible focused matrix cells stayed hidden under the sticky columns or past the box's edge). Repair on branch `feature/results-dashboard-focus-scroll` (off `v2`): `ResultsMatrix.tsx` scrolls a focused cell into view (`scrollIntoView`, `nearest`), a jsdom stand-in in `src/test/setup.ts`, a new Vitest case; `DESIGN.md` and the risks entry "Statement matrix width" updated, with the overflow cue and the header-height token as accepted Lows.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 2081, Vitest 1033, build ok). Built-in browser, shared result at 1024 with real Tab/Shift+Tab: 2026 (741 cell focuses) and 2023 (459) with 0px hidden on any edge; 375px cards. End screen at 1024 not re-checked.
+- Evidence captured: `feature_list.json` -> `results-dashboard.evidence`.
+- Validation: 2026-11-23 fourth independent validation (subagent) at ce3c7cd: verdict ACCEPT; 1,621 real-key cell focuses (shared 2026, shared 2023, end screen 2026 at 1024) with 0px hidden on any edge, no regressions, the two accepted Lows confirmed. Status `accepted`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md`, "Statement matrix width".
+- Next best step: validate the six dependents of `results-dashboard` against current behaviour (`questionnaire-results-visual-tweaks` and `breakdown-first-sight-cue` touch the matrix).
+
+### Session 110 (validation chain after results-dashboard)
+
+- Date: 2026-11-23
+- Goal: validate, in dependency order, the six `passing` features that depended on `results-dashboard` (user request), repairing each on its own branch off `v2`, PR into `v2`, merge and prune.
+- Completed: `questionnaire-results-visual-tweaks` accepted (PR #115: Important hint shows on hover only under `(hover: hover)`, Escape dismisses it, no glow class under reduced motion; risks entry on memory-only answers updated). `questionnaire-step-transition` accepted (docs-only repair: DESIGN.md no longer claims the answer buttons never move; accepted Low "Answer buttons shift between Statements", to revisit in `questionnaire-length-and-context`).
+- Verification run: `CI=true ./init.sh` exit 0 on each branch (pytest 2081, Vitest 1035); independent validator verdicts revise then accept for both, with real-browser checks at 375 (touch) and desktop, light and dark, both Elections.
+- Evidence captured: `feature_list.json` -> each feature's `evidence`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Answer buttons shift between Statements"; memory-only answers).
+- `copy-link-feedback` accepted on the first validation; its two optional Lows fixed in the same PR (copied state reset on a failed copy; copied tile frame kept accent while hovered) and the Share Link format risks entry updated to v2.
+- `ranking-disclaimer-toggle` accepted on the first validation; its doc Low (DESIGN.md amber rule and contrast label, tokens.css comment) fixed in the same PR.
+- `breakdown-first-sight-cue` accepted after a repair (PR into `v2`): the cue's 1.04 bounce widened the end screen between about 433px and 1100px; `.focus-shell__content` now clips horizontal overflow (focus outlines, sticky elements and tooltips re-checked). New accepted Low: the Baja cobertura tooltip of the last ranking row opens below the sticky ranking card's visible bottom.
+- `landing-how-it-works-carousel` accepted on the first validation; two new layout Lows (gap under the text on pages 2-3 below 1024px; narrow text column from 1024px to ~1150px) recorded as accepted Lows. The chain is complete: all six dependents of `results-dashboard` are `accepted` on `v2`.
+- Next best step: merge `v2` into `main` when the user decides (deploys to production); next feature by list order is `e2e-2026-dataset-clarity` (Operator real run).
+
+### Session 111 (landing-card-results-notes validation)
+
+- Date: 2026-11-23
+- Goal: independently validate `landing-card-results-notes`, the last `passing` feature (user request).
+- Completed: independent validator verdict ACCEPT with three documentation Lows, fixed on branch `fix/landing-card-results-notes` (off `v2`): the risks entry "Excluded-Party notes" and the feature's behaviour/verification text now name Frente Obrero as well as EAJ-PNV; Frente Obrero's exclusion reason (the user's copy, 2026-11-22) is recorded in the risks doc and referenced from `ExcludedPartiesNotice.tsx`.
+- Verification run: `CI=true ./init.sh` on the branch: the first run failed two focus assertions under load (QuestionnairePage and ShareApp), the re-run exit 0 (pytest 2081, Vitest 1036, build ok); recorded as a flake risk. Validator browser checks (Claude built-in Chromium) at 375x812, 1024x768 and 1440x900, light and dark, both Elections, end screen and shared result; console empty; no request carries answers.
+- Evidence captured: `feature_list.json` -> `landing-card-results-notes.evidence`. Status `accepted`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md`, "Excluded-Party notes".
+- Next best step: merge `v2` into `main` when the user decides (deploys to production); next feature by list order is `e2e-2026-dataset-clarity` (Operator real run).
+
+### Session 112 (v2 round 2 planning: Constituency redesign)
 
 - Date: 2026-11-24
 - Goal: re-plan the pending v2 features after the user found that every Voter is scored against every Party, though a Voter can vote only for the candidatures of their Constituency.
 - Completed: user decisions recorded in `docs/risks-and-open-questions.md` ("Constituency redesign"); `feature_list.json`: `e2e-2026-dataset-clarity` removed (replaced by `e2e-2026-constituencies`), `topic-catalog`, `questionnaire-length-and-context`, `comparator-page` and `results-party-agreements` rewritten, and new features `v2-domain-docs`, `constituencies-and-candidatures`, `ingestion-ledger`, `proposal-extraction`, `proposal-conflicts`, `statements-from-proposals`, `constituency-selection-validation`, `statement-rewording`, `public-dataset-api-v2`, `dev-dataset`, `ingestion-guide`, `constituency-picker`, `important-unlimited`, `share-link-v3`, `results-by-constituency`, `methodology-v2`. Accepted features are not reopened: each new feature names the rules it replaces. Uncommitted changes to `data/ideology.db` on `feature/e2e-2026-dataset-clarity` were discarded on the user's word (the DB will be regenerated with the new model).
-- Verification run: `feature_list.json` parses; every `depends_on` names an existing feature; no cycle.
+- Verification run: `feature_list.json` parses; every `depends_on` names an existing feature; no cycle. Merging `v2` (PRs #114-#121) into the planning branch found that `a56f4fc` had put `landing-card-results-notes`'s 2026-11-23 validation evidence inside `three-option-scale.depends_on`; it was moved back to `landing-card-results-notes.evidence`.
 - Known risk or unresolved issue: see "Constituency redesign" in `docs/risks-and-open-questions.md` (per-Constituency minimums, extraction cost, Proposal grouping, shared manifestos between candidatures, map licence).
+- Supersedes the "next best step" of Sessions 110 and 111: `e2e-2026-dataset-clarity` no longer exists.
 - Next best step: plan `v2-domain-docs` with `$feature-spec` on a `feature/*` branch from `v2`.
