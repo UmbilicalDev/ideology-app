@@ -23,6 +23,7 @@ from ideology_app import bundle_import
 from ideology_app import elections as service
 from ideology_app import config
 from ideology_app import party_logos
+from ideology_app.constituencies import CONSTITUENCIES
 from ideology_app import pipeline as pipelines
 from ideology_app import shared_db
 from ideology_app import source_bundle
@@ -209,7 +210,7 @@ def _open_checks(path: Path) -> list[str]:
 
 
 def _bundle_and_run_checks(session: Session) -> list[str]:
-    problems: list[str] = []
+    problems: list[str] = list(service.constituency_seed_problems(session))
     root = config.elections_data_dir()
     for election in service.list_elections(session):
         slug = source_bundle.bundle_slug(election, root)
@@ -631,6 +632,18 @@ def source_text(app: AppContext, document_id: int, page: int | None) -> None:
 
 
 @main.group()
+def constituency() -> None:
+    """The 52 Congreso Constituencies (INE province codes)."""
+
+
+@constituency.command("list")
+def constituency_list() -> None:
+    """Print every Constituency as code<TAB>name. Needs no database."""
+    for code, name in CONSTITUENCIES:
+        click.echo(f"{code}\t{name}")
+
+
+@main.group()
 def data() -> None:
     """Shared election data (Source Text Bundles under data/elections/<slug>/)."""
 
@@ -664,6 +677,11 @@ def data_import(app: AppContext, directory: Path) -> None:
             )
             if outcome.run_id is not None and trigger is None:
                 trigger = outcome
+    if report.format == 2:
+        _echo_import_v2(report)
+        if trigger is not None:
+            _echo_trigger(trigger, mode)
+        return
     for item in report.outcomes:
         party_part = (
             f"Party {item.short_name}: {'created' if item.party_created else 'exists'} "
@@ -696,7 +714,70 @@ def data_import(app: AppContext, directory: Path) -> None:
         _echo_trigger(trigger, mode)
 
 
-def _logo_line(item: bundle_import.PartyOutcome) -> str | None:
+def _diff(added: Sequence[str], removed: Sequence[str]) -> str:
+    return f"+{len(added)} -{len(removed)}"
+
+
+def _constituencies(count: int) -> str:
+    return f"{count} Constituency" if count == 1 else f"{count} Constituencies"
+
+
+def _echo_import_v2(report: bundle_import.ImportReport) -> None:
+    """The ``data import`` lines of a format-2 bundle (candidatures and scopes)."""
+    for item in report.candidatures:
+        click.echo(
+            f"Party {item.short_name} (id {item.party_id}): "
+            f"{'created' if item.party_created else 'exists'}, "
+            f"{_constituencies(item.constituencies)} ({_diff(item.added, item.removed)})"
+        )
+        logo_line = _logo_line(item)
+        if logo_line is not None:
+            click.echo(logo_line)
+    for short_name, party_id in report.left_alone:
+        removed = next(
+            (codes for s, i, codes in report.removed_candidatures if i == party_id), ()
+        )
+        if removed:
+            click.echo(
+                f"Party {short_name} (id {party_id}) is not in the bundle; candidatures "
+                f"removed ({', '.join(removed)}); row and documents left unchanged"
+            )
+        else:
+            click.echo(f"Party {short_name} (id {party_id}) is not in the bundle; left unchanged")
+    for doc in report.documents:
+        prefix = f"Document {doc.file} for {doc.short_name}"
+        if doc.status is bundle_import.DocumentStatus.ADDED:
+            what = f"added source document {doc.document_id} ({doc.page_count} pages)"
+        elif doc.status is bundle_import.DocumentStatus.REPLACED:
+            what = (
+                f"source document {doc.document_id} replaces source document "
+                f"{doc.replaced_document_id} ({doc.page_count} pages)"
+            )
+        else:
+            what = f"unchanged (source document {doc.document_id})"
+        click.echo(
+            f"{prefix}: {what}, scope {_constituencies(doc.scope)} "
+            f"({_diff(doc.scope_added, doc.scope_removed)})"
+        )
+    click.echo(f"Candidatures source: {report.candidature_source_change}")
+    candidatures = sum(item.constituencies for item in report.candidatures)
+    added = sum(len(item.added) for item in report.candidatures)
+    removed = sum(len(item.removed) for item in report.candidatures) + sum(
+        len(codes) for _, _, codes in report.removed_candidatures
+    )
+    click.echo(
+        f"Imported election {report.slug} (id {report.election_id}): "
+        f"{len(report.candidatures)} parties, {candidatures} candidatures (+{added} -{removed}), "
+        f"{len(report.documents)} source documents: "
+        f"{report.count(bundle_import.DocumentStatus.ADDED)} added, "
+        f"{report.count(bundle_import.DocumentStatus.REPLACED)} replaced, "
+        f"{report.count(bundle_import.DocumentStatus.UNCHANGED)} unchanged"
+    )
+
+
+def _logo_line(
+    item: bundle_import.PartyOutcome | bundle_import.CandidatureOutcome,
+) -> str | None:
     """The ``data import`` line for a logo that was set, replaced or removed."""
     prefix = f"Party {item.short_name} (id {item.party_id}): logo"
     if item.logo_change is party_logos.LogoChange.REMOVED:
@@ -718,12 +799,15 @@ def data_check(app: AppContext, directory: Path) -> None:
     Exits 1 and prints one line per divergence (a missing Election, Party or
     document, a different content hash or page text, a Party document that
     was not imported from the bundle, or a Party logo that differs from the
-    one election.toml declares).
+    one election.toml declares). A format-2 bundle also checks candidatures,
+    document scopes and that every Constituency has a candidature; the
+    constituencies table must equal the 52 seeded Constituencies.
     """
     bundle = source_bundle.read_bundle(directory)
     session = Session(app.engine)
     try:
-        problems = bundle_import.check_against_bundle(session, bundle)
+        problems = service.constituency_seed_problems(session)
+        problems.extend(bundle_import.check_against_bundle(session, bundle))
         documents = len(bundle.parties)
     finally:
         session.rollback()
@@ -734,6 +818,13 @@ def data_check(app: AppContext, directory: Path) -> None:
         raise click.ClickException(
             f"database does not match bundle {bundle.slug}: {len(problems)} problems"
         )
+    if bundle.format == 2:
+        candidatures = sum(len(entry.constituencies or ()) for entry in bundle.parties)
+        click.echo(
+            f"Database matches bundle {bundle.slug}: {len(bundle.parties)} parties, "
+            f"{candidatures} candidatures, {len(bundle.documents)} documents"
+        )
+        return
     click.echo(f"Database matches bundle {bundle.slug}: {documents} documents")
 
 

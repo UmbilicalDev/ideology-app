@@ -42,8 +42,10 @@ POSITION_TABLES = {"party_positions", "pipeline_run_source_documents"}
 TABLES_AT_0005 = TABLES_AT_0004 | POSITION_TABLES
 VALIDATION_TABLES = {"validation_results", "validation_report_entries"}
 TABLES_AT_0009 = TABLES_AT_0005 | VALIDATION_TABLES
-ALL_TABLES = TABLES_AT_0009 | {"pipeline_run_calls"}
-HEAD = "0015"
+TABLES_AT_0015 = TABLES_AT_0009 | {"pipeline_run_calls"}
+CONSTITUENCY_TABLES = {"constituencies", "candidatures", "source_document_constituencies"}
+ALL_TABLES = TABLES_AT_0015 | CONSTITUENCY_TABLES
+HEAD = "0016"
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -1152,7 +1154,7 @@ def test_downgrade_to_0010_drops_only_bundle_file_and_keeps_pages(db_url: str) -
 
     assert _version(db_url) == "0010"
     assert set(_source_document_columns(db_url)) == columns_before - {"bundle_file"}
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0015
     # Not recreated: the CHECKs stay and the cascade to pages never fires.
     sql_after = _source_document_sql(db_url)
     for name in (
@@ -1251,7 +1253,7 @@ def test_downgrade_to_0011_drops_only_the_column_and_keeps_versions(db_url: str)
         "statement_selection",
         "anchor_dataset_version_id",
     }
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0015
     assert PUBLISHED_INDEX in _dataset_version_indexes(db_url)
     # Not recreated: the CHECKs stay and the ON DELETE CASCADE never fires.
     sql_after = _pipeline_run_sql(db_url)
@@ -1377,7 +1379,7 @@ def test_downgrade_to_0012_drops_only_the_logo_columns_and_keeps_children(db_url
 
     assert _version(db_url) == "0012"
     assert set(_party_columns(db_url)) == columns_before - LOGO_COLUMNS
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0015
     # Not recreated: the cascade from parties to its children never fires.
     assert _counts(db_url, ALL_ROW_TABLES) == counts
     run_migrations(db_url)
@@ -1484,7 +1486,7 @@ def test_downgrade_to_0013_drops_only_the_new_columns_and_keeps_children(db_url:
     assert _version(db_url) == "0013"
     assert set(_columns(db_url, "statements")) == statement_columns - {"context_note"}
     assert set(_columns(db_url, "pipeline_runs")) == run_columns - {"anchor_dataset_version_id"}
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0015
     # Not recreated: the cascade from statements to party_positions never fires.
     assert _counts(db_url, ALL_ROW_TABLES) == counts
     run_migrations(db_url)
@@ -1611,3 +1613,151 @@ def test_offline_postgresql_render_of_0015() -> None:
     assert "ALTER TABLE dataset_versions ADD COLUMN questionnaire_lengths JSON;" in up_sql
     assert "DROP INDEX" not in up_sql and "CREATE TABLE" not in up_sql
     assert "ALTER TABLE dataset_versions DROP COLUMN questionnaire_lengths;" in down.getvalue()
+
+
+# Migration 0016: Constituencies, candidatures and document scopes
+# (constituencies-and-candidatures).
+
+CONSTITUENCY_ROW_TABLES = ("constituencies", "candidatures", "source_document_constituencies")
+
+
+def _rows(url: str, sql: str) -> list[tuple[object, ...]]:
+    engine = make_engine(url)
+    try:
+        with engine.connect() as conn:
+            return [tuple(r) for r in conn.execute(sa.text(sql))]
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_0016_seeds_52_constituencies_and_keeps_every_row(db_url: str) -> None:
+    from ideology_app.constituencies import CONSTITUENCIES
+
+    run_migrations(db_url, "0015")
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+    finally:
+        engine.dispose()
+    before = {table: _all_rows(db_url, table) for table in ALL_ROW_TABLES}
+    elections_before = _all_rows(db_url, "elections")
+    table_before = _table_sql(db_url, "elections")
+    index_before = _index_sql(db_url)
+
+    run_migrations(db_url, "0016")
+
+    assert _version(db_url) == "0016"
+    assert _tables(db_url) == ALL_TABLES
+    assert _rows(db_url, "SELECT code, name FROM constituencies ORDER BY code") == list(
+        CONSTITUENCIES
+    )
+    assert _counts(db_url, ("candidatures", "source_document_constituencies")) == {
+        "candidatures": 0,
+        "source_document_constituencies": 0,
+    }
+    columns = _columns(db_url, "elections")
+    assert columns["candidatures_source"]["nullable"] is True
+    assert columns["candidatures_source"]["type"].length == 500
+    assert columns["candidatures_source_url"]["nullable"] is True
+    assert columns["candidatures_source_url"]["type"].length == 2048
+    # No data migration: every row of every existing table is unchanged.
+    assert _all_rows(db_url, "elections") == [(*row, None, None) for row in elections_before]
+    for table in ALL_ROW_TABLES:
+        if table != "elections":
+            assert _all_rows(db_url, table) == before[table], table
+    # Not recreated: only ADD COLUMN changed the elections DDL.
+    after_lines = _table_sql(db_url, "elections").splitlines()
+    before_lines = table_before.splitlines()
+    changed = [
+        i for i, (a, b) in enumerate(zip(before_lines, after_lines, strict=True)) if a != b
+    ]
+    assert len(changed) == 1 and "candidatures_source_url" in after_lines[changed[0]]
+    assert _index_sql(db_url) == index_before
+
+
+def test_0016_constraints(migrated_engine: Engine) -> None:
+    _seed_party_and_document(migrated_engine)
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text("INSERT INTO candidatures VALUES (1, '28'), (1, '08')"))
+        conn.execute(sa.text("INSERT INTO source_document_constituencies VALUES (1, '28')"))
+    for statement in (
+        "INSERT INTO candidatures VALUES (1, '53')",
+        "INSERT INTO candidatures VALUES (999, '28')",
+        "INSERT INTO candidatures VALUES (1, '28')",
+        "INSERT INTO source_document_constituencies VALUES (1, '99')",
+        "INSERT INTO source_document_constituencies VALUES (999, '28')",
+        "INSERT INTO constituencies VALUES ('53', 'Madrid')",
+    ):
+        with pytest.raises(IntegrityError):
+            with migrated_engine.begin() as conn:
+                conn.execute(sa.text(statement))
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM parties"))
+        assert conn.execute(sa.text("SELECT count(*) FROM candidatures")).scalar_one() == 0
+        assert (
+            conn.execute(
+                sa.text("SELECT count(*) FROM source_document_constituencies")
+            ).scalar_one()
+            == 0
+        )
+        assert conn.execute(sa.text("SELECT count(*) FROM constituencies")).scalar_one() == 52
+
+
+def test_downgrade_to_0015_drops_only_the_new_tables_and_columns(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        with engine.begin() as conn:
+            conn.execute(sa.text("INSERT INTO candidatures VALUES (1, '28')"))
+            conn.execute(
+                sa.text("UPDATE elections SET candidatures_source = 'BOE', "
+                        "candidatures_source_url = 'https://www.boe.es/x'")
+            )
+    finally:
+        engine.dispose()
+    columns = set(_columns(db_url, "elections"))
+    counts = _counts(db_url, ALL_ROW_TABLES)
+    assert counts["party_positions"] == 1
+
+    downgrade(db_url, "0015")
+
+    assert _version(db_url) == "0015"
+    assert _tables(db_url) == TABLES_AT_0015
+    assert set(_columns(db_url, "elections")) == columns - {
+        "candidatures_source",
+        "candidatures_source_url",
+    }
+    assert _counts(db_url, ALL_ROW_TABLES) == counts
+    run_migrations(db_url)
+    assert _version(db_url) == HEAD
+    assert _counts(db_url, ("constituencies",)) == {"constituencies": 52}
+
+
+def test_offline_postgresql_render_of_0016() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0015:0016",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0016:0015",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "CREATE TABLE constituencies" in up_sql
+    assert "CREATE TABLE candidatures" in up_sql
+    assert "CREATE TABLE source_document_constituencies" in up_sql
+    assert up_sql.count("INSERT INTO constituencies") == 52
+    assert "'28', 'Madrid'" in up_sql and "'52', 'Melilla'" in up_sql
+    assert "ALTER TABLE elections ADD COLUMN candidatures_source VARCHAR(500);" in up_sql
+    assert "ALTER TABLE elections ADD COLUMN candidatures_source_url VARCHAR(2048);" in up_sql
+    assert "CHECK" not in up_sql and "DROP TABLE" not in up_sql
+    down_sql = down.getvalue()
+    assert "ALTER TABLE elections DROP COLUMN candidatures_source;" in down_sql
+    assert "ALTER TABLE elections DROP COLUMN candidatures_source_url;" in down_sql
+    for table in CONSTITUENCY_ROW_TABLES:
+        assert f"DROP TABLE {table};" in down_sql

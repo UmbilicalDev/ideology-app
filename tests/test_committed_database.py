@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ideology_app import elections, shared_db, source_bundle
 from ideology_app.bundle_import import check_against_bundle
+from ideology_app.constituencies import CONSTITUENCIES
 from ideology_app.db import head_revision
 from ideology_app.models import Party, SourceDocument
 
@@ -127,3 +128,26 @@ def test_old_dataset_versions_have_no_questionnaire_lengths(engine: Engine) -> N
         ).scalar()
     assert stored == 0
     assert "WHERE status = 'published'" in index
+
+
+def test_constituencies_are_seeded_and_no_candidatures_yet(engine: Engine) -> None:
+    # constituencies-and-candidatures scenario 2: 0016 seeds the 52 Constituencies and
+    # adds no candidature, scope or candidature source (both bundles are format 1).
+    with engine.connect() as conn:
+        seeded = [
+            tuple(r)
+            for r in conn.exec_driver_sql("SELECT code, name FROM constituencies ORDER BY code")
+        ]
+        counts = [
+            conn.exec_driver_sql(f"SELECT count(*) FROM {table}").scalar()
+            for table in ("candidatures", "source_document_constituencies")
+        ]
+        sources = conn.exec_driver_sql(
+            "SELECT count(*) FROM elections WHERE candidatures_source IS NOT NULL "
+            "OR candidatures_source_url IS NOT NULL"
+        ).scalar()
+    assert seeded == list(CONSTITUENCIES)
+    assert counts == [0, 0] and sources == 0
+    with Session(engine) as session:
+        assert elections.constituency_seed_problems(session) == []
+        session.rollback()

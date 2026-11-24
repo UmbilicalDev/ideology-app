@@ -163,9 +163,9 @@ def test_table_holds_only_id_message_origin_created_and_reviewed_at(tmp_path: Pa
 def test_shared_database_metadata_and_migrations_are_untouched() -> None:
     assert "feedback_messages" not in models.Base.metadata.tables
     assert list(FEEDBACK_METADATA.tables) == ["feedback_messages"]
-    assert head_revision() == "0015"
+    assert head_revision() == "0016"
     versions = Path(models.__file__).parent / "migrations" / "versions"
-    assert not list(versions.glob("0016*"))
+    assert not list(versions.glob("0017*"))
     assert not any("feedback" in p.name for p in versions.glob("*.py"))
 
 

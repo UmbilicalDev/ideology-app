@@ -11,7 +11,21 @@ from typing import Any
 
 import pytest
 import sqlalchemy as sa
-from bundle_factory import PP, PSOE, SLUG, manifest_text, write_bundle
+from bundle_factory import (
+    PP,
+    PSOE,
+    SLUG,
+    V2_DOCUMENTS,
+    V2_PP,
+    V2_PSC,
+    V2_PSOE,
+    V2_SMALL,
+    V2_UPN,
+    CandidatureSpec,
+    manifest_text,
+    write_bundle,
+    write_bundle_v2,
+)
 from click.testing import CliRunner, Result
 from pdf_factory import blank_pdf, encrypt_pdf, make_text_pdf
 from pipeline_fixtures import offline_guard
@@ -444,3 +458,155 @@ def test_check_on_an_empty_database(run, migrated, bundle: Path) -> None:
     result = run("data", "check", str(bundle))
     assert result.exit_code == 1
     assert f"election {SLUG} not found" in result.output
+
+
+# --- Manifest format 2 (constituencies-and-candidatures) ----------------------------
+
+
+def _sql(db_url: str, *statements: str) -> None:
+    engine = make_engine(db_url)
+    try:
+        with engine.begin() as conn:
+            for statement in statements:
+                conn.execute(sa.text(statement))
+    finally:
+        engine.dispose()
+
+
+@pytest.fixture
+def bundle_v2(tmp_path: Path) -> Path:
+    return write_bundle_v2(tmp_path / "data" / "elections")
+
+
+def test_format_2_import_reimport_and_check(run, migrated, bundle_v2: Path, db_url: str) -> None:
+    result = run("data", "import", str(bundle_v2))
+
+    assert result.exit_code == 0, result.output
+    assert result.output == (
+        "Party PP (id 1): created, 52 Constituencies (+52 -0)\n"
+        "Party PSOE (id 2): created, 48 Constituencies (+48 -0)\n"
+        "Party PSC (id 3): created, 4 Constituencies (+4 -0)\n"
+        "Party UPN-PP (id 4): created, 1 Constituency (+1 -0)\n"
+        "Party PACMA (id 5): created, 1 Constituency (+1 -0)\n"
+        "Document pp.md for PP: added source document 1 (3 pages), scope 52 Constituencies "
+        "(+52 -0)\n"
+        "Document pp.md for UPN-PP: added source document 2 (3 pages), scope 1 Constituency "
+        "(+1 -0)\n"
+        "Document upn.md for UPN-PP: added source document 3 (1 pages), scope 1 Constituency "
+        "(+1 -0)\n"
+        "Document psoe.md for PSOE: added source document 4 (2 pages), scope 48 Constituencies "
+        "(+48 -0)\n"
+        "Document psoe.md for PSC: added source document 5 (2 pages), scope 4 Constituencies "
+        "(+4 -0)\n"
+        "Document psc.md for PSC: added source document 6 (1 pages), scope 1 Constituency "
+        "(+1 -0)\n"
+        "Candidatures source: set\n"
+        f"Imported election {SLUG} (id 1): 5 parties, 106 candidatures (+106 -0), "
+        "6 source documents: 6 added, 0 replaced, 0 unchanged\n"
+    )
+
+    small = CandidatureSpec("PACMA", "Partido Animalista", ["08", "28"])
+    write_bundle_v2(bundle_v2.parent, [V2_PP, V2_PSOE, V2_PSC, V2_UPN, small], V2_DOCUMENTS)
+    again = run("data", "import", str(bundle_v2))
+
+    assert again.exit_code == 0, again.output
+    assert "Party PACMA (id 5): exists, 2 Constituencies (+1 -0)\n" in again.output
+    assert "Document psc.md for PSC: unchanged (source document 6), scope 1 Constituency " \
+           "(+0 -0)\n" in again.output
+    assert "Candidatures source: unchanged\n" in again.output
+    assert again.output.endswith(
+        f"Imported election {SLUG} (id 1): 5 parties, 107 candidatures (+1 -0), "
+        "6 source documents: 0 added, 0 replaced, 6 unchanged\n"
+    )
+    before = _snapshot(db_url)
+
+    check = run("data", "check", str(bundle_v2))
+
+    assert check.exit_code == 0, check.output
+    assert check.output == (
+        f"Database matches bundle {SLUG}: 5 parties, 107 candidatures, 4 documents\n"
+    )
+    assert _snapshot(db_url) == before
+
+
+def test_format_2_import_reports_unlisted_parties(run, migrated, bundle_v2: Path) -> None:
+    assert run("data", "import", str(bundle_v2)).exit_code == 0
+    write_bundle_v2(bundle_v2.parent, [V2_PP, V2_PSOE, V2_PSC, V2_UPN], V2_DOCUMENTS)
+
+    result = run("data", "import", str(bundle_v2))
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "Party PACMA (id 5) is not in the bundle; candidatures removed (28); "
+        "row and documents left unchanged\n"
+    ) in result.output
+    assert "4 parties, 105 candidatures (+0 -1)" in result.output
+
+
+def test_format_2_check_reports_coverage_and_differences(
+    run, migrated, tmp_path: Path, db_url: str
+) -> None:
+    psoe = CandidatureSpec("PSOE", "Partido Socialista Obrero Español",
+                           [f"{n:02d}" for n in range(1, 51)])
+    directory = write_bundle_v2(tmp_path / "data" / "elections", [psoe], [])
+    assert run("data", "import", str(directory)).exit_code == 0
+    _sql(db_url, "DELETE FROM candidatures WHERE constituency_code = '28'")
+
+    result = run("data", "check", str(directory))
+
+    assert result.exit_code == 1
+    assert result.output == (
+        "Error: Constituency 51 (Ceuta) has no candidature in election.toml\n"
+        "Error: Constituency 52 (Melilla) has no candidature in election.toml\n"
+        "Error: party PSOE (id 1): candidatures differ: missing 28; extra none\n"
+        f"Error: database does not match bundle {SLUG}: 3 problems\n"
+    )
+
+
+def test_format_2_bad_constituency_fails_import_and_check(
+    run, migrated, tmp_path: Path, db_url: str
+) -> None:
+    bad = dataclasses.replace(V2_SMALL, constituencies=["53"])
+    directory = write_bundle_v2(
+        tmp_path / "data" / "elections", [V2_PP, V2_PSOE, V2_PSC, V2_UPN, bad], V2_DOCUMENTS
+    )
+    for command in ("import", "check"):
+        result = run("data", command, str(directory))
+        assert result.exit_code == 1
+        assert "election.toml:36: unknown Constituency '53'" in result.output
+    assert _snapshot(db_url)["elections"] == []
+
+
+def test_check_reports_a_seed_difference(run, migrated, bundle: Path, db_url: str) -> None:
+    assert run("data", "import", str(bundle)).exit_code == 0
+    _sql(db_url, "UPDATE constituencies SET name = 'Gerona' WHERE code = '17'")
+
+    result = run("data", "check", str(bundle))
+
+    assert result.exit_code == 1
+    assert result.output == (
+        "Error: Constituency 17 is named 'Gerona' in the constituencies table, not 'Girona'\n"
+        f"Error: database does not match bundle {SLUG}: 1 problems\n"
+    )
+
+
+def test_db_check_reports_seed_and_candidature_problems(
+    run, migrated, bundle_v2: Path, db_url: str
+) -> None:
+    assert run("data", "import", str(bundle_v2)).exit_code == 0
+    assert run("db", "check").output == "Safe to commit: yes\n"
+    _sql(
+        db_url,
+        "DELETE FROM source_document_constituencies WHERE source_document_id = 6",
+        "UPDATE constituencies SET name = 'Lérida' WHERE code = '25'",
+    )
+
+    result = run("db", "check")
+
+    assert result.exit_code == 1
+    assert result.output == (
+        "Error: Constituency 25 is named 'Lérida' in the constituencies table, not 'Lleida'\n"
+        f"Error: election 1 ({SLUG}): party PSC (id 3): source document 6: scope differs: "
+        "missing 08; extra none\n"
+        "Safe to commit: no\n"
+    )
