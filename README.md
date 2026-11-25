@@ -110,7 +110,10 @@ API pública (solo lectura, GET):
 - `/api/v1/elections`
 - `/api/v1/elections/{id}`
 - `/api/v1/elections/{id}/published-dataset-version`
-- `/api/v1/dataset-versions/{id}`
+- `/api/v1/dataset-versions/{id}` (versiones antiguas, 1–5; una versión v2 responde 404 `dataset_version_is_v2`)
+- `/api/v1/dataset-versions/{id}/constituencies` (versión v2: las 52 circunscripciones, disponibles o no y por qué)
+- `/api/v1/dataset-versions/{id}/constituencies/{code}` (versión v2: afirmaciones, partidos con su posición y Evidencia allí, y partidos excluidos)
+- `/api/v1/dataset-versions/{id}/constituencies/{code}/proposals/{category}` (versión v2: propuestas de cada partido en una categoría, para el Comparador)
 
 Comprobaciones de solo lectura con la CLI:
 
@@ -274,6 +277,9 @@ Todos son de solo lectura; usa el mismo prefijo `DATABASE_URL=sqlite:///data/ide
   Sin `--url` la Evidencia no muestra enlace. Nunca versiones un PDF ni edites un `.md`.
 - Añade el fichero a `election.toml` (sigue el formato de [`data/elections/es-general-2023-07-23/election.toml`](data/elections/es-general-2023-07-23/election.toml)). Una elección nueva es un directorio `<slug>/` nuevo con su propio `election.toml`.
 - Luego `db upgrade` y `data import data/elections/<slug>`, y comprueba con `data check data/elections/<slug>`. La importación es idempotente; un `.md` cambiado registra un documento que sustituye al anterior.
+- Candidaturas por circunscripción (formato 2 de `election.toml`, `constituencies-and-candidatures`): `format = 2`, una tabla `[candidatures]` con la fuente del BOE (`source`, `url` opcional), cada `[[parties]]` con `constituencies = "all"` o una lista de códigos INE (`["08", "17"]`) y sin `file`, y los programas en `[[documents]]` (`file`, `parties` a los que se aplica y, opcional, `constituencies`). `ideology constituency list` imprime las 52 circunscripciones con su código (no necesita base de datos). `data import` carga candidaturas y ámbitos y `data check` / `db check` informan de códigos desconocidos, diferencias y circunscripciones sin candidatura. Los dos bundles versionados siguen en formato 1. Guía completa en `docs/technical-discovery.md`.
+- Registro de ingesta (`ingestion-ledger`, solo formato 2): `ideology ingestion status|update|review|no-manifesto|gate data/elections/<slug>` mantiene `data/elections/<slug>/ingestion-ledger.json` (se versiona con el bundle y nunca se edita a mano): por partido, la fase alcanzada o el motivo de exclusión, y la revisión de cada programa (`review DIR FICHERO --keep` o `--discard no-text-layer|not-a-manifesto|incomplete`). `gate` sale con 1 mientras quede algún partido pendiente. No necesita base de datos. Detalles en [`docs/technical-discovery.md`](docs/technical-discovery.md) (Ingestion Ledger).
+- Extracción de propuestas (`proposal-extraction`, fase 3, solo formato 2): `ideology proposals extract data/elections/<slug>` pide al LLM configurado todas las propuestas de cada programa revisado como `kept`, guarda solo las que aparecen literalmente en su página y anota el recuento en el registro de ingesta. Se puede repetir: cada llamada se guarda al volver, `--max-calls K` (300 por defecto) para por presupuesto y un fichero ya extraído (o compartido por varios partidos) no se vuelve a pagar. `proposals status` muestra el avance y `proposals list --file F [--dropped]` las propuestas o las descartadas. Detalles en [`docs/technical-discovery.md`](docs/technical-discovery.md) (Proposal extraction).
 - Logos de partido (opcional): guarda el fichero del usuario en `data/elections/<slug>/logos/<partido>.svg` (o `.png` / `.webp`) y añade `logo = "logos/<partido>.svg"` a ese partido en `election.toml`. Solo PNG, WebP o SVG (por contenido), hasta 256 KiB, y un SVG sin scripts ni referencias externas. `data import` guarda el logo y `data check` lo compara; si un fichero se rechaza, no lo edites: devuélveselo al usuario.
 - Fuera de un bundle: `party logo SHORT --election E --file F` o `--clear` (escribe en la base; en una elección con bundle, `data check` lo señalará hasta que `election.toml` declare el mismo fichero).
 - Una elección importada queda en `draft` hasta su primera ejecución publicada.
