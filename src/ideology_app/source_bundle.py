@@ -10,6 +10,12 @@ A Party may also declare a logo (``logo = "logos/<file>"``): an optional
 ``logos/`` directory holds exactly the declared logo files, checked by
 ``party_logos`` (PNG, WebP or SVG by content, at most 256 KiB).
 
+Manifest format 1 lists one ``file`` per Party. Format 2
+(constituencies-and-candidatures) adds ``[candidatures]`` (the BOE source),
+each Party's ``constituencies`` (INE codes or ``"all"``) and ``[[documents]]``
+(a file, the Parties it applies to and optionally its Constituencies); see
+``docs/specs/constituencies-and-candidatures.md`` (Manifest Format 2).
+
 This module is the only one that parses or serialises Source Text files. It is
 pure: no database and no pypdf. Files are read and written as bytes; only
 ``"\\n"`` separates lines (``"\\r"``, form feeds and Unicode line separators are
@@ -27,6 +33,8 @@ from pathlib import Path
 from typing import Any
 
 from ideology_app import config
+from ideology_app.constituencies import CODES as CONSTITUENCY_CODES
+from ideology_app.constituencies import CONSTITUENCIES, name_of
 from ideology_app.elections import InvalidInputError
 from ideology_app.models import Election, ElectionType
 from ideology_app.party_logos import (
@@ -37,7 +45,7 @@ from ideology_app.party_logos import (
 )
 
 BUNDLE_FORMAT = 1
-MANIFEST_FORMAT = 1
+MANIFEST_FORMATS = (1, 2)
 MANIFEST_NAME = "election.toml"
 MAX_SOURCE_TEXT_BYTES = 50 * 1024 * 1024
 NOT_CANONICAL = (
@@ -67,9 +75,16 @@ _SHORT_NAME_MAX = 50
 _BOM = b"\xef\xbb\xbf"
 
 _MANIFEST_TOP_KEYS = frozenset({"format", "election", "parties"})
+_MANIFEST_TOP_KEYS_V2 = ("format", "election", "candidatures", "parties")
 _MANIFEST_ELECTION_KEYS = ("country", "type", "date", "name")
 _MANIFEST_PARTY_KEYS = ("short_name", "name", "file")
+_MANIFEST_PARTY_KEYS_V2 = ("short_name", "name", "constituencies")
 _MANIFEST_PARTY_OPTIONAL_KEYS = frozenset({"logo"})
+_MANIFEST_DOCUMENT_KEYS = ("file", "parties")
+_MANIFEST_DOCUMENT_OPTIONAL_KEYS = frozenset({"constituencies", "joint_for"})
+_FORMAT_PROBLEM = "format must be 1 or 2"
+_CANDIDATURES_SOURCE_MAX = 500
+_URL_MAX = 2048
 
 
 class BundleError(InvalidInputError):
@@ -374,11 +389,46 @@ class BundleLogo:
 
 @dataclass(frozen=True)
 class BundleParty:
+    """A manifest Party (a candidature).
+
+    ``file`` and ``text`` are set only in format 1 (one document per Party, a
+    legacy convenience); new code reads ``Bundle.documents``.
+    ``constituencies`` is set only in format 2: the sorted INE codes the Party
+    runs in (``"all"`` expanded).
+    """
+
     short_name: str
     name: str
+    file: str | None = None
+    text: SourceText | None = None
+    logo: BundleLogo | None = None
+    constituencies: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class BundleDocument:
+    """A Source Text file and the Parties (and optionally Constituencies) it applies to.
+
+    Format 1 derives one per Party (``parties=(short_name,)``, no
+    ``constituencies``). ``constituencies`` is the declared scope, sorted, or
+    ``None`` (every Constituency of each listed Party); see ``document_scope``.
+    ``joint_for`` names the listed Parties for which this file is the
+    coalition's own joint manifesto (format 2 only; ``proposal-conflicts``).
+    """
+
     file: str
     text: SourceText
-    logo: BundleLogo | None = None
+    parties: tuple[str, ...]
+    constituencies: tuple[str, ...] | None = None
+    joint_for: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CandidatureSource:
+    """Where a format-2 manifest's candidatures come from (the BOE proclamation)."""
+
+    source: str
+    url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -392,10 +442,38 @@ class Bundle:
     date: dt.date
     name: str
     parties: tuple[BundleParty, ...]
+    format: int = 1
+    candidatures: CandidatureSource | None = None
+    documents: tuple[BundleDocument, ...] = ()
+
+    def party(self, short_name: str) -> BundleParty:
+        """The manifest Party with ``short_name``. Raises KeyError."""
+        for entry in self.parties:
+            if entry.short_name == short_name:
+                return entry
+        raise KeyError(short_name)
+
+
+def document_scope(bundle: Bundle, document: BundleDocument, short_name: str) -> tuple[str, ...]:
+    """The Constituencies ``document`` applies to for the Party ``short_name`` (D1).
+
+    The document's declared Constituencies, or every Constituency of the
+    Party when none are declared, intersected with the Party's
+    Constituencies; sorted. Empty for a format-1 bundle (no candidatures).
+    """
+    party_codes = bundle.party(short_name).constituencies or ()
+    if document.constituencies is None:
+        return tuple(party_codes)
+    declared = set(document.constituencies)
+    return tuple(code for code in party_codes if code in declared)
 
 
 class _ManifestLines:
-    """Best-effort line numbers for manifest errors (tomllib gives none for values)."""
+    """Best-effort line numbers for manifest errors (tomllib gives none for values).
+
+    Array-table indexes are counted per section: ``[[documents]]`` restarts at 0
+    after ``[[parties]]``.
+    """
 
     _KEY_RE = re.compile(r'^\s*"?([A-Za-z0-9_-]+)"?\s*=')
 
@@ -403,13 +481,14 @@ class _ManifestLines:
         self._keys: dict[tuple[str, int, str], int] = {}
         self._tables: dict[tuple[str, int], int] = {}
         section, index = "", 0
-        party_count = 0
+        array_counts: dict[str, int] = {}
         for number, raw in enumerate(text.split("\n"), start=1):
             line = raw.strip()
             header = line.split("#")[0].strip().strip("[]").strip()
             if line.startswith("[["):
-                section, index = header, party_count
-                party_count += 1
+                section = header
+                index = array_counts.get(section, 0)
+                array_counts[section] = index + 1
                 self._tables.setdefault((section, index), number)
                 continue
             if line.startswith("["):
@@ -460,35 +539,76 @@ def _text_value(
 class _ManifestParty:
     short_name: str
     name: str
-    file: str
+    file: str | None
     logo: str | None = None
     logo_line: int = 1
+    constituencies: tuple[str, ...] | None = None
 
 
-def _read_manifest(
-    directory: Path,
-) -> tuple[str, ElectionType, dt.date, str, list[_ManifestParty]]:
-    path = directory / MANIFEST_NAME
-    name = str(path)
-    if not path.is_file():
-        raise _error(name, 1, "manifest not found")
-    raw = path.read_bytes()
-    try:
-        text = raw.decode("utf-8")
-        manifest = tomllib.loads(text)
-    except UnicodeDecodeError as exc:
-        raise _error(name, raw[: exc.start].count(b"\n") + 1, "invalid UTF-8") from None
-    except tomllib.TOMLDecodeError as exc:
-        line = getattr(exc, "lineno", None) or 1
-        raise _error(name, line, f"invalid TOML: {exc}") from None
-    lines = _ManifestLines(text)
+@dataclass(frozen=True)
+class _ManifestDocument:
+    file: str
+    parties: tuple[str, ...]
+    constituencies: tuple[str, ...] | None
+    line: int
+    joint_for: tuple[str, ...] = ()
 
-    _check_keys(name, 1, manifest, _MANIFEST_TOP_KEYS, "the manifest")
-    if isinstance(manifest["format"], bool) or manifest["format"] != MANIFEST_FORMAT:
+
+@dataclass(frozen=True)
+class _Manifest:
+    format: int
+    country: str
+    type: ElectionType
+    date: dt.date
+    name: str
+    parties: list[_ManifestParty]
+    candidatures: CandidatureSource | None = None
+    documents: list[_ManifestDocument] | None = None
+
+
+def _check_file(name: str, line: int, file: Any) -> str:
+    if not isinstance(file, str) or not _FILE_RE.match(file):
         raise _error(
-            name, lines.of(key="format"), f"format must be {MANIFEST_FORMAT}"
+            name,
+            line,
+            f"file {file!r} is invalid: expected a name like 'pp.md' "
+            "(lower-case letters, digits, '.', '_', '-')",
         )
+    return file
 
+
+def _constituency_codes(name: str, line: int, value: Any, owner: str) -> tuple[str, ...]:
+    """A ``constituencies`` value: ``"all"`` or a non-empty list of INE codes; sorted."""
+    if value == "all":
+        return tuple(code for code, _ in CONSTITUENCIES)
+    if not isinstance(value, list):
+        raise _error(
+            name, line, 'constituencies must be "all" or a list of INE codes such as ["28"]'
+        )
+    if not value:
+        raise _error(name, line, f"{owner} has no Constituencies")
+    seen: set[str] = set()
+    for code in value:
+        if isinstance(code, bool) or isinstance(code, int):
+            raise _error(name, line, f'Constituency {code!r} must be a string such as "28"')
+        if not isinstance(code, str):
+            raise _error(name, line, f'Constituency {code!r} must be a string such as "28"')
+        if code not in CONSTITUENCY_CODES:
+            raise _error(
+                name,
+                line,
+                f"unknown Constituency {code!r} (expected an INE code 01..52; "
+                'see "ideology constituency list")',
+            )
+        if code in seen:
+            raise _error(name, line, f"duplicate Constituency {code!r}")
+        seen.add(code)
+    return tuple(sorted(seen))
+
+
+def _read_election(name: str, lines: _ManifestLines, manifest: dict[str, Any]) -> tuple[
+    str, ElectionType, dt.date, str
+]:
     election = manifest["election"]
     if not isinstance(election, dict):
         raise _error(name, lines.of(key="election"), "[election] must be a table")
@@ -518,10 +638,16 @@ def _read_manifest(
     election_name = _text_value(
         name, lines.of("election", key="name"), election["name"], "election name", _NAME_MAX
     )
+    return country, election_type, date, election_name
 
+
+def _read_parties(
+    name: str, lines: _ManifestLines, manifest: dict[str, Any], format: int
+) -> list[_ManifestParty]:
     parties_raw = manifest["parties"]
     if not isinstance(parties_raw, list) or not parties_raw:
         raise _error(name, lines.of(key="parties"), "[[parties]] must list at least one party")
+    keys = _MANIFEST_PARTY_KEYS if format == 1 else _MANIFEST_PARTY_KEYS_V2
     parties: list[_ManifestParty] = []
     seen: dict[str, set[str]] = {
         "short_name": set(), "name": set(), "file": set(), "logo": set()
@@ -531,7 +657,7 @@ def _read_manifest(
         if not isinstance(entry, dict):
             raise _error(name, lines.of("parties", index), f"{where} must be a table")
         _check_keys(
-            name, lines.of("parties", index), entry, _MANIFEST_PARTY_KEYS, where,
+            name, lines.of("parties", index), entry, keys, where,
             _MANIFEST_PARTY_OPTIONAL_KEYS,
         )
         short_name = _text_value(
@@ -541,14 +667,21 @@ def _read_manifest(
         party_name = _text_value(
             name, lines.of("parties", index, "name"), entry["name"], "name", _NAME_MAX
         )
-        file = entry["file"]
-        if not isinstance(file, str) or not _FILE_RE.match(file):
-            raise _error(
+        file = (
+            _check_file(name, lines.of("parties", index, "file"), entry["file"])
+            if format == 1
+            else None
+        )
+        constituencies = (
+            _constituency_codes(
                 name,
-                lines.of("parties", index, "file"),
-                f"file {file!r} is invalid: expected a name like 'pp.md' "
-                "(lower-case letters, digits, '.', '_', '-')",
+                lines.of("parties", index, "constituencies"),
+                entry["constituencies"],
+                f"party {short_name}",
             )
+            if format == 2
+            else None
+        )
         logo = entry.get("logo")
         logo_line = lines.of("parties", index, "logo")
         if logo is not None and (not isinstance(logo, str) or not _LOGO_RE.match(logo)):
@@ -558,9 +691,9 @@ def _read_manifest(
                 f"logo {logo!r} is invalid: expected a path like 'logos/pp.svg' "
                 "(lower-case letters, digits, '.', '_', '-'; .png, .webp or .svg)",
             )
-        values: list[tuple[str, str]] = [
-            ("short_name", short_name), ("name", party_name), ("file", file)
-        ]
+        values: list[tuple[str, str]] = [("short_name", short_name), ("name", party_name)]
+        if file is not None:
+            values.append(("file", file))
         if logo is not None:
             values.append(("logo", logo))
         for field, value in values:
@@ -569,8 +702,181 @@ def _read_manifest(
                     name, lines.of("parties", index, field), f"duplicate {field} {value!r}"
                 )
             seen[field].add(value)
-        parties.append(_ManifestParty(short_name, party_name, file, logo, logo_line))
-    return country, election_type, date, election_name, parties
+        parties.append(
+            _ManifestParty(short_name, party_name, file, logo, logo_line, constituencies)
+        )
+    return parties
+
+
+def _read_candidatures(
+    name: str, lines: _ManifestLines, manifest: dict[str, Any]
+) -> CandidatureSource:
+    table = manifest["candidatures"]
+    if not isinstance(table, dict):
+        raise _error(name, lines.of(key="candidatures"), "[candidatures] must be a table")
+    _check_keys(
+        name, lines.of("candidatures"), table, ("source",), "[candidatures]",
+        frozenset({"url"}),
+    )
+    source = _text_value(
+        name, lines.of("candidatures", key="source"), table["source"],
+        "candidatures source", _CANDIDATURES_SOURCE_MAX,
+    )
+    url = table.get("url")
+    if url is not None:
+        url = _text_value(
+            name, lines.of("candidatures", key="url"), url, "candidatures url", _URL_MAX
+        )
+    return CandidatureSource(source, url)
+
+
+def _joint_for(
+    name: str, line: int, value: Any, file: str, short_names: list[str]
+) -> tuple[str, ...]:
+    """``joint_for``: a non-empty list of the document's own Parties, no duplicates."""
+    if not isinstance(value, list) or not value:
+        raise _error(
+            name, line, f"document {file}: joint_for must be a non-empty list of short names"
+        )
+    joint: list[str] = []
+    for short_name in value:
+        if not isinstance(short_name, str):
+            raise _error(
+                name, line, f"document {file}: joint_for party {short_name!r} must be a string"
+            )
+        if short_name not in short_names:
+            raise _error(
+                name, line,
+                f"document {file}: joint_for party {short_name!r} is not in its parties",
+            )
+        if short_name in joint:
+            raise _error(name, line, f"document {file}: duplicate joint_for party {short_name!r}")
+        joint.append(short_name)
+    return tuple(joint)
+
+
+def _read_documents(
+    name: str, lines: _ManifestLines, manifest: dict[str, Any], parties: list[_ManifestParty]
+) -> list[_ManifestDocument]:
+    raw = manifest.get("documents", [])
+    if not isinstance(raw, list):
+        raise _error(name, lines.of(key="documents"), "[[documents]] must be a list of tables")
+    by_short = {party.short_name: party for party in parties}
+    documents: list[_ManifestDocument] = []
+    files: set[str] = set()
+    for index, entry in enumerate(raw):
+        where = f"[[documents]] #{index + 1}"
+        line = lines.of("documents", index)
+        if not isinstance(entry, dict):
+            raise _error(name, line, f"{where} must be a table")
+        _check_keys(
+            name, line, entry, _MANIFEST_DOCUMENT_KEYS, where,
+            _MANIFEST_DOCUMENT_OPTIONAL_KEYS,
+        )
+        file_line = lines.of("documents", index, "file")
+        file = _check_file(name, file_line, entry["file"])
+        if file in files:
+            raise _error(name, file_line, f"duplicate file {file!r}")
+        files.add(file)
+        parties_line = lines.of("documents", index, "parties")
+        listed = entry["parties"]
+        if not isinstance(listed, list) or not listed:
+            raise _error(
+                name, parties_line, f"document {file}: parties must be a non-empty list of "
+                "short names"
+            )
+        short_names: list[str] = []
+        for short_name in listed:
+            if not isinstance(short_name, str):
+                raise _error(
+                    name, parties_line, f"document {file}: party {short_name!r} must be a string"
+                )
+            if short_name not in by_short:
+                raise _error(
+                    name, parties_line,
+                    f"document {file}: party {short_name!r} is not declared in [[parties]]",
+                )
+            if short_name in short_names:
+                raise _error(
+                    name, parties_line, f"document {file}: duplicate party {short_name!r}"
+                )
+            short_names.append(short_name)
+        constituencies: tuple[str, ...] | None = None
+        if "constituencies" in entry:
+            scope_line = lines.of("documents", index, "constituencies")
+            constituencies = _constituency_codes(
+                name, scope_line, entry["constituencies"], f"document {file}"
+            )
+            run = set().union(*(by_short[s].constituencies or () for s in short_names))
+            outside = [code for code in constituencies if code not in run]
+            if outside:
+                raise _error(
+                    name, scope_line,
+                    f"document {file}: Constituency {outside[0]} ({name_of(outside[0])}) is "
+                    "not run by any of its parties",
+                )
+            declared = set(constituencies)
+            for short_name in short_names:
+                if not declared & set(by_short[short_name].constituencies or ()):
+                    raise _error(
+                        name, scope_line,
+                        f"document {file}: party {short_name} runs in none of its "
+                        "Constituencies",
+                    )
+        joint_for: tuple[str, ...] = ()
+        if "joint_for" in entry:
+            joint_for = _joint_for(
+                name, lines.of("documents", index, "joint_for"), entry["joint_for"], file,
+                short_names,
+            )
+        documents.append(
+            _ManifestDocument(file, tuple(short_names), constituencies, line, joint_for)
+        )
+    return documents
+
+
+def _read_manifest(directory: Path) -> _Manifest:
+    path = directory / MANIFEST_NAME
+    name = str(path)
+    if not path.is_file():
+        raise _error(name, 1, "manifest not found")
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+        manifest = tomllib.loads(text)
+    except UnicodeDecodeError as exc:
+        raise _error(name, raw[: exc.start].count(b"\n") + 1, "invalid UTF-8") from None
+    except tomllib.TOMLDecodeError as exc:
+        line = getattr(exc, "lineno", None) or 1
+        raise _error(name, line, f"invalid TOML: {exc}") from None
+    lines = _ManifestLines(text)
+
+    format_value = manifest.get("format")
+    if "format" in manifest and (
+        isinstance(format_value, bool) or format_value not in MANIFEST_FORMATS
+    ):
+        # A bad format is reported as such, whatever other keys the manifest has
+        # (constituencies-and-candidatures validation: format 3 with format-2 keys).
+        raise _error(name, lines.of(key="format"), _FORMAT_PROBLEM)
+    if format_value != 2:
+        # Format 1 (or a bad format): checked exactly as before format 2 existed.
+        _check_keys(name, 1, manifest, _MANIFEST_TOP_KEYS, "the manifest")
+        if isinstance(manifest["format"], bool) or manifest["format"] not in MANIFEST_FORMATS:
+            raise _error(name, lines.of(key="format"), _FORMAT_PROBLEM)
+        country, election_type, date, election_name = _read_election(name, lines, manifest)
+        parties = _read_parties(name, lines, manifest, 1)
+        return _Manifest(1, country, election_type, date, election_name, parties)
+
+    _check_keys(
+        name, 1, manifest, _MANIFEST_TOP_KEYS_V2, "the manifest", frozenset({"documents"})
+    )
+    country, election_type, date, election_name = _read_election(name, lines, manifest)
+    candidatures = _read_candidatures(name, lines, manifest)
+    parties = _read_parties(name, lines, manifest, 2)
+    documents = _read_documents(name, lines, manifest, parties)
+    return _Manifest(
+        2, country, election_type, date, election_name, parties, candidatures, documents
+    )
 
 
 def _check_logos_dir(directory: Path, declared: set[str]) -> None:
@@ -613,13 +919,24 @@ def _read_logo(directory: Path, manifest: str, entry: _ManifestParty) -> BundleL
     return BundleLogo(entry.logo, logo)
 
 
+def _read_source_text(directory: Path, file: str) -> SourceText:
+    file_path = directory / file
+    file_name = str(file_path)
+    if not file_path.is_file():
+        raise _error(file_name, 1, f"file listed in {MANIFEST_NAME} not found")
+    if file_path.stat().st_size > MAX_SOURCE_TEXT_BYTES:
+        raise _error(file_name, 1, f"file is larger than {MAX_SOURCE_TEXT_BYTES} bytes")
+    return parse_source_text(file_path.read_bytes(), name=file_name)
+
+
 def read_bundle(path: Path) -> Bundle:
     """Read and fully check the bundle in ``path``. Raises BundleError.
 
-    Checks the manifest, the directory name (the slug), that no ``*.pdf`` is
-    anywhere under it, that every top-level ``*.md`` is listed and every
-    listed file exists, and parses every Source Text file (whose ``party``
-    must equal its manifest ``short_name``). Every declared logo is read and
+    Checks the manifest (format 1 or 2), the directory name (the slug), that
+    no ``*.pdf`` is anywhere under it, that every top-level ``*.md`` is listed
+    and every listed file exists, and parses every Source Text file (whose
+    ``party`` must equal its manifest ``short_name`` in format 1, or be one of
+    the document's ``parties`` in format 2). Every declared logo is read and
     checked (``party_logos``; its extension must match its content), and
     ``logos/`` must hold only declared logo files (dotfiles are ignored).
     Nothing is written.
@@ -627,10 +944,11 @@ def read_bundle(path: Path) -> Bundle:
     directory = Path(path)
     if not directory.is_dir():
         raise _error(str(directory), 1, "bundle directory not found")
-    country, election_type, date, election_name, manifest_parties = _read_manifest(directory)
+    manifest_data = _read_manifest(directory)
+    manifest_parties = manifest_data.parties
     manifest = str(directory / MANIFEST_NAME)
 
-    slug = election_slug(country, election_type, date)
+    slug = election_slug(manifest_data.country, manifest_data.type, manifest_data.date)
     actual = directory.resolve().name
     if actual != slug:
         raise _error(
@@ -639,7 +957,10 @@ def read_bundle(path: Path) -> Bundle:
     pdfs = sorted(p for p in directory.rglob("*") if p.suffix.lower() == ".pdf")
     if pdfs:
         raise _error(str(pdfs[0]), 1, "PDF files must not be in a bundle")
-    listed = {party.file for party in manifest_parties}
+    if manifest_data.format == 1:
+        listed = {party.file for party in manifest_parties}
+    else:
+        listed = {document.file for document in manifest_data.documents or ()}
     unlisted = sorted(
         p.name
         for p in directory.iterdir()
@@ -655,33 +976,84 @@ def read_bundle(path: Path) -> Bundle:
         directory, {party.logo for party in manifest_parties if party.logo is not None}
     )
 
-    parties: list[BundleParty] = []
-    for entry in manifest_parties:
-        file_path = directory / entry.file
-        file_name = str(file_path)
-        if not file_path.is_file():
-            raise _error(file_name, 1, f"file listed in {MANIFEST_NAME} not found")
-        if file_path.stat().st_size > MAX_SOURCE_TEXT_BYTES:
-            raise _error(file_name, 1, f"file is larger than {MAX_SOURCE_TEXT_BYTES} bytes")
-        source_text = parse_source_text(file_path.read_bytes(), name=file_name)
-        if source_text.party != entry.short_name:
-            raise _error(
-                file_name,
-                3,
-                f"party {source_text.party!r} does not match the manifest short_name "
-                f"{entry.short_name!r}",
+    if manifest_data.format == 1:
+        parties: list[BundleParty] = []
+        for entry in manifest_parties:
+            assert entry.file is not None
+            source_text = _read_source_text(directory, entry.file)
+            if source_text.party != entry.short_name:
+                raise _error(
+                    str(directory / entry.file),
+                    3,
+                    f"party {source_text.party!r} does not match the manifest short_name "
+                    f"{entry.short_name!r}",
+                )
+            logo = _read_logo(directory, manifest, entry)
+            parties.append(
+                BundleParty(entry.short_name, entry.name, entry.file, source_text, logo)
             )
-        logo = _read_logo(directory, manifest, entry)
-        parties.append(
-            BundleParty(entry.short_name, entry.name, entry.file, source_text, logo)
+        documents = tuple(
+            BundleDocument(party.file, party.text, (party.short_name,))
+            for party in parties
+            if party.file is not None and party.text is not None
+        )
+        return Bundle(
+            path=directory,
+            slug=slug,
+            country=manifest_data.country,
+            type=manifest_data.type,
+            date=manifest_data.date,
+            name=manifest_data.name,
+            parties=tuple(parties),
+            format=1,
+            documents=documents,
         )
 
+    parties = [
+        BundleParty(
+            entry.short_name,
+            entry.name,
+            logo=_read_logo(directory, manifest, entry),
+            constituencies=entry.constituencies,
+        )
+        for entry in manifest_parties
+    ]
+    read_documents: list[BundleDocument] = []
+    hashes: dict[tuple[str, str], str] = {}
+    for document in manifest_data.documents or ():
+        source_text = _read_source_text(directory, document.file)
+        if source_text.party not in document.parties:
+            raise _error(
+                str(directory / document.file),
+                3,
+                f"party {source_text.party!r} is not one of the document's parties in "
+                f"{MANIFEST_NAME} ({', '.join(document.parties)})",
+            )
+        for short_name in document.parties:
+            other = hashes.get((short_name, source_text.content_hash))
+            if other is not None:
+                raise _error(
+                    manifest,
+                    document.line,
+                    f"documents {other} and {document.file} both list party {short_name} "
+                    "and have the same content",
+                )
+            hashes[(short_name, source_text.content_hash)] = document.file
+        read_documents.append(
+            BundleDocument(
+                document.file, source_text, document.parties, document.constituencies,
+                document.joint_for,
+            )
+        )
     return Bundle(
         path=directory,
         slug=slug,
-        country=country,
-        type=election_type,
-        date=date,
-        name=election_name,
+        country=manifest_data.country,
+        type=manifest_data.type,
+        date=manifest_data.date,
+        name=manifest_data.name,
         parties=tuple(parties),
+        format=2,
+        candidatures=manifest_data.candidatures,
+        documents=tuple(read_documents),
     )

@@ -55,6 +55,11 @@ class Election(Base):
     status: Mapped[ElectionStatus] = mapped_column(
         _enum(ElectionStatus, "election_status"), default=ElectionStatus.DRAFT
     )
+    # Where the candidatures come from (migration 0016): the BOE proclamation
+    # named in a format-2 ``election.toml``, written only by ``data import``.
+    # NULL for Elections imported from a format-1 bundle (legacy).
+    candidatures_source: Mapped[str | None] = mapped_column(sa.String(500))
+    candidatures_source_url: Mapped[str | None] = mapped_column(sa.String(2048))
 
     parties: Mapped[list["Party"]] = relationship(
         back_populates="election", order_by="Party.id", passive_deletes=True
@@ -90,6 +95,55 @@ class Party(Base):
     election: Mapped[Election] = relationship(back_populates="parties")
     source_documents: Mapped[list["SourceDocument"]] = relationship(
         back_populates="party", order_by="SourceDocument.id", passive_deletes=True
+    )
+    candidatures: Mapped[list["Candidature"]] = relationship(
+        order_by="Candidature.constituency_code", viewonly=True
+    )
+
+
+class Constituency(Base):
+    """One of the 52 Congreso Constituencies (INE province code). Seeded by migration 0016.
+
+    Changes only by migration, and always equals ``constituencies.CONSTITUENCIES``.
+    """
+
+    __tablename__ = "constituencies"
+
+    code: Mapped[str] = mapped_column(sa.String(2), primary_key=True)
+    name: Mapped[str] = mapped_column(sa.String(100), unique=True)
+
+
+class Candidature(Base):
+    """A Party runs in a Constituency (from the BOE proclamation).
+
+    Written only by ``ideology data import`` of a format-2 manifest, never by AI.
+    Read through ``bundle_import.candidatures_by_party``.
+    """
+
+    __tablename__ = "candidatures"
+
+    party_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("parties.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True, index=True
+    )
+
+
+class SourceDocumentConstituency(Base):
+    """A Source Document applies to a Constituency (its scope).
+
+    Written only by ``ideology data import`` of a format-2 manifest. Read
+    through ``bundle_import.document_scopes``.
+    """
+
+    __tablename__ = "source_document_constituencies"
+
+    source_document_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("source_documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True
     )
 
 
@@ -161,6 +215,10 @@ class SourceDocument(Base):
         order_by="SourceDocumentPage.page_number",
         cascade="all, delete-orphan",
         passive_deletes=True,
+    )
+    scope: Mapped[list[SourceDocumentConstituency]] = relationship(
+        order_by="SourceDocumentConstituency.constituency_code",
+        viewonly=True,
     )
 
     @property
@@ -491,3 +549,93 @@ class ValidationReportEntry(Base):
 
     validation_result: Mapped[ValidationResult] = relationship(back_populates="entries")
     statement: Mapped["Statement | None"] = relationship()
+
+
+class ProposalExtractionStatus(StrEnum):
+    """``in_progress`` until every chunk has a recorded call and finalize ran; then ``complete``."""
+
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+
+
+class ProposalExtraction(Base):
+    """Phase-3 extraction of one document content (``content_hash``), shared by every
+    Source Document row and Election with those bytes (proposal-extraction).
+
+    Provider, model, prompt version and chunk size are pinned when it is created;
+    a resume must match them. Written by ``proposals.store`` only: created
+    ``in_progress``, then completed once by finalize (``validated_count``,
+    ``report``, ``completed_at``). Never updated afterwards and never deleted,
+    except an ``in_progress`` one by ``ideology proposals extract --restart``.
+    """
+
+    __tablename__ = "proposal_extractions"
+    __table_args__ = (sa.UniqueConstraint("content_hash"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    content_hash: Mapped[str] = mapped_column(sa.String(64))
+    status: Mapped[ProposalExtractionStatus] = mapped_column(
+        _enum(ProposalExtractionStatus, "proposal_extraction_status")
+    )
+    llm_provider: Mapped[str] = mapped_column(sa.String(50))
+    llm_model: Mapped[str] = mapped_column(sa.String(200))
+    prompt_version: Mapped[str] = mapped_column(sa.String(20))
+    chunk_max_chars: Mapped[int] = mapped_column(sa.Integer)
+    chunk_count: Mapped[int] = mapped_column(sa.Integer)
+    check_version: Mapped[str] = mapped_column(sa.String(20))
+    validated_count: Mapped[int | None] = mapped_column(sa.Integer)
+    # Counts per drop reason and the dropped items; null until complete.
+    report: Mapped[dict[str, Any] | None] = mapped_column(sa.JSON)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
+    )
+    completed_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+
+
+class ProposalExtractionCall(Base):
+    """One successful LLM call of an extraction (one chunk), committed as soon as it
+    returned. ``output`` is the schema-validated answer. Insert-only."""
+
+    __tablename__ = "proposal_extraction_calls"
+    __table_args__ = (sa.UniqueConstraint("extraction_id", "chunk_index"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    extraction_id: Mapped[int] = mapped_column(sa.ForeignKey("proposal_extractions.id"))
+    chunk_index: Mapped[int] = mapped_column(sa.Integer)
+    first_page: Mapped[int] = mapped_column(sa.Integer)
+    last_page: Mapped[int] = mapped_column(sa.Integer)
+    request_hash: Mapped[str] = mapped_column(sa.String(64))
+    output: Mapped[dict[str, object]] = mapped_column(sa.JSON)
+    input_tokens: Mapped[int] = mapped_column(sa.Integer)
+    output_tokens: Mapped[int] = mapped_column(sa.Integer)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
+    )
+
+
+class Proposal(Base):
+    """A verbatim measure or commitment of a document, on the page it starts on.
+
+    Written only by finalize, exactly as the provider returned it (text, page,
+    categories, tags), and only when its text starts on that page. Belongs to
+    the document content (``content_hash``), not to a Dataset Version or row.
+    Never updated or deleted.
+    """
+
+    __tablename__ = "proposals"
+    __table_args__ = (
+        sa.UniqueConstraint("extraction_id", "ordinal"),
+        sa.CheckConstraint("page >= 1", name="page_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    extraction_id: Mapped[int] = mapped_column(sa.ForeignKey("proposal_extractions.id"))
+    content_hash: Mapped[str] = mapped_column(sa.String(64), index=True)
+    ordinal: Mapped[int] = mapped_column(sa.Integer)
+    chunk_index: Mapped[int] = mapped_column(sa.Integer)
+    page: Mapped[int] = mapped_column(sa.Integer)
+    text: Mapped[str] = mapped_column(sa.Text)
+    # 1..3 topic catalog keys, the main one first.
+    categories: Mapped[list[str]] = mapped_column(sa.JSON)
+    # 0..5 free tags.
+    tags: Mapped[list[str]] = mapped_column(sa.JSON)
