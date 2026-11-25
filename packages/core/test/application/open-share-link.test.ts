@@ -51,6 +51,7 @@ const ELECTION: Election = {
   name: "Generales 2023",
   status: "active",
   publishedDatasetVersionId: 7,
+  publishedDatasetVersionGeneration: "legacy",
 };
 
 const LINK = "v2-7-anD";

@@ -7,8 +7,9 @@ how many Parties take each side, never on which Party or on Party ids.
 
 The one source of these rules. ``pipeline.v2.selection`` computes the stored
 rows with them before the Dataset Version is written, ``validation``
-recomputes them from the stored rows, and ``public-dataset-api-v2`` will read
-Party Positions per Constituency only through ``effective_value``.
+recomputes them from the stored rows, and ``public-dataset-api-v2``
+(``api.queries_v2``) reads Party Positions per Constituency only through
+``effective_value`` and ``counting_evidence``.
 
 Terms: R(c) are the non-Excluded Parties running in Constituency c (the
 Dataset Version's frozen candidature copy). A value is *sided* at +1/+2 (in
@@ -105,6 +106,21 @@ class ConstituencyResult:
         return self.valid if self.availability.available else ()
 
 
+def counting_evidence(
+    evidence_constituencies: Iterable[Iterable[str]], code: str
+) -> tuple[int, ...]:
+    """The 0-based indexes, in rank order, of the Evidence rows that count in ``code``.
+
+    ``evidence_constituencies`` holds, per Evidence Proposal of the Position
+    in rank order, the codes where it counts
+    (``party_position_proposals.constituencies``). The Evidence a reader shows
+    for a Position in ``code`` is exactly these rows (``public-dataset-api-v2``).
+    """
+    return tuple(
+        index for index, codes in enumerate(evidence_constituencies) if code in codes
+    )
+
+
 def effective_value(
     value: int | None, evidence_constituencies: Iterable[Iterable[str]], code: str
 ) -> int | None:
@@ -112,14 +128,12 @@ def effective_value(
 
     ``evidence_constituencies`` holds, per Evidence Proposal of the Position,
     the codes where it counts (``party_position_proposals.constituencies``).
-    A ``no stance`` Position stays ``None``.
+    A ``no stance`` Position stays ``None``. Defined through
+    ``counting_evidence``, so a value and the Evidence shown with it always agree.
     """
     if value is None:
         return None
-    for codes in evidence_constituencies:
-        if code in codes:
-            return value
-    return None
+    return value if counting_evidence(evidence_constituencies, code) else None
 
 
 def _value_in(statement: RuleStatement, party_id: int, code: str) -> int | None:
@@ -280,6 +294,7 @@ __all__ = [
     "Stance",
     "UnavailableReason",
     "availability",
+    "counting_evidence",
     "effective_value",
     "evaluate",
     "is_valid",

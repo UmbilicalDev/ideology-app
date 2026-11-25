@@ -87,7 +87,7 @@ What justifies a Party Position. Visible to the user.
 *Legacy (Dataset Versions 1–5):* a verbatim quote from a Source Document plus its locator (page and/or URL).
 
 ### Dataset Version
-An immutable snapshot of one Election's Questionnaire and Party Positions produced by one Pipeline Run. Share Links reference a Dataset Version. **v2:** it also fixes, per Constituency, its availability (or the reason it is unavailable), its ordered Statements, its offered lengths and its Excluded Parties with their reasons (`constituency-selection-validation`).
+An immutable snapshot of one Election's Questionnaire and Party Positions produced by one Pipeline Run. Share Links reference a Dataset Version. **v2:** it also fixes, per Constituency, its availability (or the reason it is unavailable), its ordered Statements, its offered lengths and its Excluded Parties with their reasons (`constituency-selection-validation`), and each non-Excluded Party's counted Proposals with the Constituencies where each counts (`public-dataset-api-v2`), so the Comparador reads the version, never the live ledger. It is read one Constituency at a time (`/api/v1/dataset-versions/{id}/constituencies/…`); a v2 version is never served in the legacy national shape.
 
 ### Pipeline Run
 One execution of the AI process, followed by Validation.

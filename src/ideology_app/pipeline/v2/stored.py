@@ -3,8 +3,9 @@
 ``constituency_summary`` is the one-line summary of ``pipeline run-v2`` and
 ``pipeline report``; ``dataset_version_problems`` is ``db check``'s
 consistency check of the three tables (and, since ``statement-rewording``,
-that no legacy version has ``statement_rewordings`` rows). Only ``SELECT`` statements; the 52-row
-table belongs to ``v2-run-inspection``.
+that no legacy version has ``statement_rewordings`` rows; since
+``public-dataset-api-v2``, the frozen counted Proposals). Only ``SELECT``
+statements; the 52-row table belongs to ``v2-run-inspection``.
 """
 
 from sqlalchemy import func, select
@@ -16,12 +17,20 @@ from ideology_app.models import (
     DatasetVersion,
     DatasetVersionCandidature,
     DatasetVersionConstituency,
+    DatasetVersionProposal,
     ModelGeneration,
+    PartyPosition,
+    PartyPositionProposal,
     Statement,
     StatementRewording,
 )
 
-_TABLES = (DatasetVersionConstituency, DatasetVersionCandidature, ConstituencyStatement)
+_TABLES = (
+    DatasetVersionConstituency,
+    DatasetVersionCandidature,
+    ConstituencyStatement,
+    DatasetVersionProposal,
+)
 
 
 def constituency_summary(session: Session, dataset_version_id: int) -> str | None:
@@ -62,7 +71,10 @@ def dataset_version_problems(session: Session) -> list[str]:
     Every v2 Dataset Version has one row per seeded Constituency and at least
     one candidature row, and each available row's ranks are
     1..``valid_statement_count`` (an unavailable one lists none). A legacy
-    version has no row in the three tables nor in ``statement_rewordings``.
+    version has no row in the three tables nor in ``statement_rewordings``
+    nor in ``dataset_version_proposals``. A v2 version has frozen counted
+    Proposals, and every Evidence row (``party_position_proposals``) of its
+    Positions is frozen for the same Party with the same Constituencies.
     Live candidatures are never read.
     """
     problems: list[str] = []
@@ -110,6 +122,7 @@ def dataset_version_problems(session: Session) -> list[str]:
             )
         if not counts[DatasetVersionCandidature.__tablename__]:
             problems.append(f"dataset version {version_id} has no candidature rows")
+        problems.extend(_frozen_proposal_problems(session, version_id, counts))
         ranks: dict[str, list[int]] = {}
         for code, rank in session.execute(
             select(ConstituencyStatement.constituency_code, ConstituencyStatement.rank)
@@ -124,6 +137,46 @@ def dataset_version_problems(session: Session) -> list[str]:
                     f"dataset version {version_id}, constituency {code}: ranks are not "
                     f"1..{count if available else 0}"
                 )
+    return problems
+
+
+def _frozen_proposal_problems(
+    session: Session, version_id: int, counts: dict[str, int]
+) -> list[str]:
+    """A v2 version's ``dataset_version_proposals`` checks (public-dataset-api-v2 A8)."""
+    if not counts[DatasetVersionProposal.__tablename__]:
+        return [f"dataset version {version_id} has no frozen counted proposals"]
+    frozen = {
+        (party_id, proposal_id): list(codes)
+        for party_id, proposal_id, codes in session.execute(
+            select(
+                DatasetVersionProposal.party_id,
+                DatasetVersionProposal.proposal_id,
+                DatasetVersionProposal.constituencies,
+            ).where(DatasetVersionProposal.dataset_version_id == version_id)
+        )
+    }
+    # Deduplicated in Python: DISTINCT over a JSON column is not portable.
+    reported: set[tuple[int, int]] = set()
+    problems: list[str] = []
+    for party_id, proposal_id, codes in session.execute(
+        select(
+            PartyPosition.party_id,
+            PartyPositionProposal.proposal_id,
+            PartyPositionProposal.constituencies,
+        )
+        .join(PartyPosition, PartyPositionProposal.party_position_id == PartyPosition.id)
+        .join(Statement, PartyPosition.statement_id == Statement.id)
+        .where(Statement.dataset_version_id == version_id)
+        .order_by(PartyPosition.party_id, PartyPositionProposal.proposal_id)
+    ):
+        key = (party_id, proposal_id)
+        if key not in reported and frozen.get(key) != list(codes):
+            reported.add(key)
+            problems.append(
+                f"dataset version {version_id}: evidence proposal {proposal_id} of party "
+                f"{party_id} is not frozen with the same constituencies"
+            )
     return problems
 
 

@@ -54,8 +54,10 @@ SELECTION_TABLES = {
 }
 TABLES_AT_0019 = TABLES_AT_0018 | SELECTION_TABLES
 REWORDING_TABLES = {"statement_rewordings"}
-ALL_TABLES = TABLES_AT_0019 | REWORDING_TABLES
-HEAD = "0020"
+TABLES_AT_0020 = TABLES_AT_0019 | REWORDING_TABLES
+FROZEN_PROPOSAL_TABLES = {"dataset_version_proposals"}
+ALL_TABLES = TABLES_AT_0020 | FROZEN_PROPOSAL_TABLES
+HEAD = "0021"
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -315,7 +317,9 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert sql.count("ck_constituency_statements_rank_positive") == 1
     # 0020: one CHECK on the rewording reason.
     assert sql.count("ck_statement_rewordings_reason_not_blank") == 1
-    assert sql.count("CHECK") == 25
+    # 0021: one rank CHECK on the frozen counted Proposals.
+    assert sql.count("ck_dataset_version_proposals_rank_positive") == 1
+    assert sql.count("CHECK") == 26
 
 
 def test_downgrade_to_0003_drops_exactly_the_pipeline_tables(db_url: str) -> None:
@@ -2322,7 +2326,7 @@ def test_upgrade_0020_adds_one_empty_table_and_keeps_every_row(db_url: str) -> N
     run_migrations(db_url, "0020")
 
     assert _version(db_url) == "0020"
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0020
     assert _counts(db_url, ("statement_rewordings",)) == {"statement_rewordings": 0}
     for table in tables:
         assert _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") == before[table], table
@@ -2407,4 +2411,149 @@ def test_offline_postgresql_render_of_0020() -> None:
         assert forbidden not in up_sql.replace("UPDATE alembic_version", ""), forbidden
     down_sql = down.getvalue()
     assert "DROP TABLE statement_rewordings;" in down_sql
+    assert down_sql.count("DROP TABLE") == 1
+
+
+# Migration 0021: frozen counted Proposals of v2 Dataset Versions (public-dataset-api-v2).
+
+FROZEN_PROPOSAL_DDL = [
+    "CONSTRAINT pk_dataset_version_proposals PRIMARY KEY (dataset_version_id, party_id, rank)",
+    "CONSTRAINT ck_dataset_version_proposals_rank_positive CHECK (rank >= 1)",
+    "CONSTRAINT fk_dataset_version_proposals_dataset_version_id_dataset_versions FOREIGN "
+    "KEY(dataset_version_id) REFERENCES dataset_versions (id) ON DELETE CASCADE",
+    "CONSTRAINT fk_dataset_version_proposals_party_id_parties FOREIGN KEY(party_id) "
+    "REFERENCES parties (id) ON DELETE CASCADE",
+    "CONSTRAINT fk_dataset_version_proposals_proposal_id_proposals FOREIGN KEY(proposal_id) "
+    "REFERENCES proposals (id)",
+    "CONSTRAINT fk_dataset_version_proposals_source_document_id_source_documents FOREIGN "
+    "KEY(source_document_id) REFERENCES source_documents (id) ON DELETE CASCADE",
+    "CONSTRAINT uq_dataset_version_proposals_dataset_version_id_party_id_proposal_id "
+    "UNIQUE (dataset_version_id, party_id, proposal_id)",
+]
+FROZEN_PROPOSAL_INSERT = (
+    "INSERT INTO dataset_version_proposals (dataset_version_id, party_id, rank, proposal_id, "
+    "source_document_id, constituencies) VALUES "
+)
+
+
+def _seed_frozen_proposal(engine: Engine) -> None:
+    """Proposal 1 counted at rank 1 for Party 1 of version 1, in 28."""
+    with engine.begin() as conn:
+        conn.execute(sa.text(FROZEN_PROPOSAL_INSERT + "(1, 1, 1, 1, 1, '[\"28\"]')"))
+
+
+def test_upgrade_0021_adds_one_empty_table_and_keeps_every_row(db_url: str) -> None:
+    run_migrations(db_url, "0020")
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        _seed_v2_evidence(engine)
+        _seed_selection(engine)
+        _seed_rewording(engine)
+    finally:
+        engine.dispose()
+    tables = sorted(TABLES_AT_0020 - {"alembic_version"})
+    before = {table: _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") for table in tables}
+    schema_sql = (
+        "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE tbl_name NOT IN "
+        "('dataset_version_proposals', 'alembic_version') ORDER BY name"
+    )
+    schema_before = _rows(db_url, schema_sql)
+
+    run_migrations(db_url, "0021")
+
+    assert _version(db_url) == "0021"
+    assert _tables(db_url) == ALL_TABLES
+    assert _counts(db_url, ("dataset_version_proposals",)) == {"dataset_version_proposals": 0}
+    for table in tables:
+        assert _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") == before[table], table
+    assert _rows(db_url, schema_sql) == schema_before
+    ddl = _table_sql(db_url, "dataset_version_proposals")
+    assert ddl.count("CHECK") == 1
+    for constraint in FROZEN_PROPOSAL_DDL:
+        assert constraint in ddl, constraint
+    assert "constituencies JSON NOT NULL" in ddl
+
+
+def test_0021_constraints_and_cascades(migrated_engine: Engine) -> None:
+    _seed_with_position(migrated_engine)
+    _seed_v2_evidence(migrated_engine)
+    _seed_frozen_proposal(migrated_engine)
+    for values in (
+        "(1, 1, 1, 1, 1, '[]')",  # same rank
+        "(1, 1, 2, 1, 1, '[]')",  # same Proposal twice for the Party
+        "(1, 1, 0, 1, 1, '[]')",  # rank below 1
+        "(9, 1, 2, 1, 1, '[]')",  # unknown version
+        "(1, 9, 2, 1, 1, '[]')",  # unknown Party
+        "(1, 1, 2, 9, 1, '[]')",  # unknown Proposal
+        "(1, 1, 2, 1, 9, '[]')",  # unknown Source Document
+        "(1, 1, 2, 1, 1, NULL)",
+    ):
+        with pytest.raises(IntegrityError):
+            with migrated_engine.begin() as conn:
+                conn.execute(sa.text(FROZEN_PROPOSAL_INSERT + values))
+    with pytest.raises(IntegrityError):  # Proposals are never deleted under a frozen row
+        with migrated_engine.begin() as conn:
+            conn.execute(sa.text("DELETE FROM party_position_proposals"))
+            conn.execute(sa.text("DELETE FROM statement_proposals"))
+            conn.execute(sa.text("DELETE FROM proposals"))
+    with migrated_engine.begin() as conn:
+        assert (
+            conn.execute(sa.text("SELECT count(*) FROM dataset_version_proposals")).scalar_one()
+            == 1
+        )
+        conn.execute(sa.text("DELETE FROM dataset_versions"))
+        assert (
+            conn.execute(sa.text("SELECT count(*) FROM dataset_version_proposals")).scalar_one()
+            == 0
+        )
+
+
+def test_downgrade_to_0020_drops_only_the_new_table(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        _seed_v2_evidence(engine)
+        _seed_selection(engine)
+        _seed_rewording(engine)
+        _seed_frozen_proposal(engine)
+    finally:
+        engine.dispose()
+    tables = sorted(TABLES_AT_0020 - {"alembic_version"})
+    before = {table: _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") for table in tables}
+
+    downgrade(db_url, "0020")
+
+    assert _version(db_url) == "0020"
+    assert _tables(db_url) == TABLES_AT_0020
+    for table in tables:
+        assert _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") == before[table], table
+    run_migrations(db_url)
+    assert _version(db_url) == HEAD
+
+
+def test_offline_postgresql_render_of_0021() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0020:0021",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0021:0020",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "CREATE TABLE dataset_version_proposals (" in up_sql
+    assert up_sql.count("CREATE TABLE") == 1
+    assert up_sql.count("CHECK") == 1
+    assert "CONSTRAINT ck_dataset_version_proposals_rank_positive CHECK (rank >= 1)" in up_sql
+    assert "rank INTEGER NOT NULL" in up_sql and "SERIAL" not in up_sql
+    for forbidden in ("DROP TABLE", "DROP INDEX", "ALTER TABLE", "INSERT INTO", "UPDATE "):
+        assert forbidden not in up_sql.replace("UPDATE alembic_version", ""), forbidden
+    down_sql = down.getvalue()
+    assert "DROP TABLE dataset_version_proposals;" in down_sql
     assert down_sql.count("DROP TABLE") == 1

@@ -23,10 +23,12 @@ from ideology_app.models import (
     DatasetVersion,
     DatasetVersionCandidature,
     DatasetVersionConstituency,
+    DatasetVersionProposal,
     DatasetVersionStatus,
     Election,
     ModelGeneration,
     Party,
+    PartyPositionProposal,
     PipelineRun,
     PipelineRunCall,
     PipelineRunStatus,
@@ -482,4 +484,86 @@ def test_dataset_version_problems_reports_bad_rows(
             "the 52 constituencies",
             f"dataset version {version}, constituency 28: ranks are not 1..2",
             f"dataset version {old_id} (legacy) has 1 rows in dataset_version_candidatures",
+        ]
+
+
+# --- public-dataset-api-v2 A8: frozen counted Proposals in db check -------------------------
+
+
+def test_db_check_reports_a_legacy_version_with_frozen_proposals(
+    tmp_path: Path, migrated_engine: Engine
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    outcome = _run(migrated_engine, directory, v2_fake(), LOW)
+    with session_scope(migrated_engine) as session:
+        frozen = session.scalars(select(DatasetVersionProposal).limit(1)).one()
+        legacy = PipelineRun(
+            election_id=1, status=PipelineRunStatus.PASSED, llm_provider="fake",
+            llm_model="fake-model", generation_mode=GenerationMode.PRECOMPUTED,
+            prompt_versions={}, llm_calls=0, input_tokens=0, output_tokens=0,
+        )
+        session.add(legacy)
+        session.flush()
+        old = DatasetVersion(election_id=1, pipeline_run_id=legacy.id)
+        session.add(old)
+        session.flush()
+        session.add(
+            DatasetVersionProposal(
+                dataset_version_id=old.id, party_id=frozen.party_id, rank=1,
+                proposal_id=frozen.proposal_id, source_document_id=frozen.source_document_id,
+                constituencies=["28"],
+            )
+        )
+        old_id = old.id
+    with Session(migrated_engine) as session:
+        assert dataset_version_problems(session) == [
+            f"dataset version {old_id} (legacy) has 1 rows in dataset_version_proposals"
+        ]
+    assert outcome.dataset_version_id != old_id
+
+
+def test_db_check_reports_a_v2_version_without_frozen_proposals(
+    tmp_path: Path, migrated_engine: Engine
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    version = _run(migrated_engine, directory, v2_fake(), LOW).dataset_version_id
+    with session_scope(migrated_engine) as session:
+        session.execute(DatasetVersionProposal.__table__.delete())
+    with Session(migrated_engine) as session:
+        assert dataset_version_problems(session) == [
+            f"dataset version {version} has no frozen counted proposals"
+        ]
+
+
+@pytest.mark.parametrize("tamper", ["missing", "codes"])
+def test_db_check_reports_evidence_not_frozen_with_the_same_constituencies(
+    tmp_path: Path, migrated_engine: Engine, tamper: str
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    version = _run(migrated_engine, directory, v2_fake(), LOW).dataset_version_id
+    with Session(migrated_engine) as session:
+        evidence = session.scalars(
+            select(PartyPositionProposal).order_by(PartyPositionProposal.id).limit(1)
+        ).one()
+        party_id = session.scalar(
+            select(DatasetVersionProposal.party_id).where(
+                DatasetVersionProposal.proposal_id == evidence.proposal_id
+            ).limit(1)
+        )
+        proposal_id = evidence.proposal_id
+    with session_scope(migrated_engine) as session:
+        target = DatasetVersionProposal.__table__.c
+        where = (target.party_id == party_id) & (target.proposal_id == proposal_id)
+        if tamper == "missing":
+            session.execute(DatasetVersionProposal.__table__.delete().where(where))
+        else:
+            session.execute(
+                DatasetVersionProposal.__table__.update().where(where).values(
+                    constituencies=["01"]
+                )
+            )
+    with Session(migrated_engine) as session:
+        assert dataset_version_problems(session) == [
+            f"dataset version {version}: evidence proposal {proposal_id} of party {party_id} "
+            "is not frozen with the same constituencies"
         ]

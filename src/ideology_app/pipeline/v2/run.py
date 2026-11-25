@@ -16,12 +16,12 @@ so ``--resume-from`` / ``--reuse-from`` replay recorded calls); then either
 ``validating`` with the complete ``candidate`` Dataset Version (Statements,
 source Proposals, one Position per Party x Statement with its Evidence
 Proposals, the 52 Constituency rows, the candidature snapshot, each available
-Constituency's ordered Statements, the applied Statement Rewordings, the pool
-report) in one commit, or ``failed`` with a reason. v2
+Constituency's ordered Statements, the applied Statement Rewordings, every
+non-Excluded Party's counted Proposals, the pool report) in one commit, or ``failed`` with a reason. v2
 runs never resolve Anchors (``anchor_dataset_version_id`` stays NULL, S8).
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,6 +39,7 @@ from ideology_app.models import (
     DatasetVersion,
     DatasetVersionCandidature,
     DatasetVersionConstituency,
+    DatasetVersionProposal,
     DatasetVersionStatus,
     Election,
     ModelGeneration,
@@ -246,6 +247,7 @@ def _finish_v2(
     usage: Usage,
     pool: V2Pool,
     selection: ConstituencySelection,
+    parties: Sequence[Phase4Party],
 ) -> RunOutcome:
     """Write the complete ``candidate`` v2 Dataset Version in one commit (insert-only).
 
@@ -258,7 +260,9 @@ def _finish_v2(
     candidature snapshot, the ranked Statements of each available
     Constituency), one ``statement_rewordings`` row per applied Statement
     Rewording (``statements.text`` is then the Operator's text and the row
-    keeps the AI text) and the run's ``statement_selection`` (the v2 pool
+    keeps the AI text), one ``dataset_version_proposals`` row per counted
+    Proposal of each non-Excluded Party of ``parties`` (``phase4.parties``,
+    rank 1..n in counted order, public-dataset-api-v2 A8) and the run's ``statement_selection`` (the v2 pool
     report with the selection report under ``"constituencies"``).
     """
     with session_scope(engine) as session:
@@ -360,6 +364,18 @@ def _finish_v2(
             )
             for code, numbers in selection.statements_by_code.items()
             for rank, number in enumerate(numbers, start=1)
+        )
+        session.add_all(
+            DatasetVersionProposal(
+                dataset_version_id=version.id,
+                party_id=party.party_id,
+                rank=rank,
+                proposal_id=proposal.proposal_id,
+                source_document_id=proposal.source_document_id,
+                constituencies=list(proposal.constituencies),
+            )
+            for party in parties
+            for rank, proposal in enumerate(party.proposals, start=1)
         )
         run.status = PipelineRunStatus.VALIDATING
         session.flush()
@@ -466,7 +482,7 @@ def execute_v2_run(
             validation_settings.max_topic_share_percent,
             constituency_settings,
         )
-        _finish_v2(engine, run_id, usage, pool, selection)
+        _finish_v2(engine, run_id, usage, pool, selection, phase4.parties)
     except (LLMError, GenerationError) as exc:
         return _record_failure(engine, run_id, usage, str(exc))
     except KeyboardInterrupt:

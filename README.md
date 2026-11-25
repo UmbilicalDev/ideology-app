@@ -110,7 +110,10 @@ API pública (solo lectura, GET):
 - `/api/v1/elections`
 - `/api/v1/elections/{id}`
 - `/api/v1/elections/{id}/published-dataset-version`
-- `/api/v1/dataset-versions/{id}`
+- `/api/v1/dataset-versions/{id}` (versiones antiguas, 1–5; una versión v2 responde 404 `dataset_version_is_v2`)
+- `/api/v1/dataset-versions/{id}/constituencies` (versión v2: las 52 circunscripciones, disponibles o no y por qué)
+- `/api/v1/dataset-versions/{id}/constituencies/{code}` (versión v2: afirmaciones, partidos con su posición y Evidencia allí, y partidos excluidos)
+- `/api/v1/dataset-versions/{id}/constituencies/{code}/proposals/{category}` (versión v2: propuestas de cada partido en una categoría, para el Comparador)
 
 Comprobaciones de solo lectura con la CLI:
 

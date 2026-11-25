@@ -703,6 +703,39 @@ class ConstituencyStatement(Base):
     )
 
 
+class DatasetVersionProposal(Base):
+    """A counted Proposal of a non-Excluded Party, frozen for a v2 Dataset Version.
+
+    One row per ``phase4.parties[*].proposals`` entry (``PhaseProposal``), at
+    ``rank`` 1..n in counted order per Party, with the Party's Source Document
+    row and the sorted Constituency codes where it counts for that Party
+    (``counted_proposals``). Written only by ``pipeline.v2.run._finish_v2`` in
+    the version's commit; insert-only (migration 0021). Legacy versions have
+    none. The public API reads a version's Proposals only from here
+    (``public-dataset-api-v2`` A8), never from the ledger.
+    """
+
+    __tablename__ = "dataset_version_proposals"
+    __table_args__ = (
+        sa.UniqueConstraint("dataset_version_id", "party_id", "proposal_id"),
+        sa.CheckConstraint("rank >= 1", name="rank_positive"),
+    )
+
+    dataset_version_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("dataset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    party_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("parties.id", ondelete="CASCADE"), primary_key=True
+    )
+    rank: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=False)
+    # No cascade: Proposals are never deleted.
+    proposal_id: Mapped[int] = mapped_column(sa.ForeignKey("proposals.id"))
+    source_document_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("source_documents.id", ondelete="CASCADE")
+    )
+    constituencies: Mapped[list[str]] = mapped_column(sa.JSON)
+
+
 class ValidationResult(Base):
     """The outcome of one Validation check on one Pipeline Run. Insert-only."""
 

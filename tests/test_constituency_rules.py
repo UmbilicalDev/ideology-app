@@ -16,6 +16,7 @@ from ideology_app.constituency_rules import (
     Stance,
     UnavailableReason,
     availability,
+    counting_evidence,
     effective_value,
     evaluate,
     is_valid,
@@ -65,6 +66,33 @@ def test_effective_value_needs_evidence_counting_in_the_constituency() -> None:
     assert effective_value(2, [("28",)], "31") is None
     assert effective_value(2, [], "28") is None
     assert effective_value(None, [("28",)], "28") is None
+
+
+def test_counting_evidence_lists_the_rows_that_count_in_rank_order() -> None:
+    # public-dataset-api-v2 A6: the Evidence a reader shows in a Constituency.
+    rows = [("28",), ("08", "31"), ("28", "31")]
+    assert counting_evidence(rows, "28") == (0, 2)
+    assert counting_evidence(rows, "31") == (1, 2)
+    assert counting_evidence(rows, "08") == (1,)
+    assert counting_evidence(rows, "01") == ()
+    assert counting_evidence([], "28") == ()
+    assert counting_evidence(iter([["28"], []]), "28") == (0,)
+
+
+@pytest.mark.parametrize("value", [None, -2, -1, 0, 1, 2])
+def test_effective_value_is_the_value_exactly_when_some_evidence_counts(
+    value: int | None,
+) -> None:
+    # effective_value behaves as before: the value when any row counts, else None.
+    for rows in ([], [("28",)], [("31",)], [("31",), ("28", "08")], [(), ()]):
+        for code in ("28", "31", "08", "01"):
+            before = None if value is None else next(
+                (value for codes in rows if code in codes), None
+            )
+            assert effective_value(value, rows, code) == before
+            assert (effective_value(value, rows, code) is None) == (
+                value is None or not counting_evidence(rows, code)
+            )
 
 
 def test_s5_evidence_only_in_28_is_no_stance_in_31() -> None:

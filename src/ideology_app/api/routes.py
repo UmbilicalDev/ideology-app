@@ -1,7 +1,8 @@
 """The ``GET /api/v1`` routes. Path parameters only; no declared query or body.
 
-Six JSON routes (``getLegalNotice`` and ``getDonation`` read only the app's
-settings, no database), plus ``getPartyLogo``, which serves a Party's logo bytes and
+Nine JSON routes (``getLegalNotice`` and ``getDonation`` read only the app's
+settings, no database; the three Constituency routes serve v2 Dataset
+Versions through ``queries_v2``, public-dataset-api-v2), plus ``getPartyLogo``, which serves a Party's logo bytes and
 reads only the cache-busting ``v`` from the raw query string to choose its
 Cache-Control (the body never depends on it).
 """
@@ -12,7 +13,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Path, Request, Response
 from sqlalchemy.orm import Session
 
-from ideology_app.api import queries
+from ideology_app.api import queries, queries_v2
 from ideology_app.api.http_cache import (
     IMMUTABLE_CACHE_CONTROL,
     POINTER_CACHE_CONTROL,
@@ -21,6 +22,9 @@ from ideology_app.api.http_cache import (
 )
 from ideology_app.party_logos import MEDIA_TYPES, logo_version
 from ideology_app.api.schemas import (
+    ConstituencyListOut,
+    ConstituencyProposalsOut,
+    ConstituencyQuestionnaireOut,
     DatasetVersionOut,
     DonationOut,
     ElectionListOut,
@@ -48,6 +52,10 @@ SessionDep = Annotated[Session, Depends(get_session)]
 ElectionId = Annotated[int, Path(ge=1, le=MAX_ID)]
 DatasetVersionId = Annotated[int, Path(ge=1, le=MAX_ID)]
 PartyId = Annotated[int, Path(ge=1, le=MAX_ID)]
+# An INE province code; ``00`` and other unseeded codes are a 404, not a 422.
+ConstituencyCode = Annotated[str, Path(pattern="^[0-9]{2}$")]
+# A topic catalog key; an unknown key is a 404 ``category_not_found``.
+Category = Annotated[str, Path(pattern="^[a-z_]{1,40}$")]
 
 _RESPONSES: dict[int | str, dict[str, Any]] = {
     304: {"description": "Not Modified"},
@@ -114,9 +122,80 @@ def get_published_dataset_version(
 def get_dataset_version(
     request: Request, session: SessionDep, dataset_version_id: DatasetVersionId
 ) -> Response:
-    """A Published or Superseded Dataset Version by id (old Share Links)."""
+    """A Published or Superseded legacy Dataset Version by id (old Share Links).
+
+    A v2 version is a 404 ``dataset_version_is_v2``: read its Constituencies instead.
+    """
     return cached_json(
         request, queries.get_public_version(session, dataset_version_id), IMMUTABLE_CACHE_CONTROL
+    )
+
+
+@router.get(
+    "/dataset-versions/{dataset_version_id}/constituencies",
+    response_model=ConstituencyListOut,
+    operation_id="listDatasetVersionConstituencies",
+    responses=_RESPONSES,
+)
+def list_dataset_version_constituencies(
+    request: Request, session: SessionDep, dataset_version_id: DatasetVersionId
+) -> Response:
+    """The 52 Constituencies of a v2 Dataset Version with availability and offered lengths.
+
+    404 ``dataset_version_is_legacy`` for a legacy version.
+    """
+    return cached_json(
+        request,
+        queries_v2.list_constituencies(session, dataset_version_id),
+        IMMUTABLE_CACHE_CONTROL,
+    )
+
+
+@router.get(
+    "/dataset-versions/{dataset_version_id}/constituencies/{code}",
+    response_model=ConstituencyQuestionnaireOut,
+    operation_id="getConstituencyQuestionnaire",
+    responses=_RESPONSES,
+)
+def get_constituency_questionnaire(
+    request: Request,
+    session: SessionDep,
+    dataset_version_id: DatasetVersionId,
+    code: ConstituencyCode,
+) -> Response:
+    """One Constituency of a v2 Dataset Version: ranked Statements, running Parties with
+    their values and Evidence there (S5), and its Excluded Parties.
+
+    404 ``dataset_version_is_legacy`` or ``constituency_not_found``.
+    """
+    return cached_json(
+        request,
+        queries_v2.get_questionnaire(session, dataset_version_id, code),
+        IMMUTABLE_CACHE_CONTROL,
+    )
+
+
+@router.get(
+    "/dataset-versions/{dataset_version_id}/constituencies/{code}/proposals/{category}",
+    response_model=ConstituencyProposalsOut,
+    operation_id="getConstituencyProposals",
+    responses=_RESPONSES,
+)
+def get_constituency_proposals(
+    request: Request,
+    session: SessionDep,
+    dataset_version_id: DatasetVersionId,
+    code: ConstituencyCode,
+    category: Category,
+) -> Response:
+    """Each running Party's Proposals in one category in a Constituency (Comparador).
+
+    404 ``dataset_version_is_legacy``, ``constituency_not_found`` or ``category_not_found``.
+    """
+    return cached_json(
+        request,
+        queries_v2.get_proposals(session, dataset_version_id, code, category),
+        IMMUTABLE_CACHE_CONTROL,
     )
 
 

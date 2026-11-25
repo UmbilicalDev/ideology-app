@@ -36,6 +36,7 @@ from ideology_app.db import make_engine, run_migrations, session_scope
 from ideology_app.elections import InvalidInputError
 from ideology_app.models import (
     DatasetVersion,
+    DatasetVersionProposal,
     DatasetVersionStatus,
     ModelGeneration,
     Party,
@@ -321,6 +322,76 @@ def test_happy_path_writes_and_publishes_a_v2_version(
     for request in provider.calls:
         for name in (*PARTY_NAMES, "[página"):
             assert name not in request.prompt and name not in request.system
+
+
+def _frozen(engine: Engine, version_id: int) -> list[tuple[Any, ...]]:
+    with Session(engine) as session:
+        return [
+            tuple(row)
+            for row in session.execute(
+                select(
+                    DatasetVersionProposal.party_id,
+                    DatasetVersionProposal.rank,
+                    DatasetVersionProposal.proposal_id,
+                    DatasetVersionProposal.source_document_id,
+                    DatasetVersionProposal.constituencies,
+                )
+                .where(DatasetVersionProposal.dataset_version_id == version_id)
+                .order_by(DatasetVersionProposal.party_id, DatasetVersionProposal.rank)
+            )
+        ]
+
+
+def _expected_frozen(engine: Engine, directory: Path) -> list[tuple[Any, ...]]:
+    with Session(engine) as session:
+        phase4 = load_phase4(session, directory)
+    return [
+        (party.party_id, rank, p.proposal_id, p.source_document_id, list(p.constituencies))
+        for party in phase4.parties
+        for rank, p in enumerate(party.proposals, start=1)
+    ]
+
+
+def test_finish_freezes_every_counted_proposal_of_each_non_excluded_party(
+    tmp_path: Path, migrated_engine: Engine
+) -> None:
+    # public-dataset-api-v2 scenario 11 / A8: one row per PhaseProposal, counted order.
+    directory = setup(tmp_path, migrated_engine)
+    ids = _party_ids(migrated_engine)
+    expected = _expected_frozen(migrated_engine, directory)
+
+    outcome = _run(migrated_engine, directory, v2_fake())
+
+    assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
+    frozen = _frozen(migrated_engine, outcome.dataset_version_id)
+    assert frozen == expected
+    assert {row[0] for row in frozen} == {ids["P"], ids["R"]}  # X is Excluded
+    with Session(migrated_engine) as session:
+        texts = {p.id: p.text for p in session.scalars(select(Proposal))}
+    assert [(texts[r[2]], r[4]) for r in frozen if r[0] == ids["P"]] == [
+        ("Bajar el precio del alquiler en todo el país.", ["28", "31"]),
+        ("Subir el salario mínimo cada año.", ["28", "31"]),
+        ("Construir más vivienda pública en alquiler.", ["28", "31"]),
+        ("Congelar el alquiler en la provincia.", ["28"]),
+        ("Crear un banco público regional.", ["28"]),
+    ]
+    assert len([r for r in frozen if r[0] == ids["R"]]) == 3
+
+
+def test_finish_freezes_the_counted_set_after_a_conflict_decision(
+    tmp_path: Path, migrated_engine: Engine
+) -> None:
+    # A set-aside Proposal is not frozen where it was set aside (here: anywhere).
+    flag = [{"a": 1, "b": 1, "explanation": "Se contradicen."}]
+    directory = setup(tmp_path, migrated_engine, contradictions=flag, decide=("a.md", "b.md"))
+    expected = _expected_frozen(migrated_engine, directory)
+    outcome = _run(migrated_engine, directory, v2_fake())
+    assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
+    frozen = _frozen(migrated_engine, outcome.dataset_version_id)
+    assert frozen == expected
+    with Session(migrated_engine) as session:
+        texts = {p.id: p.text for p in session.scalars(select(Proposal))}
+    assert "Congelar el alquiler en la provincia." not in {texts[r[2]] for r in frozen}
 
 
 def test_report_records_the_pool_and_partial_scope(tmp_path: Path, migrated_engine: Engine) -> None:

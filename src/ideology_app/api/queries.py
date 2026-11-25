@@ -1,7 +1,9 @@
 """Read model of the public API: SELECT only, never a write.
 
 ``candidate`` Dataset Versions are never exposed: they are indistinguishable
-from an unknown id.
+from an unknown id. A v2 Dataset Version is never rendered in the legacy shape
+(``dataset_version_is_v2``); its read model is ``queries_v2``
+(public-dataset-api-v2 A2).
 """
 
 import datetime as dt
@@ -23,6 +25,7 @@ from ideology_app.models import (
     DatasetVersionStatus,
     Election,
     ElectionStatus,
+    ModelGeneration,
     Party,
     PartyPosition,
     Statement,
@@ -52,7 +55,30 @@ def _version_not_found(dataset_version_id: int) -> ApiNotFoundError:
     )
 
 
-def _election_out(election: Election, published_id: int | None) -> ElectionOut:
+def _version_is_v2(dataset_version_id: int) -> ApiNotFoundError:
+    return ApiNotFoundError(
+        "dataset_version_is_v2",
+        f"dataset version {dataset_version_id} is a v2 version; "
+        f"read /api/v1/dataset-versions/{dataset_version_id}/constituencies",
+    )
+
+
+def public_version(session: Session, dataset_version_id: int) -> DatasetVersion:
+    """A ``published`` or ``superseded`` Dataset Version of any generation, else not found."""
+    version = session.scalar(
+        select(DatasetVersion).where(
+            DatasetVersion.id == dataset_version_id,
+            DatasetVersion.status.in_(PUBLIC_STATUSES),
+        )
+    )
+    if version is None:
+        raise _version_not_found(dataset_version_id)
+    return version
+
+
+def _election_out(
+    election: Election, published_id: int | None, generation: ModelGeneration | None
+) -> ElectionOut:
     return ElectionOut(
         id=election.id,
         country=election.country,
@@ -61,6 +87,9 @@ def _election_out(election: Election, published_id: int | None) -> ElectionOut:
         name=election.name,
         status=election.status.value,
         published_dataset_version_id=published_id,
+        published_dataset_version_generation=(
+            None if published_id is None or generation is None else generation.value
+        ),
     )
 
 
@@ -74,28 +103,31 @@ def _published_join() -> ColumnElement[bool]:
 def list_active_elections(session: Session) -> ElectionListOut:
     """``active`` Elections, newest date first (then highest id)."""
     rows = session.execute(
-        select(Election, DatasetVersion.id)
+        select(Election, DatasetVersion.id, DatasetVersion.model_generation)
         .outerjoin(DatasetVersion, _published_join())
         .where(Election.status == ElectionStatus.ACTIVE)
         .order_by(Election.date.desc(), Election.id.desc())
     ).all()
-    return ElectionListOut(elections=[_election_out(e, v) for e, v in rows])
+    return ElectionListOut(elections=[_election_out(e, v, g) for e, v, g in rows])
 
 
 def get_election(session: Session, election_id: int) -> ElectionOut:
     """Any Election, whatever its status (``draft`` included)."""
     row = session.execute(
-        select(Election, DatasetVersion.id)
+        select(Election, DatasetVersion.id, DatasetVersion.model_generation)
         .outerjoin(DatasetVersion, _published_join())
         .where(Election.id == election_id)
     ).first()
     if row is None:
         raise _election_not_found(election_id)
-    return _election_out(row[0], row[1])
+    return _election_out(row[0], row[1], row[2])
 
 
 def get_published_version(session: Session, election_id: int) -> DatasetVersionOut:
-    """The Election's Published Dataset Version, as ``get_public_version`` renders it."""
+    """The Election's Published Dataset Version, as ``get_public_version`` renders it.
+
+    A v2 version is refused (``dataset_version_is_v2``), never rendered here.
+    """
     if session.get(Election, election_id) is None:
         raise _election_not_found(election_id)
     version = get_published_dataset_version(session, election_id)
@@ -104,19 +136,19 @@ def get_published_version(session: Session, election_id: int) -> DatasetVersionO
             "no_published_dataset_version",
             f"election {election_id} has no published dataset version",
         )
+    if version.model_generation is ModelGeneration.V2:
+        raise _version_is_v2(version.id)
     return _version_out(session, version)
 
 
 def get_public_version(session: Session, dataset_version_id: int) -> DatasetVersionOut:
-    """A ``published`` or ``superseded`` Dataset Version; anything else is not found."""
-    version = session.scalar(
-        select(DatasetVersion).where(
-            DatasetVersion.id == dataset_version_id,
-            DatasetVersion.status.in_(PUBLIC_STATUSES),
-        )
-    )
-    if version is None:
-        raise _version_not_found(dataset_version_id)
+    """A legacy ``published`` or ``superseded`` Dataset Version; anything else is not found.
+
+    A public v2 version is refused with ``dataset_version_is_v2``.
+    """
+    version = public_version(session, dataset_version_id)
+    if version.model_generation is ModelGeneration.V2:
+        raise _version_is_v2(dataset_version_id)
     return _version_out(session, version)
 
 
