@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from ideology_app import bundle_import
 from ideology_app import elections as service
+from ideology_app import ingestion_ledger as ledgers
 from ideology_app import config
 from ideology_app import party_logos
 from ideology_app.constituencies import CONSTITUENCIES
@@ -224,7 +225,10 @@ def _bundle_and_run_checks(session: Session) -> list[str]:
             else:
                 problems.extend(
                     f"election {election.id} ({slug}): {problem}"
-                    for problem in bundle_import.check_against_bundle(session, bundle)
+                    for problem in [
+                        *bundle_import.check_against_bundle(session, bundle),
+                        *ledgers.ledger_problems(bundle),
+                    ]
                 )
         unfinished = pipelines.find_unfinished_run(session, election.id)
         if unfinished is not None:
@@ -800,7 +804,8 @@ def data_check(app: AppContext, directory: Path) -> None:
     document, a different content hash or page text, a Party document that
     was not imported from the bundle, or a Party logo that differs from the
     one election.toml declares). A format-2 bundle also checks candidatures,
-    document scopes and that every Constituency has a candidature; the
+    document scopes, that every Constituency has a candidature, and that its
+    Ingestion Ledger (when present) is valid and up to date; the
     constituencies table must equal the 52 seeded Constituencies.
     """
     bundle = source_bundle.read_bundle(directory)
@@ -808,15 +813,24 @@ def data_check(app: AppContext, directory: Path) -> None:
     try:
         problems = service.constituency_seed_problems(session)
         problems.extend(bundle_import.check_against_bundle(session, bundle))
+        # Format 2 only (L8): an invalid or out-of-date Ingestion Ledger, counted
+        # apart so the summary does not blame the database for a ledger problem.
+        ledger_problems = ledgers.ledger_problems(bundle)
         documents = len(bundle.parties)
     finally:
         session.rollback()
         session.close()
+    for problem in [*problems, *ledger_problems]:
+        click.echo(f"Error: {problem}", err=True)
     if problems:
-        for problem in problems:
-            click.echo(f"Error: {problem}", err=True)
+        summary = f"database does not match bundle {bundle.slug}: {len(problems)} problems"
+        if ledger_problems:
+            summary += f"; ingestion ledger: {len(ledger_problems)} problems"
+        raise click.ClickException(summary)
+    if ledger_problems:
         raise click.ClickException(
-            f"database does not match bundle {bundle.slug}: {len(problems)} problems"
+            f"ingestion ledger of bundle {bundle.slug} is not valid and up to date: "
+            f"{len(ledger_problems)} problems"
         )
     if bundle.format == 2:
         candidatures = sum(len(entry.constituencies or ()) for entry in bundle.parties)
@@ -826,6 +840,210 @@ def data_check(app: AppContext, directory: Path) -> None:
         )
         return
     click.echo(f"Database matches bundle {bundle.slug}: {documents} documents")
+
+
+@main.group()
+def ingestion() -> None:
+    """The Ingestion Ledger of a format-2 bundle (no database needed).
+
+    The ledger (<bundle>/ingestion-ledger.json) records per Party the phase
+    reached or why it is Excluded, and the phase-2 review of each manifesto.
+    It is written only by these commands, never by hand.
+    """
+
+
+def _ledger_call(call: Callable[[], Any]) -> Any:
+    """Run a ledger operation; a bad bundle or ledger becomes a ClickException."""
+    try:
+        return call()
+    except service.ElectionsError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _party_detail(
+    bundle: source_bundle.Bundle, ledger: ledgers.Ledger, party: ledgers.PartyEntry
+) -> str:
+    if party.phase is ledgers.Phase.PROPOSALS_EXTRACTED:
+        return f"{party.proposals} proposals"
+    reason = party.reason
+    if reason is ledgers.ExclusionReason.NO_MANIFESTO:
+        return f"no_manifesto: {party.note}" if party.note else "no_manifesto"
+    if reason is ledgers.ExclusionReason.TOO_FEW_PROPOSALS:
+        return f"too_few_proposals ({party.proposals} < {ledger.min_proposals})"
+    if reason is ledgers.ExclusionReason.DISCARDED_AT_REVIEW:
+        discarded = "; ".join(
+            f"{document.file}: {document.review.reason}"
+            for document in ledger.documents
+            if party.short_name in document.parties
+            and document.review is not None
+            and document.review.reason is not None
+        )
+        return f"discarded_at_review ({discarded})"
+    return f"next: {ledgers.next_step(bundle, ledger, party.short_name)}"
+
+
+def _party_row(
+    bundle: source_bundle.Bundle, ledger: ledgers.Ledger, party: ledgers.PartyEntry
+) -> str:
+    return f"{party.short_name}\t{party.phase.value}\t{_party_detail(bundle, ledger, party)}"
+
+
+def _echo_ledger_status(bundle: source_bundle.Bundle, stored: ledgers.Ledger | None) -> None:
+    """The ``ingestion status`` block for the derived state of ``stored``."""
+    derived, _ = ledgers.reconcile(bundle, stored)
+    click.echo(f"Ingestion ledger {bundle.slug} (N = {derived.min_proposals})")
+    if stored is None:
+        click.echo(
+            'Warning: no ingestion ledger yet; "ideology ingestion update" creates it', err=True
+        )
+    elif ledgers.render_ledger(derived) != ledgers.render_ledger(stored):
+        click.echo(
+            f'Warning: ledger is out of date; run "ideology ingestion update {bundle.path}"',
+            err=True,
+        )
+    for party in derived.parties:
+        click.echo(_party_row(bundle, derived, party))
+    phases = [party.phase for party in derived.parties]
+    conflicts = ledgers.pending_conflicts(stored) if stored is not None else ()
+    click.echo(
+        f"Parties: {len(phases)}; "
+        f"extracted {phases.count(ledgers.Phase.PROPOSALS_EXTRACTED)}, "
+        f"excluded {phases.count(ledgers.Phase.EXCLUDED)}, "
+        f"pending phase 2: {phases.count(ledgers.Phase.CANDIDATURE_DECLARED)}, "
+        f"pending phase 3: {phases.count(ledgers.Phase.MANIFESTO_REVIEWED)}"
+    )
+    click.echo(f"Conflicts pending: {len(conflicts)}")
+    ready = not ledgers.phase4_blockers(bundle, stored)
+    click.echo(f"Phase 4: {'ready' if ready else 'blocked'}")
+
+
+def _read_for_ingestion(directory: Path) -> tuple[source_bundle.Bundle, ledgers.Ledger | None]:
+    def read() -> tuple[source_bundle.Bundle, ledgers.Ledger | None]:
+        bundle = source_bundle.read_bundle(directory)
+        # Refuses a format-1 bundle before its ledger is read.
+        ledgers.reconcile(bundle, None)
+        return bundle, ledgers.read_ledger(bundle.path)
+
+    return _ledger_call(read)
+
+
+def _echo_changes(lines: Sequence[str]) -> None:
+    for line in lines:
+        click.echo(line)
+
+
+@ingestion.command("status")
+@click.argument("directory", type=click.Path(path_type=Path))
+def ingestion_status(directory: Path) -> None:
+    """Show each Party's phase, what is pending and whether phase 4 may start. Read-only."""
+    bundle, stored = _read_for_ingestion(directory)
+    _echo_ledger_status(bundle, stored)
+
+
+@ingestion.command("update")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option(
+    "--min-proposals",
+    type=click.IntRange(*ledgers.MIN_PROPOSALS_RANGE),
+    default=None,
+    help="N: the fewest validated Proposals a Party needs (default 30 when created).",
+)
+def ingestion_update(directory: Path, min_proposals: int | None) -> None:
+    """Create or rebuild the ledger from the bundle, then show the status."""
+    bundle, ledger, lines = _ledger_call(
+        lambda: ledgers.update_in_dir(directory, min_proposals=min_proposals)
+    )
+    _echo_changes(lines or ["Ledger unchanged"])
+    _echo_ledger_status(bundle, ledger)
+
+
+_DISCARD_CHOICES = {reason.value.replace("_", "-"): reason for reason in ledgers.DiscardReason}
+
+
+@ingestion.command("review")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.argument("file")
+@click.option("--keep", is_flag=True, help="Keep the manifesto for phase 3.")
+@click.option(
+    "--discard",
+    type=click.Choice(list(_DISCARD_CHOICES)),
+    default=None,
+    help="Discard the manifesto with this reason.",
+)
+@click.option("--note", default=None, help="An optional one-line note.")
+def ingestion_review(
+    directory: Path, file: str, keep: bool, discard: str | None, note: str | None
+) -> None:
+    """Show a manifesto's review, or record it with --keep or --discard REASON.
+
+    The decision applies to every Party that lists the file.
+    """
+    if keep and discard is not None:
+        raise click.UsageError("use either --keep or --discard, not both")
+    if not keep and discard is None:
+        if note is not None:
+            raise click.UsageError("--note needs --keep or --discard")
+        bundle, stored = _read_for_ingestion(directory)
+        document = _ledger_call(lambda: ledgers.listed_document(bundle, file))
+        derived, _ = ledgers.reconcile(bundle, stored)
+        pages = document.text.pages
+        empty = sum(1 for page in pages if not page.strip())
+        characters = sum(len(page) for page in pages)
+        click.echo(
+            f"Document {file} (parties {', '.join(document.parties)}): {len(pages)} pages, "
+            f"{empty} without text, {characters} characters"
+        )
+        review = derived.document(file).review
+        click.echo(f"Review: {ledgers.review_label(review)}")
+        if review is not None and review.note is not None:
+            click.echo(f"Note: {review.note}")
+        return
+    decision = ledgers.ReviewDecision.KEPT if keep else ledgers.ReviewDecision.DISCARDED
+    reason = None if discard is None else _DISCARD_CHOICES[discard]
+    bundle, ledger, lines = _ledger_call(
+        lambda: ledgers.review_in_dir(
+            directory, file, decision=decision, reason=reason, note=note
+        )
+    )
+    _echo_changes(lines or ["Ledger unchanged"])
+    for short_name in ledger.document(file).parties:
+        click.echo(_party_row(bundle, ledger, ledger.party(short_name)))
+
+
+@ingestion.command("no-manifesto")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.argument("short_name")
+@click.option("--note", default=None, help="An optional one-line note (e.g. where you looked).")
+@click.option("--undo", is_flag=True, help="Remove the no_manifesto exclusion.")
+def ingestion_no_manifesto(
+    directory: Path, short_name: str, note: str | None, undo: bool
+) -> None:
+    """Exclude a Party that lists no document because it has no manifesto."""
+    _, _, lines = _ledger_call(
+        lambda: ledgers.no_manifesto_in_dir(directory, short_name, note=note, undo=undo)
+    )
+    _echo_changes(lines or ["Ledger unchanged"])
+
+
+@ingestion.command("gate")
+@click.argument("directory", type=click.Path(path_type=Path))
+def ingestion_gate(directory: Path) -> None:
+    """Exit 0 when phase 4 may start (every Party Extracted or Excluded). Read-only."""
+    try:
+        ledger = _ledger_call(lambda: ledgers.require_phase4_ready(directory))
+    except click.ClickException as exc:
+        cause = exc.__cause__
+        if not isinstance(cause, ledgers.Phase4Blocked):
+            raise
+        for blocker in cause.blockers:
+            click.echo(f"Error: {blocker}", err=True)
+        click.echo(f"Phase 4: blocked ({len(cause.blockers)} blockers)")
+        raise click.exceptions.Exit(1) from None
+    phases = [party.phase for party in ledger.parties]
+    click.echo(
+        f"Phase 4: ready ({phases.count(ledgers.Phase.PROPOSALS_EXTRACTED)} extracted, "
+        f"{phases.count(ledgers.Phase.EXCLUDED)} excluded)"
+    )
 
 
 def _provider() -> LLMProvider:
