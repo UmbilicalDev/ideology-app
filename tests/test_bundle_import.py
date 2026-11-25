@@ -8,7 +8,28 @@ from typing import Any
 
 import pytest
 import sqlalchemy as sa
-from bundle_factory import PP, PSOE, SLUG, PartySpec, write_bundle
+from bundle_factory import (
+    BOE_SOURCE,
+    BOE_URL,
+    DOC_PSC,
+    DOC_PSOE,
+    PP,
+    PSOE,
+    SLUG,
+    V2_DOCUMENTS,
+    V2_PARTIES,
+    V2_PP,
+    V2_PSC,
+    V2_PSOE,
+    V2_SMALL,
+    V2_UPN,
+    CandidatureSpec,
+    DocumentSpec,
+    PartySpec,
+    manifest_v2_text,
+    write_bundle,
+    write_bundle_v2,
+)
 from pdf_factory import make_text_pdf
 from pipeline_fixtures import PAGES, fake_provider, offline_guard
 from sqlalchemy import Engine, select
@@ -17,7 +38,9 @@ from sqlalchemy.orm import Session
 from ideology_app.bundle_import import (
     BundleConflictError,
     DocumentStatus,
+    candidatures_by_party,
     check_against_bundle,
+    document_scopes,
     import_bundle,
 )
 from ideology_app.config import GenerationMode
@@ -432,3 +455,480 @@ def test_check_finds_a_missing_party(migrated_engine: Engine, tmp_path: Path) ->
         assert check_against_bundle(s, read_bundle(write_bundle(tmp_path / "two"))) == [
             "party PSOE not found"
         ]
+
+
+# --- Manifest format 2: candidatures and document scopes ----------------------------
+# (constituencies-and-candidatures Scenarios 4-8)
+
+ALL = tuple(f"{n:02d}" for n in range(1, 53))
+CATALONIA = ("08", "17", "25", "43")
+NOT_CATALONIA = tuple(code for code in ALL if code not in CATALONIA)
+V2_TABLES = ("elections", "parties", "source_documents", "source_document_pages",
+             "pipeline_runs", "candidatures", "source_document_constituencies")
+
+
+def _snapshot_v2(engine: Engine) -> dict[str, list[tuple[Any, ...]]]:
+    with engine.connect() as conn:
+        return {
+            t: [tuple(r) for r in conn.execute(sa.text(f"SELECT * FROM {t} ORDER BY 1, 2"))]
+            for t in V2_TABLES
+        }
+
+
+def _state(engine: Engine) -> tuple[dict[int, tuple[str, ...]], dict[int, tuple[str, ...]]]:
+    with Session(engine) as s:
+        return candidatures_by_party(s, 1), document_scopes(s, 1)
+
+
+def _check(engine: Engine, directory: Path) -> list[str]:
+    with Session(engine) as s:
+        return check_against_bundle(s, read_bundle(directory))
+
+
+def test_format_2_import_into_an_empty_database(migrated_engine: Engine, tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+
+    report = _import(migrated_engine, directory)
+
+    assert (report.format, report.election_created, report.candidature_source_change) == (
+        2, True, "set"
+    )
+    assert report.outcomes == [] and report.left_alone == []
+    assert [(c.short_name, c.party_id, c.party_created, c.constituencies, len(c.added),
+             c.removed) for c in report.candidatures] == [
+        ("PP", 1, True, 52, 52, ()),
+        ("PSOE", 2, True, 48, 48, ()),
+        ("PSC", 3, True, 4, 4, ()),
+        ("UPN-PP", 4, True, 1, 1, ()),
+        ("PACMA", 5, True, 1, 1, ()),
+    ]
+    assert [(d.file, d.short_name, d.status, d.document_id, d.scope, d.scope_removed)
+            for d in report.documents] == [
+        ("pp.md", "PP", DocumentStatus.ADDED, 1, 52, ()),
+        ("pp.md", "UPN-PP", DocumentStatus.ADDED, 2, 1, ()),
+        ("upn.md", "UPN-PP", DocumentStatus.ADDED, 3, 1, ()),
+        ("psoe.md", "PSOE", DocumentStatus.ADDED, 4, 48, ()),
+        ("psoe.md", "PSC", DocumentStatus.ADDED, 5, 4, ()),
+        ("psc.md", "PSC", DocumentStatus.ADDED, 6, 1, ()),
+    ]
+    assert report.new_documents == [1, 2, 3, 4, 5, 6]
+    candidatures, scopes = _state(migrated_engine)
+    assert candidatures == {1: ALL, 2: NOT_CATALONIA, 3: CATALONIA, 4: ("31",), 5: ("28",)}
+    assert scopes == {1: ALL, 2: ("31",), 3: ("31",), 4: NOT_CATALONIA, 5: CATALONIA, 6: ("08",)}
+    with Session(migrated_engine) as s:
+        election = s.get(Election, 1)
+        assert (election.candidatures_source, election.candidatures_source_url) == (
+            BOE_SOURCE, BOE_URL
+        )
+        rows = s.scalars(select(SourceDocument).order_by(SourceDocument.id)).all()
+        assert [(d.party_id, d.bundle_file) for d in rows] == [
+            (1, "pp.md"), (4, "pp.md"), (4, "upn.md"), (2, "psoe.md"), (3, "psoe.md"),
+            (3, "psc.md"),
+        ]
+        # D1: one row per Party x document, sharing the file and its hash.
+        assert rows[0].content_hash == rows[1].content_hash
+        assert rows[0].content_hash == hashlib.sha256(PP.content()).hexdigest()
+        assert [p.text for p in rows[1].pages] == list(PP.pages)
+        assert all(d.status is SourceDocumentStatus.PARSED for d in rows)
+    assert _check(migrated_engine, directory) == []
+
+
+def test_format_2_reimport_changes_nothing(migrated_engine: Engine, tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    before = _snapshot_v2(migrated_engine)
+
+    report = _import(migrated_engine, directory)
+
+    assert report.candidature_source_change == "unchanged"
+    assert all(not c.added and not c.removed and not c.party_created
+               for c in report.candidatures)
+    assert {d.status for d in report.documents} == {DocumentStatus.UNCHANGED}
+    assert all(not d.scope_added and not d.scope_removed for d in report.documents)
+    assert report.new_documents == []
+    assert _snapshot_v2(migrated_engine) == before
+
+
+def test_format_2_party_without_documents_and_no_documents_at_all(
+    migrated_engine: Engine, tmp_path: Path
+) -> None:
+    directory = write_bundle_v2(tmp_path, documents=[])
+    report = _import(migrated_engine, directory)
+    assert report.documents == [] and len(report.candidatures) == 5
+    assert _state(migrated_engine)[1] == {}
+    assert _check(migrated_engine, directory) == []
+
+
+def test_candidature_and_scope_changes(migrated_engine: Engine, tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    psc = dataclasses.replace(V2_PSC, constituencies=["08", "17", "25"])
+    small = dataclasses.replace(V2_SMALL, constituencies=["08", "28"])
+    doc_psc = dataclasses.replace(DOC_PSC, constituencies=["08", "17"])
+    parties = [V2_PP, V2_PSOE, psc, V2_UPN, small]
+    documents = [d for d in V2_DOCUMENTS if d.file != "psc.md"] + [doc_psc]
+    write_bundle_v2(tmp_path, parties, documents)
+    before = _snapshot_v2(migrated_engine)
+
+    report = _import(migrated_engine, directory)
+
+    assert [(c.short_name, c.added, c.removed) for c in report.candidatures] == [
+        ("PP", (), ()), ("PSOE", (), ()), ("PSC", (), ("43",)), ("UPN-PP", (), ()),
+        ("PACMA", ("08",), ()),
+    ]
+    assert [(d.document_id, d.status, d.scope_added, d.scope_removed)
+            for d in report.documents] == [
+        (1, DocumentStatus.UNCHANGED, (), ()),
+        (2, DocumentStatus.UNCHANGED, (), ()),
+        (3, DocumentStatus.UNCHANGED, (), ()),
+        (4, DocumentStatus.UNCHANGED, (), ()),
+        (5, DocumentStatus.UNCHANGED, (), ("43",)),
+        (6, DocumentStatus.UNCHANGED, ("17",), ()),
+    ]
+    candidatures, scopes = _state(migrated_engine)
+    assert candidatures[3] == ("08", "17", "25") and candidatures[5] == ("08", "28")
+    assert scopes[5] == ("08", "17", "25") and scopes[6] == ("08", "17")
+    after = _snapshot_v2(migrated_engine)
+    # No Source Document, page or run changes for a candidature or scope change alone.
+    for table in ("elections", "parties", "source_documents", "source_document_pages",
+                  "pipeline_runs"):
+        assert after[table] == before[table], table
+    assert _check(migrated_engine, directory) == []
+
+
+def test_a_changed_file_gets_a_replacement_with_the_new_scope(
+    migrated_engine: Engine, tmp_path: Path
+) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    psoe_v2 = dataclasses.replace(DOC_PSOE, pages=["Medidas nuevas."])
+    psc = dataclasses.replace(V2_PSC, constituencies=["08", "17", "25"])
+    documents = [psoe_v2 if d.file == "psoe.md" else d for d in V2_DOCUMENTS]
+    write_bundle_v2(tmp_path, [V2_PP, V2_PSOE, psc, V2_UPN, V2_SMALL], documents)
+
+    report = _import(migrated_engine, directory)
+
+    replaced = [(d.short_name, d.document_id, d.replaced_document_id, d.scope, d.scope_added)
+                for d in report.documents if d.status is DocumentStatus.REPLACED]
+    assert replaced == [("PSOE", 7, 4, 48, NOT_CATALONIA), ("PSC", 8, 5, 3, ("08", "17", "25"))]
+    assert report.new_documents == [7, 8]
+    _, scopes = _state(migrated_engine)
+    # The old rows keep their old scope (Evidence of older Dataset Versions).
+    assert scopes[4] == NOT_CATALONIA and scopes[5] == CATALONIA
+    assert scopes[7] == NOT_CATALONIA and scopes[8] == ("08", "17", "25")
+    with Session(migrated_engine) as s:
+        assert (s.get(SourceDocument, 4).replaced_by_id, s.get(SourceDocument, 5).replaced_by_id) == (
+            7, 8
+        )
+    assert _check(migrated_engine, directory) == []
+
+
+def test_a_party_removed_from_the_manifest_loses_only_its_candidatures(
+    migrated_engine: Engine, tmp_path: Path
+) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    write_bundle_v2(tmp_path, [V2_PP, V2_PSOE, V2_PSC, V2_UPN], V2_DOCUMENTS)
+    before = _snapshot_v2(migrated_engine)
+
+    report = _import(migrated_engine, directory)
+
+    assert report.left_alone == [("PACMA", 5)]
+    assert report.removed_candidatures == [("PACMA", 5, ("28",))]
+    candidatures, _ = _state(migrated_engine)
+    assert 5 not in candidatures
+    after = _snapshot_v2(migrated_engine)
+    assert after["parties"] == before["parties"]
+    assert after["source_documents"] == before["source_documents"]
+    assert _check(migrated_engine, directory) == []
+
+
+def test_live_mode_queues_only_for_documents(
+    migrated_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ideology_app.config import llm_settings
+    from ideology_app.pipeline import queue_run_for_source_change
+
+    monkeypatch.setenv("GENERATION_MODE", "live")
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    directory = write_bundle_v2(tmp_path)
+
+    def _live_import() -> list[int | None]:
+        with session_scope(migrated_engine) as s:
+            report = import_bundle(s, read_bundle(directory))
+            return [
+                queue_run_for_source_change(
+                    s, d, generation_mode=GenerationMode.LIVE, llm=llm_settings()
+                ).run_id
+                for d in report.new_documents
+            ]
+
+    assert set(_live_import()) == {1}
+    small = dataclasses.replace(V2_SMALL, constituencies=["08", "28"])
+    write_bundle_v2(tmp_path, [V2_PP, V2_PSOE, V2_PSC, V2_UPN, small], V2_DOCUMENTS)
+    assert _live_import() == []
+
+
+# --- Scenario 6: legacy format-1 rows reused by a format-2 manifest (D2) ---------------
+
+
+def _publish_version(engine: Engine) -> None:
+    from ideology_app.models import (
+        DatasetVersion,
+        DatasetVersionStatus,
+        PipelineRun,
+        PipelineRunStatus,
+        Statement,
+    )
+
+    with session_scope(engine) as s:
+        s.get(Election, 1).status = ElectionStatus.ACTIVE
+        s.add(PipelineRun(id=1, election_id=1, status=PipelineRunStatus.PASSED,
+                          llm_provider="fake", llm_model="fake-model",
+                          generation_mode=GenerationMode.PRECOMPUTED, prompt_versions={}))
+        s.flush()
+        s.add(DatasetVersion(id=1, election_id=1, pipeline_run_id=1,
+                             status=DatasetVersionStatus.PUBLISHED,
+                             created_at=dt.datetime(2026, 11, 1, 8, 0, 0)))
+        s.flush()
+        s.add(Statement(id=1, dataset_version_id=1, position=1, text="Primera.", topic="housing"))
+        s.flush()
+        s.add_all([
+            PartyPosition(statement_id=1, party_id=1, value=2, evidence_source_document_id=1,
+                          evidence_quote="Propuestas sobre vivienda y alquiler.",
+                          evidence_page=1, evidence_url="https://example.org/pp.pdf"),
+            PartyPosition(statement_id=1, party_id=2, value=-1, evidence_source_document_id=2,
+                          evidence_quote="Medidas fiscales y de empleo.", evidence_page=1),
+        ])
+
+
+def test_legacy_rows_are_reused_and_the_dataset_version_is_unchanged(
+    migrated_engine: Engine, db_url: str, tmp_path: Path
+) -> None:
+    from fastapi.testclient import TestClient
+    from logo_factory import svg
+
+    from ideology_app.main import create_app
+
+    logo = ("logos/pp.svg", svg())
+    legacy = write_bundle(tmp_path, [dataclasses.replace(PP, logo=logo), PSOE])
+    _import(migrated_engine, legacy)
+    _publish_version(migrated_engine)
+    with TestClient(create_app(db_url)) as client:
+        version_before = client.get("/api/v1/dataset-versions/1")
+        logo_before = client.get("/api/v1/parties/1/logo")
+    assert version_before.status_code == 200 and logo_before.status_code == 200
+    assert b'"logo_url"' in version_before.content
+    parties_before = _snapshot_v2(migrated_engine)["parties"]
+    documents_before = _snapshot_v2(migrated_engine)["source_documents"]
+
+    # The same directory becomes a format-2 bundle: PP and PSOE reused, UPN-PP and
+    # PSC new; pp.md and psoe.md keep their bytes (DocumentSpec == PartySpec content).
+    parties = [CandidatureSpec("PP", "Partido Popular", "all", logo=logo),
+               V2_PSOE, V2_PSC, V2_UPN]
+    report = _import(migrated_engine, write_bundle_v2(tmp_path, parties, V2_DOCUMENTS))
+
+    assert [(c.short_name, c.party_id, c.party_created) for c in report.candidatures] == [
+        ("PP", 1, False), ("PSOE", 2, False), ("PSC", 3, True), ("UPN-PP", 4, True)
+    ]
+    assert [(d.file, d.short_name, d.status, d.document_id) for d in report.documents] == [
+        ("pp.md", "PP", DocumentStatus.UNCHANGED, 1),
+        ("pp.md", "UPN-PP", DocumentStatus.ADDED, 3),
+        ("upn.md", "UPN-PP", DocumentStatus.ADDED, 4),
+        ("psoe.md", "PSOE", DocumentStatus.UNCHANGED, 2),
+        ("psoe.md", "PSC", DocumentStatus.ADDED, 5),
+        ("psc.md", "PSC", DocumentStatus.ADDED, 6),
+    ]
+    after = _snapshot_v2(migrated_engine)
+    assert after["parties"][:2] == parties_before
+    assert after["source_documents"][:2] == documents_before
+    _, scopes = _state(migrated_engine)
+    assert scopes[1] == ALL and scopes[2] == NOT_CATALONIA
+    with TestClient(create_app(db_url)) as client:
+        version_after = client.get("/api/v1/dataset-versions/1")
+        logo_after = client.get("/api/v1/parties/1/logo")
+    assert version_after.content == version_before.content
+    assert (logo_after.status_code, logo_after.content) == (
+        logo_before.status_code, logo_before.content
+    )
+    assert _check(migrated_engine, legacy) == []
+
+
+def test_a_legacy_party_left_out_stays_without_candidatures(
+    migrated_engine: Engine, tmp_path: Path
+) -> None:
+    _import(migrated_engine, write_bundle(tmp_path, [PP, PSOE]))
+    documents = [DocumentSpec("pp.md", "PP", PP.pages, ["PP"], source_url=PP.source_url)]
+    directory = write_bundle_v2(tmp_path, [CandidatureSpec("PP", "Partido Popular", "all")],
+                                documents)
+    (directory / "psoe.md").unlink()
+
+    report = _import(migrated_engine, directory)
+
+    assert report.left_alone == [("PSOE", 2)] and report.removed_candidatures == []
+    candidatures, scopes = _state(migrated_engine)
+    assert candidatures == {1: ALL} and scopes == {1: ALL}
+    assert _check(migrated_engine, directory) == []
+
+
+# --- Scenario 7: refusals before any write ------------------------------------------
+
+
+def _refused(engine: Engine, directory: Path, error: type[Exception], message: str) -> None:
+    before = _snapshot_v2(engine)
+    with pytest.raises(error) as caught:
+        _import(engine, directory)
+    assert message in str(caught.value), str(caught.value)
+    assert _snapshot_v2(engine) == before
+
+
+@pytest.mark.parametrize(
+    ("seed", "message"),
+    [
+        ({"parties": (("PSC", "Socialistes"),)},
+         "party PSC (id 1) exists with name 'Socialistes', but the bundle names it "
+         "'Partit dels Socialistes de Catalunya'; import into a fresh database"),
+        ({"parties": (("PSC-PSOE", "Partit dels Socialistes de Catalunya"),)},
+         "party 'Partit dels Socialistes de Catalunya' exists as PSC-PSOE (id 1), but the "
+         "bundle names it PSC"),
+        ({"election_name": "Generales 2023"},
+         "election es-general-2023-07-23 (id 1) exists with name 'Generales 2023'"),
+    ],
+)
+def test_format_2_name_conflicts_are_refused(
+    migrated_engine: Engine, tmp_path: Path, seed: dict[str, Any], message: str
+) -> None:
+    _seed_other(migrated_engine, **seed)
+    _refused(migrated_engine, write_bundle_v2(tmp_path), BundleConflictError, message)
+
+
+def test_format_2_non_bundle_row_is_refused(migrated_engine: Engine, tmp_path: Path) -> None:
+    _seed_other(migrated_engine, parties=(("PP", "Partido Popular"),))
+    pdf = tmp_path / "pp.pdf"
+    pdf.write_bytes(make_text_pdf(["Programa."]))
+    with session_scope(migrated_engine) as s:
+        add_uploaded_document(s, party_id=1, file_path=pdf, files_dir=tmp_path / "stored")
+    _refused(migrated_engine, write_bundle_v2(tmp_path / "b"), BundleConflictError,
+             "party PP (id 1) has source document 1, which was not imported from a bundle")
+
+
+def test_a_document_no_longer_listed_is_refused(migrated_engine: Engine, tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    (directory / "psc.md").unlink()
+    write_bundle_v2(tmp_path, V2_PARTIES, [d for d in V2_DOCUMENTS if d.file != "psc.md"])
+    _refused(migrated_engine, directory, BundleConflictError,
+             "party PSC (id 3) has current source document 6 from psc.md, which "
+             "election.toml no longer lists for it")
+
+
+def test_a_legacy_document_left_out_for_a_listed_party_is_refused(
+    migrated_engine: Engine, tmp_path: Path
+) -> None:
+    _import(migrated_engine, write_bundle(tmp_path, [PP, PSOE]))
+    directory = write_bundle_v2(tmp_path, [V2_PP, V2_PSOE], [])
+    for file in ("pp.md", "psoe.md"):
+        (directory / file).unlink()
+    _refused(migrated_engine, directory, BundleConflictError,
+             "party PP (id 1) has current source document 1 from pp.md")
+
+
+def test_format_2_reverted_file_is_refused(migrated_engine: Engine, tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    changed = dataclasses.replace(DOC_PSC, pages=["Nuevo programa."])
+    write_bundle_v2(tmp_path, V2_PARTIES, [d for d in V2_DOCUMENTS if d.file != "psc.md"]
+                    + [changed])
+    _import(migrated_engine, directory)
+    write_bundle_v2(tmp_path)
+    _refused(migrated_engine, directory, BundleConflictError,
+             "party PSC (id 3): psc.md has the same content as older source document 6 "
+             "(a reverted file)")
+
+
+def test_bad_candidatures_url_is_refused(migrated_engine: Engine, tmp_path: Path) -> None:
+    manifest = manifest_v2_text(url="ftp://www.boe.es/x")
+    _refused(migrated_engine, write_bundle_v2(tmp_path, manifest=manifest), InvalidInputError,
+             "election.toml: [candidatures] url: invalid URL 'ftp://www.boe.es/x'")
+
+
+def test_bad_document_source_url_is_refused(migrated_engine: Engine, tmp_path: Path) -> None:
+    bad = dataclasses.replace(DOC_PSC, source_url="ftp://example.org/psc.pdf")
+    documents = [d for d in V2_DOCUMENTS if d.file != "psc.md"] + [bad]
+    _refused(migrated_engine, write_bundle_v2(tmp_path, V2_PARTIES, documents),
+             InvalidInputError, "psc.md: source_url: invalid URL")
+
+
+# --- Scenario 8: checks report candidature and scope problems -------------------------
+
+
+def test_check_reports_missing_coverage(migrated_engine: Engine, tmp_path: Path) -> None:
+    pp = CandidatureSpec("PP", "Partido Popular", [c for c in ALL if c not in ("51", "52")])
+    directory = write_bundle_v2(tmp_path, [pp], [])
+    _import(migrated_engine, directory)
+    assert _check(migrated_engine, directory) == [
+        "Constituency 51 (Ceuta) has no candidature in election.toml",
+        "Constituency 52 (Melilla) has no candidature in election.toml",
+    ]
+
+
+def test_check_on_an_empty_database_v2(migrated_engine: Engine, tmp_path: Path) -> None:
+    assert _check(migrated_engine, write_bundle_v2(tmp_path)) == [
+        "election es-general-2023-07-23 not found"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("statement", "problem"),
+    [
+        ("DELETE FROM candidatures WHERE party_id = 3 AND constituency_code = '25'",
+         "party PSC (id 3): candidatures differ: missing 25; extra none"),
+        ("INSERT INTO candidatures VALUES (5, '08'), (5, '17')",
+         "party PACMA (id 5): candidatures differ: missing none; extra 08, 17"),
+        ("INSERT INTO source_document_constituencies VALUES (6, '17')",
+         "party PSC (id 3): source document 6: scope differs: missing none; extra 17"),
+        ("DELETE FROM source_document_constituencies WHERE source_document_id = 2",
+         "party UPN-PP (id 4): source document 2: scope differs: missing 31; extra none"),
+        ("UPDATE elections SET candidatures_source = 'BOE'",
+         "election es-general-2023-07-23 (id 1): candidatures source differs from "
+         "election.toml"),
+        ("UPDATE elections SET candidatures_source_url = NULL",
+         "election es-general-2023-07-23 (id 1): candidatures url differs from election.toml"),
+        ("INSERT INTO parties (election_id, name, short_name) VALUES (1, 'Otro', 'OT'); "
+         "INSERT INTO candidatures VALUES (6, '28')",
+         "party OT (id 6) is not in election.toml but has candidatures: 28"),
+    ],
+)
+def test_check_finds_each_v2_divergence(
+    migrated_engine: Engine, tmp_path: Path, statement: str, problem: str
+) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    with migrated_engine.begin() as conn:
+        for part in statement.split("; "):
+            conn.execute(sa.text(part))
+    assert _check(migrated_engine, directory) == [problem]
+
+
+def test_check_finds_an_unlisted_current_row(migrated_engine: Engine, tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text("UPDATE source_documents SET bundle_file = 'otro.md' WHERE id = 6"))
+    assert _check(migrated_engine, directory) == [
+        "party PSC (id 3): current source document 6 from otro.md is not listed for it in "
+        "election.toml",
+        "party PSC (id 3): no current source document for psc.md",
+    ]
+
+
+def test_check_finds_a_changed_v2_file(migrated_engine: Engine, tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+    _import(migrated_engine, directory)
+    (directory / "upn.md").write_bytes(
+        dataclasses.replace(DocumentSpec("upn.md", "UPN-PP", ["Otro."], ["UPN-PP"])).content()
+    )
+    assert _check(migrated_engine, directory) == [
+        "party UPN-PP (id 4): source document 3: content_hash differs from the SHA-256 of upn.md",
+        "party UPN-PP (id 4): source document 3: page 1 text differs from upn.md",
+    ]

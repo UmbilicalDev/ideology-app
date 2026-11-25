@@ -68,6 +68,43 @@ Rules:
   - Replace a manifesto: put the new PDF on your machine, run `source extract … --force` over that Party's `.md` (or delete the file and extract again), review the diff, commit it. Every machine's next `data import` registers a replacement Source Document (the old one stays for older Evidence); in `live` that queues a run.
   - Never edit a `.md` by hand: the import refuses a file that is not in canonical form or whose `text_sha256` does not match.
   - Party logos (`party-logos-data`): put the user's file in `data/elections/<slug>/logos/` and declare `logo = "logos/<file>"` on that Party in `election.toml`; commit the files, the manifest and the upgraded/imported `data/ideology.db` together. Importing logos is a bundle write like any other (pull → `data import` → `data check` → `db check` → commit, never while someone is generating); it never queues a run or touches a Dataset Version. A refused file is reported to the user, never edited. Normalisation (only at the user's request, `CONSTRAINTS.md` Party Logos; the 2023 logos were done this way): trim transparent margins (alpha > 8), fit without distortion into a 256x256 transparent PNG with 6% padding, centred, and save as an optimised PNG; no script is committed yet (see `docs/risks-and-open-questions.md`). The web client shows each logo in a fixed white tile with `object-fit: contain` and no extra padding (`party-logos-display`), so the 6% padding is the logo's only margin.
+- Constituencies and candidatures (`constituencies-and-candidatures`, ingestion phase 1): the 52 Congreso Constituencies come from INE, "Relación de provincias con sus códigos" (https://www.ine.es/daco/daco42/codmun/cod_provincia.htm, fetched 2026-11-24): two-character codes `01`..`52` (Ceuta `51`, Melilla `52`), the INE name with an inverted article moved to the front (`A Coruña`, `Illes Balears`, `Las Palmas`, `La Rioja`), bilingual names as INE writes them. `src/ideology_app/constituencies.py` is the reference list; migration `0016` seeds the `constituencies` table with its own copy (`ideology constituency list` prints them, no database needed). Manifest format 2 of `election.toml` declares the candidatures and the document scopes; format 1 keeps working exactly as before, and both committed bundles stay format 1 until `e2e-2026-constituencies`. Example:
+
+  ```toml
+  format = 2
+
+  [election]
+  country = "ES"
+  type = "general"
+  date = 2026-11-29
+  name = "Elecciones generales 2026"
+
+  [candidatures]
+  source = "BOE núm. …, de … de 2026: candidaturas proclamadas …"
+  url = "https://www.boe.es/…"            # optional
+
+  [[parties]]
+  short_name = "PP"
+  name = "Partido Popular"
+  constituencies = "all"
+  logo = "logos/pp.png"                   # optional, as in format 1
+
+  [[parties]]
+  short_name = "UPN-PP"
+  name = "Unión del Pueblo Navarro"
+  constituencies = ["31"]
+
+  [[documents]]
+  file = "pp.md"
+  parties = ["PP", "UPN-PP"]
+
+  [[documents]]
+  file = "upn.md"
+  parties = ["UPN-PP"]
+  constituencies = ["31"]                 # optional
+  ```
+
+  Phase-1 runbook: (1) read the BOE proclamation of the Election's candidatures; (2) write `[candidatures]` (source, url) and one `[[parties]]` per candidature with its Constituencies (`"all"` or INE codes; a regional coalition is its own Party); (3) for each manifesto, `ideology source extract <pdf> --party <one listed Party> --out data/elections/<slug>/<file>.md` (a shared file names one of its Parties in its front matter) and list it in `[[documents]]` with every Party it applies to; (4) `data import` → `data check` → `db check` → commit, following the shared-database cycle below. Rules: a document is stored as one Source Document row per listed Party, sharing the file and its hash; each row's scope is the document's Constituencies (or the Party's when none are declared) intersected with the Party's (D1). A format-2 import reuses an existing Party only when its short name and name are both equal; other candidatures become new Parties; a Party the manifest no longer lists loses its candidatures and keeps its row and documents (D2, legacy-only Party). A current bundle document that the manifest no longer lists for its Party is refused: discarding a manifesto is a phase-2 review decision (`ingestion-ledger`), not a removal from the manifest (D5). `data check` and `db check` report unknown codes (at read time), candidatures and scopes that differ from the manifest, candidatures on unlisted Parties, a `constituencies` table that differs from the seed, and any Constituency with no candidature (D4). Candidature or scope changes alone never queue a run; added or replaced documents do in `live`, as today. D1–D5 are defaults for team review (`docs/risks-and-open-questions.md`).
 - Topic catalog (`topic-catalog`): `src/ideology_app/topic_catalog.py` is the source of truth for the 18 topic keys, their Spanish names and their display order. The order comes from CIS estudio nº 3587, "Barómetro de noviembre 2026" (published 23 Nov 2026, fieldwork 10–17 Nov 2026, N = 8.034), Pregunta 6R "¿Cuál es, a su juicio, el principal problema que existe actualmente en España? ¿Y el segundo? ¿Y el tercero?", TOTAL column (sum of the three mentions, % of respondents), from the results PDF https://www.cis.es/documents/d/guest/es3587mar_a-pdf (advance page https://www.cis.es/en/w/avance-de-resultados-del-estudio-3587-bar%C3%B3metro-de-noviembre-2026-). All 55 categories are recorded in tenths (`CIS_6R_TOTALS`); 49 map to one key each and 6 are unmapped (`CIS_6R_UNMAPPED`). Order rule: a topic's rank value is the highest TOTAL among its categories (not the sum), highest first; ties and topics with no category (last) follow the legacy `prompts.TOPICS` order. The web client gets the same catalog from the generated `packages/core/src/domain/topic-catalog.generated.ts`; after editing the Python module regenerate it with `.venv/bin/python -m ideology_app.topic_catalog > packages/core/src/domain/topic-catalog.generated.ts` (`tests/test_topic_catalog.py` fails when they differ). The catalog does not follow newer barometers automatically.
 
 ## Integrations

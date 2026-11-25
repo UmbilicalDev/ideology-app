@@ -10,14 +10,32 @@ import re
 from pathlib import Path
 
 import pytest
-from bundle_factory import PP, PSOE, SLUG, manifest_text, write_bundle
+from bundle_factory import (
+    BOE_SOURCE,
+    BOE_URL,
+    DOC_PSC,
+    DOC_UPN,
+    PP,
+    PSOE,
+    SLUG,
+    V2_DOCUMENTS,
+    V2_PARTIES,
+    manifest_text,
+    manifest_v2_text,
+    write_bundle,
+    write_bundle_v2,
+)
 
 from ideology_app import config
 from ideology_app.models import Election, ElectionType
+from ideology_app.constituencies import CONSTITUENCIES
 from ideology_app.source_bundle import (
     MANIFEST_NAME,
     NOT_CANONICAL,
+    BundleDocument,
     BundleError,
+    CandidatureSource,
+    document_scope,
     bundle_dir_for,
     bundle_slug,
     election_slug,
@@ -332,8 +350,8 @@ MANIFEST_ERRORS: dict[str, tuple[str, int, str]] = {
     "missing top key": (manifest_text([PP, PSOE]).replace("format = 1\n", ""), 1,
                         "missing key 'format'"),
     "unknown top key": ("extra = 1\n" + manifest_text([PP, PSOE]), 1, "unknown key 'extra'"),
-    "bad format": (manifest_text([PP, PSOE]).replace("format = 1", "format = 2"), 1,
-                   "format must be 1"),
+    "bad format": (manifest_text([PP, PSOE]).replace("format = 1", "format = 3"), 1,
+                   "format must be 1 or 2"),
     "unknown election key": (
         manifest_text([PP, PSOE]).replace('name = "Elecciones', 'seats = 350\nname = "Elecciones'),
         3, "unknown key 'seats' in [election]",
@@ -477,3 +495,272 @@ def test_the_2023_bundle() -> None:
     assert [p.text.page_count for p in bundle.parties] == [112, 272, 178, 182, 132, 151, 16, 52, 68]
     assert not list(COMMITTED_ROOT.parent.rglob("*.pdf"))
     assert not list(COMMITTED_ROOT.parent.rglob("*.PDF"))
+
+
+# --- Manifest format 2 (constituencies-and-candidatures) ---------------------------
+
+ALL_CODES = tuple(code for code, _ in CONSTITUENCIES)
+CATALONIA = ("08", "17", "25", "43")
+
+
+def test_format_1_derives_one_document_per_party(tmp_path: Path) -> None:
+    bundle = read_bundle(write_bundle(tmp_path))
+    assert bundle.format == 1 and bundle.candidatures is None
+    assert bundle.documents == tuple(
+        BundleDocument(p.file, p.text, (p.short_name,)) for p in bundle.parties
+    )
+    assert all(p.constituencies is None for p in bundle.parties)
+    assert document_scope(bundle, bundle.documents[0], "PP") == ()
+
+
+def test_read_format_2_bundle(tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+
+    bundle = read_bundle(directory)
+
+    assert bundle.format == 2
+    assert bundle.candidatures == CandidatureSource(BOE_SOURCE, BOE_URL)
+    assert [(p.short_name, p.file, p.text) for p in bundle.parties] == [
+        (p.short_name, None, None) for p in V2_PARTIES
+    ]
+    pp, psoe, psc, upn, pacma = bundle.parties
+    assert pp.constituencies == ALL_CODES
+    assert psc.constituencies == CATALONIA  # sorted
+    assert psoe.constituencies == tuple(c for c in ALL_CODES if c not in CATALONIA)
+    assert (upn.constituencies, pacma.constituencies) == (("31",), ("28",))
+    assert [(d.file, d.parties, d.constituencies) for d in bundle.documents] == [
+        ("pp.md", ("PP", "UPN-PP"), None),
+        ("upn.md", ("UPN-PP",), None),
+        ("psoe.md", ("PSOE", "PSC"), None),
+        ("psc.md", ("PSC",), ("08",)),
+    ]
+    doc_pp, doc_upn, doc_psoe, doc_psc = bundle.documents
+    assert doc_pp.text.party == "PP" and list(doc_pp.text.pages) == list(PP.pages)
+    # D1: declared scope (or the Party's Constituencies) intersected with the Party's.
+    assert document_scope(bundle, doc_pp, "PP") == ALL_CODES
+    assert document_scope(bundle, doc_pp, "UPN-PP") == ("31",)
+    assert document_scope(bundle, doc_upn, "UPN-PP") == ("31",)
+    assert document_scope(bundle, doc_psoe, "PSC") == CATALONIA
+    assert document_scope(bundle, doc_psc, "PSC") == ("08",)
+
+
+def test_format_2_without_documents_and_url(tmp_path: Path) -> None:
+    manifest = manifest_v2_text(documents=[], url=None)
+    bundle = read_bundle(write_bundle_v2(tmp_path, documents=[], manifest=manifest))
+    assert bundle.documents == ()
+    assert bundle.candidatures == CandidatureSource(BOE_SOURCE, None)
+
+
+def test_document_scope_intersects_with_each_party(tmp_path: Path) -> None:
+    doc = dataclasses.replace(DOC_PSC, parties=["PSC", "PSOE"], constituencies=["08", "28"])
+    documents = [d for d in V2_DOCUMENTS if d.file != "psc.md"] + [doc]
+    bundle = read_bundle(write_bundle_v2(tmp_path, documents=documents))
+    shared = bundle.documents[-1]
+    assert document_scope(bundle, shared, "PSC") == ("08",)
+    assert document_scope(bundle, shared, "PSOE") == ("28",)
+
+
+def _line_of(text: str, needle: str, occurrence: int = 1) -> int:
+    lines = text.split("\n")
+    found = [i + 1 for i, line in enumerate(lines) if needle in line]
+    return found[occurrence - 1]
+
+
+def _v2(replace: str = "", by: str = "", count: int = 1) -> str:
+    text = manifest_v2_text()
+    if replace:
+        assert replace in text, replace
+        text = text.replace(replace, by, count)
+    return text
+
+
+PACMA_CODES = 'constituencies = ["28"]'
+PSC_SCOPE = 'constituencies = ["08"]'
+
+V2_MANIFEST_ERRORS: dict[str, tuple[str, str | int, str]] = {
+    # case: (manifest, needle for the expected line (or a line number), message)
+    "unknown top key": ("extra = 1\n" + _v2(), 1, "unknown key 'extra' in the manifest"),
+    "bad format with format-2 keys": (_v2("format = 2", "format = 3"), 1, "format must be 1 or 2"),
+    "boolean format with format-2 keys": (_v2("format = 2", "format = true"), 1,
+                                          "format must be 1 or 2"),
+    "missing candidatures": (
+        _v2(f'[candidatures]\nsource = "{BOE_SOURCE}"\nurl = "{BOE_URL}"\n'), 1,
+        "missing key 'candidatures' in the manifest",
+    ),
+    "format-1 key in format 2": (
+        _v2('short_name = "PACMA"', 'file = "pacma.md"\nshort_name = "PACMA"'),
+        ("[[parties]]", 5), "unknown key 'file' in [[parties]] #5",
+    ),
+    "missing constituencies": (
+        _v2(PACMA_CODES + "\n"), ("[[parties]]", 5), "missing key 'constituencies'",
+    ),
+    "integer code": (
+        _v2(PACMA_CODES, "constituencies = [28]"), "constituencies = [28]",
+        "Constituency 28 must be a string such as \"28\"",
+    ),
+    "unknown code": (
+        _v2(PACMA_CODES, 'constituencies = ["53"]'), 'constituencies = ["53"]',
+        "unknown Constituency '53' (expected an INE code 01..52; "
+        'see "ideology constituency list")',
+    ),
+    "empty list": (
+        _v2(PACMA_CODES, "constituencies = []"), "constituencies = []",
+        "party PACMA has no Constituencies",
+    ),
+    "duplicate code": (
+        _v2(PACMA_CODES, 'constituencies = ["28", "28"]'), 'constituencies = ["28", "28"]',
+        "duplicate Constituency '28'",
+    ),
+    "not all": (
+        _v2(PACMA_CODES, 'constituencies = "todas"'), 'constituencies = "todas"',
+        'constituencies must be "all" or a list of INE codes',
+    ),
+    "empty source": (
+        _v2(f'source = "{BOE_SOURCE}"', 'source = " "'), 'source = " "',
+        "candidatures source must not be empty",
+    ),
+    "long source": (
+        _v2(f'source = "{BOE_SOURCE}"', f'source = "{"x" * 501}"'), "x" * 501,
+        "candidatures source must be at most 500 characters",
+    ),
+    "padded source": (
+        _v2(f'source = "{BOE_SOURCE}"', 'source = " BOE"'), 'source = " BOE"',
+        "leading or trailing whitespace",
+    ),
+    "missing source": (
+        _v2(f'source = "{BOE_SOURCE}"\n'), "[candidatures]", "missing key 'source' in [candidatures]",
+    ),
+    "unknown candidatures key": (
+        _v2(f'url = "{BOE_URL}"', f'url = "{BOE_URL}"\ndate = 2023-06-24'), "[candidatures]",
+        "unknown key 'date' in [candidatures]",
+    ),
+    "url not a string": (
+        _v2(f'url = "{BOE_URL}"', "url = 1"), "url = 1", "candidatures url must be a string",
+    ),
+    "candidatures not a table": (
+        'candidatures = "BOE"\n'
+        + _v2(f'[candidatures]\nsource = "{BOE_SOURCE}"\nurl = "{BOE_URL}"\n'), 1,
+        "[candidatures] must be a table",
+    ),
+    "unknown document key": (
+        _v2('file = "upn.md"', 'file = "upn.md"\nrole = "main"'), ('[[documents]]', 2),
+        "unknown key 'role' in [[documents]] #2",
+    ),
+    "missing document parties": (
+        _v2('parties = ["UPN-PP"]\n'), ('[[documents]]', 2),
+        "missing key 'parties' in [[documents]] #2",
+    ),
+    "bad document file": (
+        _v2('file = "upn.md"', 'file = "../upn.md"'), 'file = "../upn.md"',
+        "file '../upn.md' is invalid",
+    ),
+    "duplicate document file": (
+        _v2('file = "upn.md"', 'file = "pp.md"'), ('file = "pp.md"', 2),
+        "duplicate file 'pp.md'",
+    ),
+    "empty document parties": (
+        _v2('parties = ["UPN-PP"]', "parties = []"), "parties = []",
+        "document upn.md: parties must be a non-empty list of short names",
+    ),
+    "undeclared document party": (
+        _v2('parties = ["PSOE", "PSC"]', 'parties = ["PSOE", "VOX"]'), 'parties = ["PSOE", "VOX"]',
+        "document psoe.md: party 'VOX' is not declared in [[parties]]",
+    ),
+    "duplicate document party": (
+        _v2('parties = ["PSOE", "PSC"]', 'parties = ["PSOE", "PSOE"]'),
+        'parties = ["PSOE", "PSOE"]', "document psoe.md: duplicate party 'PSOE'",
+    ),
+    "document party not a string": (
+        _v2('parties = ["UPN-PP"]', "parties = [1]"), "parties = [1]",
+        "document upn.md: party 1 must be a string",
+    ),
+    "document code outside its parties": (
+        _v2(PSC_SCOPE, 'constituencies = ["28"]'), ('constituencies = ["28"]', 2),
+        "document psc.md: Constituency 28 (Madrid) is not run by any of its parties",
+    ),
+    "document party with no code left": (
+        _v2('parties = ["PSOE", "PSC"]', 'parties = ["PSOE", "PSC"]\nconstituencies = ["28"]'),
+        ('constituencies = ["28"]', 2), "document psoe.md: party PSC runs in none of its",
+    ),
+    "document empty constituencies": (
+        _v2(PSC_SCOPE, "constituencies = []"), "constituencies = []",
+        "document psc.md has no Constituencies",
+    ),
+    "document unknown code": (
+        _v2(PSC_SCOPE, 'constituencies = ["00"]'), 'constituencies = ["00"]',
+        "unknown Constituency '00'",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(V2_MANIFEST_ERRORS))
+def test_malformed_format_2_manifest_is_refused(tmp_path: Path, case: str) -> None:
+    manifest, where, message = V2_MANIFEST_ERRORS[case]
+    if isinstance(where, int):
+        line = where
+    elif isinstance(where, tuple):
+        line = _line_of(manifest, *where)
+    else:
+        line = _line_of(manifest, where)
+    directory = write_bundle_v2(tmp_path, manifest=manifest)
+    with pytest.raises(BundleError) as caught:
+        read_bundle(directory)
+    text = str(caught.value)
+    assert text.startswith(f"{directory / MANIFEST_NAME}:{line}: "), text
+    assert message in text, text
+
+
+def test_format_2_key_in_format_1_is_unknown(tmp_path: Path) -> None:
+    manifest = manifest_text([PP, PSOE]).replace(
+        'file = "pp.md"', 'file = "pp.md"\nconstituencies = "all"'
+    )
+    directory = write_bundle(tmp_path, manifest=manifest)
+    with pytest.raises(BundleError, match=r"election.toml:9: unknown key 'constituencies' in "
+                                          r"\[\[parties\]\] #1"):
+        read_bundle(directory)
+
+
+def test_documents_table_is_not_a_list(tmp_path: Path) -> None:
+    manifest = _v2().split("\n[[documents]]")[0].replace(
+        "format = 2\n", 'format = 2\ndocuments = "pp.md"\n'
+    )
+    directory = write_bundle_v2(tmp_path, documents=[], manifest=manifest)
+    with pytest.raises(BundleError, match=r"election.toml:2: \[\[documents\]\] must be a list"):
+        read_bundle(directory)
+
+
+def test_front_matter_party_must_be_a_document_party(tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+    (directory / "psc.md").write_bytes(dataclasses.replace(DOC_PSC, party="PSOE").content())
+    with pytest.raises(BundleError) as caught:
+        read_bundle(directory)
+    assert str(caught.value) == (
+        f"{directory / 'psc.md'}:3: party 'PSOE' is not one of the document's parties in "
+        "election.toml (PSC)"
+    )
+
+
+def test_two_documents_of_a_party_must_differ(tmp_path: Path) -> None:
+    copy = dataclasses.replace(DOC_UPN, file="upn2.md")
+    documents = [*V2_DOCUMENTS, copy]
+    directory = write_bundle_v2(tmp_path, documents=documents)
+    (directory / "upn2.md").write_bytes((directory / "upn.md").read_bytes())
+    manifest = (directory / MANIFEST_NAME).read_text(encoding="utf-8")
+    with pytest.raises(BundleError) as caught:
+        read_bundle(directory)
+    line = _line_of(manifest, "[[documents]]", 5)
+    assert str(caught.value) == (
+        f"{directory / MANIFEST_NAME}:{line}: documents upn.md and upn2.md both list party "
+        "UPN-PP and have the same content"
+    )
+
+
+def test_format_2_unlisted_and_missing_files(tmp_path: Path) -> None:
+    directory = write_bundle_v2(tmp_path)
+    (directory / "pacma.md").write_bytes(DOC_UPN.content())
+    with pytest.raises(BundleError, match=r"pacma.md:1: file is not listed in election.toml"):
+        read_bundle(directory)
+    (directory / "pacma.md").unlink()
+    (directory / "upn.md").unlink()
+    with pytest.raises(BundleError, match=r"upn.md:1: file listed in election.toml not found"):
+        read_bundle(directory)
