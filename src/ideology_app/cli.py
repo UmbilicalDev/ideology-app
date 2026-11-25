@@ -26,6 +26,7 @@ from ideology_app import config
 from ideology_app import party_logos
 from ideology_app.constituencies import CONSTITUENCIES
 from ideology_app import pipeline as pipelines
+from ideology_app.pipeline import v2 as pipelines_v2
 from ideology_app.proposals import conflicts as proposal_conflicts
 from ideology_app.proposals import store as proposal_store
 from ideology_app import shared_db
@@ -58,6 +59,7 @@ from ideology_app.db import (
 from ideology_app.llm import LLMProvider, build_provider
 from ideology_app.models import (
     DatasetVersionStatus,
+    ModelGeneration,
     PipelineRunStatus,
     ProposalExtractionStatus,
     SourceDocumentStatus,
@@ -1422,15 +1424,20 @@ def _confirm_shared(app: AppContext, yes: bool) -> None:
 
 
 def _guard_unfinished(
-    app: AppContext, election_id: int, provider: LLMProvider, fresh: bool
+    app: AppContext,
+    election_id: int,
+    provider: LLMProvider,
+    fresh: bool,
+    generation: ModelGeneration = ModelGeneration.LEGACY,
 ) -> None:
-    """Refuse (shared database) or warn (any other) when the Election has an unfinished run."""
+    """Refuse (shared database) or warn (any other) when the Election has an unfinished
+    run of the same model generation."""
     if fresh:
         return
     session = Session(app.engine)
     try:
         unfinished = pipelines.find_unfinished_run(
-            session, election_id, provider.name, provider.model
+            session, election_id, provider.name, provider.model, generation
         )
     finally:
         session.rollback()
@@ -1541,6 +1548,117 @@ def pipeline_run(
     _echo_passed(outcome)
 
 
+V2_NOT_PUBLISHED = (
+    "Not published: v2 dataset versions are published from "
+    "constituency-selection-validation on"
+)
+
+
+@pipeline.command("run-v2")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option(
+    "--resume-from",
+    "resume_from",
+    type=int,
+    default=None,
+    help="Reuse the recorded LLM calls of this earlier v2 run (same election, provider "
+    "and model) and only call the LLM for the rest.",
+)
+@click.option(
+    "--reuse-from",
+    "reuse_from",
+    type=int,
+    default=None,
+    help="Reuse the identical recorded LLM calls of this earlier v2 run, even one that "
+    "already has a dataset version.",
+)
+@click.option(
+    "--fresh",
+    is_flag=True,
+    help="Start from zero even though the election has an unfinished v2 run.",
+)
+@click.option("--yes", is_flag=True, help="Do not ask for confirmation on the shared database.")
+@requires_db
+def pipeline_run_v2(
+    app: AppContext,
+    directory: Path,
+    resume_from: int | None,
+    reuse_from: int | None,
+    fresh: bool,
+    yes: bool,
+) -> None:
+    """Phase 4 of a format-2 Election: Statements from Proposals, Proposal-backed Positions.
+
+    Refuses (exit 1, nothing written) unless every Party is Extracted or
+    Excluded, no conflict is pending, the Ingestion Ledger is up to date, the
+    Election is imported and the ledger counts match the stored Proposals.
+    The passed Dataset Version stays candidate (not published yet). Every LLM
+    call is recorded; --resume-from / --reuse-from work as for "pipeline run".
+    """
+    if resume_from is not None and reuse_from is not None:
+        raise click.UsageError("pass at most one of --resume-from or --reuse-from")
+    if fresh and resume_from is not None:
+        raise click.UsageError("pass at most one of --fresh or --resume-from")
+    source_run = resume_from if resume_from is not None else reuse_from
+    try:
+        mode = config.generation_mode()
+        settings = config.validation_settings()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    session = Session(app.engine)
+    try:
+        phase4 = pipelines_v2.load_phase4(session, directory)
+    except pipelines_v2.Phase4Error as exc:
+        if not exc.blockers:
+            raise click.ClickException(str(exc)) from exc
+        for blocker in exc.blockers:
+            click.echo(f"Error: {blocker}", err=True)
+        raise click.exceptions.Exit(1) from None
+    finally:
+        session.rollback()
+        session.close()
+    try:
+        provider = _provider()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        if resume_from is None:
+            _guard_unfinished(app, phase4.election_id, provider, fresh, ModelGeneration.V2)
+        _confirm_shared(app, yes)
+        with session_scope(app.engine) as session:
+            run = pipelines_v2.queue_v2_run(
+                session,
+                phase4.election_id,
+                llm_provider=provider.name,
+                llm_model=provider.model,
+                generation_mode=mode,
+                resumed_from_run_id=source_run,
+                allow_finished_source=reuse_from is not None,
+            )
+            run_id = run.id
+        if resume_from is not None:
+            click.echo(
+                f"Pipeline run {run_id}: resuming from run {resume_from} "
+                f"({pipelines.count_recorded_calls(app.engine, resume_from)} recorded calls)"
+            )
+        if reuse_from is not None:
+            click.echo(
+                f"Pipeline run {run_id}: reusing identical calls of run {reuse_from} "
+                f"({pipelines.count_recorded_calls(app.engine, reuse_from)} recorded calls)"
+            )
+        outcome = pipelines_v2.execute_v2_run(app.engine, run_id, provider, directory, settings)
+    finally:
+        _close(provider)
+    _raise_if_failed(outcome)
+    _echo_passed(outcome)
+    if outcome.statement_count < pipelines_v2.POOL_TARGET:
+        click.echo(
+            f"Warning: pool of {outcome.statement_count} statements is below the "
+            f"{pipelines_v2.POOL_TARGET} target",
+            err=True,
+        )
+
+
 @pipeline.command("run-queued")
 @click.option(
     "--election", "election_id", type=int, default=None, help="Only this Election's runs."
@@ -1601,6 +1719,11 @@ def _echo_publish(outcome: pipelines.RunOutcome) -> None:
     """Say whether a ``passed`` run's Dataset Version was published."""
     publish = outcome.publish
     if publish is None:
+        if (
+            outcome.status is PipelineRunStatus.PASSED
+            and outcome.model_generation is ModelGeneration.V2
+        ):
+            click.echo(V2_NOT_PUBLISHED)
         return
     if publish.published:
         line = (
@@ -2122,7 +2245,16 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
         ),
         ("statements", "none" if report.statement_count is None else report.statement_count),
         ("questionnaire_lengths", _lengths_line(report)),
-        *_selection_lines(report.statement_selection),
+        *(
+            _selection_lines(report.statement_selection)
+            if report.model_generation is ModelGeneration.LEGACY
+            else [
+                (
+                    "statement_selection",
+                    pipelines_v2.pool_summary(report.statement_selection) or NOT_RECORDED,
+                )
+            ]
+        ),
         ("publication", _publication(report)),
     ]
     for key, value in lines:
@@ -2130,7 +2262,10 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
     click.echo("")
     click.echo("validation report:")
     _print_rows(CHECKS_HEADER, rows)
-    if report.statement_selection is not None:
+    if (
+        report.statement_selection is not None
+        and report.model_generation is ModelGeneration.LEGACY
+    ):
         click.echo("")
         click.echo("statement pool:")
         _print_rows(

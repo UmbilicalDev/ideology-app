@@ -264,6 +264,36 @@ class DatasetVersionStatus(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class ModelGeneration(StrEnum):
+    """Which pipeline produced a run and its Dataset Version (migration 0018).
+
+    ``legacy``: quote Evidence from manifesto pages (Dataset Versions 1-5).
+    ``v2``: Statements from Proposals with Proposal Evidence
+    (``statements-from-proposals``). Written once at insert, never updated.
+    """
+
+    LEGACY = "legacy"
+    V2 = "v2"
+
+
+def _generation_column() -> Any:
+    # Migration 0018 adds the column with plain ADD COLUMN and a named
+    # column-level CHECK on VARCHAR(10) (Alembic skips an Enum's implicit CHECK
+    # on SQLite ADD COLUMN); the model declares the same single CHECK by name.
+    return mapped_column(
+        sa.Enum(
+            ModelGeneration,
+            native_enum=False,
+            create_constraint=True,
+            length=10,
+            values_callable=lambda e: [m.value for m in e],
+            name="model_generation",
+        ),
+        default=ModelGeneration.LEGACY,
+        server_default=ModelGeneration.LEGACY.value,
+    )
+
+
 class PipelineRun(Base):
     """One execution of the AI pipeline for an Election, with what it used."""
 
@@ -310,6 +340,8 @@ class PipelineRun(Base):
     # ``resumed_from_run_id`` inherits that run's value. No FOREIGN KEY, like
     # ``resumed_from_run_id``.
     anchor_dataset_version_id: Mapped[int | None] = mapped_column(sa.Integer)
+    # legacy or v2 (migration 0018): set when the run is queued, never updated.
+    model_generation: Mapped[ModelGeneration] = _generation_column()
 
     election: Mapped[Election] = relationship(back_populates="pipeline_runs")
     dataset_version: Mapped["DatasetVersion | None"] = relationship(
@@ -415,6 +447,9 @@ class DatasetVersion(Base):
     # ``pipeline.runs._finish`` in the insert and never updated; NULL on versions
     # created before lengths existed (they offer only their full length).
     questionnaire_lengths: Mapped[list[int] | None] = mapped_column(sa.JSON)
+    # Copied from the run at insert (``runs._finish`` / ``v2.run._finish_v2``);
+    # never updated. Versions created before 0018 read ``legacy``.
+    model_generation: Mapped[ModelGeneration] = _generation_column()
 
     election: Mapped[Election] = relationship(back_populates="dataset_versions")
     pipeline_run: Mapped[PipelineRun] = relationship(back_populates="dataset_version")
@@ -503,6 +538,56 @@ class PartyPosition(Base):
     def engine_value(self) -> int | Literal["no_stance"]:
         """The value as ``packages/core`` match-score consumes it: -2..+2 or ``"no_stance"``."""
         return NO_STANCE if self.value is None else self.value
+
+
+class StatementProposal(Base):
+    """A source Proposal of a v2 Statement, in citation order (rank 1..n). Insert-only.
+
+    Written only by ``pipeline.v2.run._finish_v2``, in the commit that writes
+    the Dataset Version (migration 0018).
+    """
+
+    __tablename__ = "statement_proposals"
+    __table_args__ = (
+        sa.UniqueConstraint("statement_id", "rank"),
+        sa.UniqueConstraint("statement_id", "proposal_id"),
+        sa.CheckConstraint("rank >= 1", name="rank_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    statement_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("statements.id", ondelete="CASCADE")
+    )
+    rank: Mapped[int] = mapped_column(sa.Integer)
+    # No cascade: Proposals are never deleted.
+    proposal_id: Mapped[int] = mapped_column(sa.ForeignKey("proposals.id"))
+
+
+class PartyPositionProposal(Base):
+    """An Evidence Proposal of a v2 Party Position (rank 1..n, citation order). Insert-only.
+
+    ``constituencies`` are the Constituency codes where the Proposal counts for
+    the Party (``counted_proposals``), frozen here. Rank 1 is mirrored into the
+    Position's ``evidence_*`` columns. Written only by ``_finish_v2``.
+    """
+
+    __tablename__ = "party_position_proposals"
+    __table_args__ = (
+        sa.UniqueConstraint("party_position_id", "rank"),
+        sa.UniqueConstraint("party_position_id", "proposal_id"),
+        sa.CheckConstraint("rank >= 1", name="rank_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    party_position_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("party_positions.id", ondelete="CASCADE")
+    )
+    rank: Mapped[int] = mapped_column(sa.Integer)
+    proposal_id: Mapped[int] = mapped_column(sa.ForeignKey("proposals.id"))
+    source_document_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("source_documents.id", ondelete="CASCADE")
+    )
+    constituencies: Mapped[list[str]] = mapped_column(sa.JSON)
 
 
 class ValidationResult(Base):

@@ -19,7 +19,21 @@ from dataclasses import dataclass
 from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
-from ideology_app.models import DatasetVersion, DatasetVersionStatus, Election, ElectionStatus
+from ideology_app.models import (
+    DatasetVersion,
+    DatasetVersionStatus,
+    Election,
+    ElectionStatus,
+    ModelGeneration,
+)
+
+# Whether ``validate_run`` publishes a passed run's version, by model generation
+# (statements-from-proposals S9). The one switch: a passed v2 run stays
+# ``candidate`` until ``constituency-selection-validation`` sets v2 to True.
+PUBLISH_ON_PASS: dict[ModelGeneration, bool] = {
+    ModelGeneration.LEGACY: True,
+    ModelGeneration.V2: False,
+}
 
 
 @dataclass(frozen=True)

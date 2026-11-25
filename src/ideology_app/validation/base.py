@@ -12,13 +12,17 @@ from sqlalchemy.orm import Session, selectinload
 
 from ideology_app.config import ValidationSettings
 from ideology_app.models import (
+    ModelGeneration,
     Party,
     PartyPosition,
+    PartyPositionProposal,
     PipelineRun,
     PipelineRunSourceDocument,
+    Proposal,
     SourceDocument,
     SourceDocumentRole,
     Statement,
+    StatementProposal,
 )
 
 MESSAGE_MAX = 500
@@ -58,6 +62,26 @@ class RunDocument:
     role: SourceDocumentRole
     source_url: str | None
     pages: Mapping[int, str]
+    content_hash: str | None = None
+
+
+@dataclass(frozen=True)
+class EvidenceRow:
+    """One Evidence Proposal of a v2 Party Position (``party_position_proposals``)."""
+
+    rank: int
+    proposal_id: int
+    source_document_id: int
+    constituencies: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProposalRow:
+    """A Proposal a v2 run cites (source or Evidence), as stored."""
+
+    content_hash: str
+    page: int
+    text: str
 
 
 @dataclass(frozen=True)
@@ -81,6 +105,14 @@ class ValidationInput:
     documents: Mapping[int, RunDocument] = field(default_factory=dict)
     settings: ValidationSettings = ValidationSettings()
     lengths: tuple[int, ...] = ()
+    # v2 runs only (statements-from-proposals); empty for legacy runs.
+    generation: ModelGeneration = ModelGeneration.LEGACY
+    # Statement id -> its source Proposal ids in rank order.
+    statement_sources: Mapping[int, tuple[int, ...]] = field(default_factory=dict)
+    # (Statement id, Party id) -> the Position's Evidence rows in rank order.
+    evidence: Mapping[tuple[int, int], tuple[EvidenceRow, ...]] = field(default_factory=dict)
+    # Proposal id -> every Proposal cited as a source or as Evidence.
+    proposals: Mapping[int, ProposalRow] = field(default_factory=dict)
 
 
 def offered_lengths(data: ValidationInput) -> tuple[int, ...]:
@@ -136,6 +168,9 @@ def load_input(
     """Read the run's Dataset Version and the Source Documents it read.
 
     ``settings`` is passed through unchanged. The run must have a Dataset Version.
+    For a v2 run it also reads the Statement sources, the Evidence Proposals
+    and the Proposals they cite, and ``party_ids`` are the Parties with
+    Positions (the non-Excluded ones), not every Party of the Election.
     """
     version = run.dataset_version
     assert version is not None
@@ -160,6 +195,46 @@ def load_input(
         .options(selectinload(SourceDocument.pages))
         .order_by(SourceDocument.id)
     ).all()
+    generation = run.model_generation
+    statement_sources: dict[int, tuple[int, ...]] = {}
+    evidence: dict[tuple[int, int], tuple[EvidenceRow, ...]] = {}
+    proposals: dict[int, ProposalRow] = {}
+    if generation is ModelGeneration.V2:
+        party_ids = sorted({p.party_id for p, _ in positions})
+        sources: dict[int, list[int]] = {}
+        for link in session.scalars(
+            select(StatementProposal)
+            .join(Statement, StatementProposal.statement_id == Statement.id)
+            .where(Statement.dataset_version_id == version.id)
+            .order_by(StatementProposal.statement_id, StatementProposal.rank)
+        ):
+            sources.setdefault(link.statement_id, []).append(link.proposal_id)
+        statement_sources = {sid: tuple(ids) for sid, ids in sources.items()}
+        rows: dict[tuple[int, int], list[EvidenceRow]] = {}
+        for item, statement_id, party_id in session.execute(
+            select(PartyPositionProposal, PartyPosition.statement_id, PartyPosition.party_id)
+            .join(PartyPosition, PartyPositionProposal.party_position_id == PartyPosition.id)
+            .join(Statement, PartyPosition.statement_id == Statement.id)
+            .where(Statement.dataset_version_id == version.id)
+            .order_by(PartyPosition.id, PartyPositionProposal.rank)
+        ):
+            rows.setdefault((statement_id, party_id), []).append(
+                EvidenceRow(
+                    rank=item.rank,
+                    proposal_id=item.proposal_id,
+                    source_document_id=item.source_document_id,
+                    constituencies=tuple(item.constituencies),
+                )
+            )
+        evidence = {key: tuple(items) for key, items in rows.items()}
+        cited = {pid for ids in statement_sources.values() for pid in ids} | {
+            row.proposal_id for items in evidence.values() for row in items
+        }
+        if cited:
+            proposals = {
+                p.id: ProposalRow(content_hash=p.content_hash, page=p.page, text=p.text)
+                for p in session.scalars(select(Proposal).where(Proposal.id.in_(cited)))
+            }
     return ValidationInput(
         statements=tuple(
             StatementRow(
@@ -191,9 +266,14 @@ def load_input(
                 role=link.role,
                 source_url=d.source_url,
                 pages={page.page_number: page.text for page in d.pages},
+                content_hash=d.content_hash,
             )
             for link, d in run_documents
         },
         settings=settings,
         lengths=tuple(version.questionnaire_lengths or ()),
+        generation=generation,
+        statement_sources=statement_sources,
+        evidence=evidence,
+        proposals=proposals,
     )

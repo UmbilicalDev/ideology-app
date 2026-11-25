@@ -46,8 +46,10 @@ TABLES_AT_0015 = TABLES_AT_0009 | {"pipeline_run_calls"}
 CONSTITUENCY_TABLES = {"constituencies", "candidatures", "source_document_constituencies"}
 TABLES_AT_0016 = TABLES_AT_0015 | CONSTITUENCY_TABLES
 PROPOSAL_TABLES = {"proposal_extractions", "proposal_extraction_calls", "proposals"}
-ALL_TABLES = TABLES_AT_0016 | PROPOSAL_TABLES
-HEAD = "0017"
+TABLES_AT_0017 = TABLES_AT_0016 | PROPOSAL_TABLES
+V2_EVIDENCE_TABLES = {"statement_proposals", "party_position_proposals"}
+ALL_TABLES = TABLES_AT_0017 | V2_EVIDENCE_TABLES
+HEAD = "0018"
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -295,7 +297,12 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert "ALTER TABLE pipeline_runs ADD COLUMN validation_settings JSON" in sql
     assert sql.count("ck_proposal_extractions_proposal_extraction_status") == 1
     assert sql.count("ck_proposals_page_positive") == 1
-    assert sql.count("CHECK") == 16
+    # 0018: one CHECK per model_generation column, one rank CHECK per new table.
+    assert sql.count("ck_pipeline_runs_model_generation") == 1
+    assert sql.count("ck_dataset_versions_model_generation") == 1
+    assert sql.count("ck_statement_proposals_rank_positive") == 1
+    assert sql.count("ck_party_position_proposals_rank_positive") == 1
+    assert sql.count("CHECK") == 20
 
 
 def test_downgrade_to_0003_drops_exactly_the_pipeline_tables(db_url: str) -> None:
@@ -314,9 +321,11 @@ def test_upgrade_0004_creates_pipeline_constraints(migrated_engine: Engine) -> N
     assert {c["name"] for c in inspector.get_check_constraints("pipeline_runs")} == {
         "ck_pipeline_runs_pipeline_run_status",
         "ck_pipeline_runs_generation_mode",
+        "ck_pipeline_runs_model_generation",  # 0018
     }
     assert {c["name"] for c in inspector.get_check_constraints("dataset_versions")} == {
-        "ck_dataset_versions_dataset_version_status"
+        "ck_dataset_versions_dataset_version_status",
+        "ck_dataset_versions_model_generation",  # 0018
     }
     assert {c["name"] for c in inspector.get_check_constraints("statements")} == {
         "ck_statements_position_positive"
@@ -1252,10 +1261,11 @@ def test_downgrade_to_0011_drops_only_the_column_and_keeps_versions(db_url: str)
     downgrade(db_url, "0011")
 
     assert _version(db_url) == "0011"
-    # 0014's anchor_dataset_version_id goes too (downgrading through 0014).
+    # 0014's anchor_dataset_version_id and 0018's model_generation go too.
     assert set(_pipeline_run_columns(db_url)) == columns_before - {
         "statement_selection",
         "anchor_dataset_version_id",
+        "model_generation",
     }
     assert _tables(db_url) == TABLES_AT_0015
     assert PUBLISHED_INDEX in _dataset_version_indexes(db_url)
@@ -1489,7 +1499,11 @@ def test_downgrade_to_0013_drops_only_the_new_columns_and_keeps_children(db_url:
 
     assert _version(db_url) == "0013"
     assert set(_columns(db_url, "statements")) == statement_columns - {"context_note"}
-    assert set(_columns(db_url, "pipeline_runs")) == run_columns - {"anchor_dataset_version_id"}
+    # 0018's model_generation goes too (downgrading through 0018).
+    assert set(_columns(db_url, "pipeline_runs")) == run_columns - {
+        "anchor_dataset_version_id",
+        "model_generation",
+    }
     assert _tables(db_url) == TABLES_AT_0015
     # Not recreated: the cascade from statements to party_positions never fires.
     assert _counts(db_url, ALL_ROW_TABLES) == counts
@@ -1593,7 +1607,11 @@ def test_downgrade_to_0014_drops_only_the_lengths_and_keeps_children(db_url: str
     downgrade(db_url, "0014")
 
     assert _version(db_url) == "0014"
-    assert set(_columns(db_url, "dataset_versions")) == columns - {"questionnaire_lengths"}
+    # 0018's model_generation goes too (downgrading through 0018).
+    assert set(_columns(db_url, "dataset_versions")) == columns - {
+        "questionnaire_lengths",
+        "model_generation",
+    }
     assert _counts(db_url, ALL_ROW_TABLES) == counts
     assert "WHERE status = 'published'" in _index_sql(db_url)
     run_migrations(db_url)
@@ -1818,7 +1836,7 @@ def test_upgrade_0017_adds_three_empty_tables_and_keeps_every_row(db_url: str) -
     run_migrations(db_url, "0017")
 
     assert _version(db_url) == "0017"
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0017
     assert _counts(db_url, tuple(sorted(PROPOSAL_TABLES))) == dict.fromkeys(
         sorted(PROPOSAL_TABLES), 0
     )
@@ -1906,3 +1924,157 @@ def test_offline_postgresql_render_of_0017() -> None:
     down_sql = down.getvalue()
     for table in ("proposals", "proposal_extraction_calls", "proposal_extractions"):
         assert f"DROP TABLE {table};" in down_sql
+
+
+# Migration 0018: model_generation, Statement sources and Proposal Evidence
+# (statements-from-proposals).
+
+OLD_SCHEMA_SQL = (
+    "SELECT type, name, sql FROM sqlite_master WHERE name NOT IN "
+    "('pipeline_runs', 'dataset_versions', 'statement_proposals', 'party_position_proposals') "
+    "AND tbl_name NOT IN ('statement_proposals', 'party_position_proposals') ORDER BY name"
+)
+
+
+def _seed_v2_evidence(engine: Engine) -> None:
+    """A Proposal, one Statement source and one Evidence row on the seeded Position."""
+    _seed_extraction(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text("INSERT INTO statement_proposals (statement_id, rank, proposal_id) VALUES (1, 1, 1)")
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO party_position_proposals (party_position_id, rank, proposal_id, "
+                "source_document_id, constituencies) VALUES (1, 1, 1, 1, '[\"28\"]')"
+            )
+        )
+
+
+def test_upgrade_0018_reads_legacy_and_keeps_every_row_and_the_index(db_url: str) -> None:
+    run_migrations(db_url, "0017")
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        _seed_extraction(engine)
+    finally:
+        engine.dispose()
+    tables = TABLES_AT_0017 - {"alembic_version"}
+    before = {table: _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") for table in tables}
+    schema_before = _rows(db_url, OLD_SCHEMA_SQL)
+    ddl_before = {t: _table_sql(db_url, t) for t in ("pipeline_runs", "dataset_versions")}
+
+    run_migrations(db_url, "0018")
+
+    assert _version(db_url) == "0018"
+    assert _tables(db_url) == ALL_TABLES
+    assert _counts(db_url, tuple(sorted(V2_EVIDENCE_TABLES))) == dict.fromkeys(
+        sorted(V2_EVIDENCE_TABLES), 0
+    )
+    for table in tables:
+        after = _rows(db_url, f"SELECT * FROM {table} ORDER BY 1")
+        if table in ("pipeline_runs", "dataset_versions"):
+            assert after == [(*row, "legacy") for row in before[table]], table
+        else:
+            assert after == before[table], table
+    assert _rows(db_url, OLD_SCHEMA_SQL) == schema_before
+    assert "WHERE status = 'published'" in _index_sql(db_url)
+    for table, ddl in ddl_before.items():
+        after_lines = _table_sql(db_url, table).splitlines()
+        changed = [
+            i for i, (a, b) in enumerate(zip(ddl.splitlines(), after_lines, strict=True)) if a != b
+        ]
+        # Plain ADD COLUMN: one changed line holding the column and its one CHECK.
+        assert len(changed) == 1, table
+        line = after_lines[changed[0]]
+        assert line.count("CHECK") == 1
+        assert (
+            f"model_generation VARCHAR(10) DEFAULT 'legacy' NOT NULL CONSTRAINT "
+            f"ck_{table}_model_generation CHECK (model_generation IN ('legacy', 'v2'))"
+        ) in line
+
+
+def test_0018_constraints_and_cascades(migrated_engine: Engine) -> None:
+    _seed_with_position(migrated_engine)
+    _seed_v2_evidence(migrated_engine)
+    for statement in (
+        "UPDATE pipeline_runs SET model_generation = 'v3'",
+        "UPDATE dataset_versions SET model_generation = NULL",
+        "INSERT INTO statement_proposals (statement_id, rank, proposal_id) VALUES (1, 1, 1)",
+        "INSERT INTO statement_proposals (statement_id, rank, proposal_id) VALUES (1, 0, 1)",
+        "INSERT INTO statement_proposals (statement_id, rank, proposal_id) VALUES (1, 2, 1)",
+        "INSERT INTO statement_proposals (statement_id, rank, proposal_id) VALUES (1, 2, 9)",
+        "INSERT INTO party_position_proposals (party_position_id, rank, proposal_id, "
+        "source_document_id, constituencies) VALUES (1, 1, 1, 1, '[]')",
+        "INSERT INTO party_position_proposals (party_position_id, rank, proposal_id, "
+        "source_document_id, constituencies) VALUES (1, 2, 1, 1, '[]')",
+        "INSERT INTO party_position_proposals (party_position_id, rank, proposal_id, "
+        "source_document_id, constituencies) VALUES (9, 1, 1, 1, '[]')",
+        # Proposals are never deleted: a cited Proposal cannot go.
+        "DELETE FROM proposals",
+    ):
+        with pytest.raises(IntegrityError):
+            with migrated_engine.begin() as conn:
+                conn.execute(sa.text(statement))
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text("UPDATE pipeline_runs SET model_generation = 'v2'"))
+        conn.execute(sa.text("DELETE FROM statements"))
+        assert conn.execute(sa.text("SELECT count(*) FROM statement_proposals")).scalar_one() == 0
+        assert (
+            conn.execute(sa.text("SELECT count(*) FROM party_position_proposals")).scalar_one()
+            == 0
+        )
+
+
+def test_downgrade_to_0017_drops_only_the_new_tables_and_columns(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        _seed_v2_evidence(engine)
+    finally:
+        engine.dispose()
+    counts = _counts(db_url, ALL_ROW_TABLES)
+    assert counts["statements"] == 1 and counts["party_positions"] == 1
+
+    downgrade(db_url, "0017")
+
+    assert _version(db_url) == "0017"
+    assert _tables(db_url) == TABLES_AT_0017
+    assert "model_generation" not in _columns(db_url, "pipeline_runs")
+    assert "model_generation" not in _columns(db_url, "dataset_versions")
+    assert _counts(db_url, ALL_ROW_TABLES) == counts
+    assert "WHERE status = 'published'" in _index_sql(db_url)
+    run_migrations(db_url)
+    assert _version(db_url) == HEAD
+
+
+def test_offline_postgresql_render_of_0018() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0017:0018",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0018:0017",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    for table in ("pipeline_runs", "dataset_versions"):
+        assert (
+            f"ALTER TABLE {table} ADD COLUMN model_generation VARCHAR(10) DEFAULT 'legacy' "
+            f"NOT NULL CONSTRAINT ck_{table}_model_generation CHECK "
+            f"(model_generation IN ('legacy', 'v2'));"
+        ) in up_sql
+    assert up_sql.count("CHECK") == 4  # one per new column, one rank CHECK per table
+    assert "CREATE TABLE statement_proposals (" in up_sql
+    assert "CREATE TABLE party_position_proposals (" in up_sql
+    assert "DROP TABLE" not in up_sql and "DROP INDEX" not in up_sql
+    down_sql = down.getvalue()
+    assert "DROP TABLE party_position_proposals;" in down_sql
+    assert "DROP TABLE statement_proposals;" in down_sql
+    assert "ALTER TABLE dataset_versions DROP COLUMN model_generation;" in down_sql
+    assert "ALTER TABLE pipeline_runs DROP COLUMN model_generation;" in down_sql

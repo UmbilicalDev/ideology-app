@@ -663,7 +663,9 @@ def test_live_mode_queues_only_for_documents(
                 for d in report.new_documents
             ]
 
-    assert set(_live_import()) == {1}
+    # statements-from-proposals S11: an Election with candidatures never queues a
+    # run in live mode; its phase 4 is "pipeline run-v2", started by the Operator.
+    assert set(_live_import()) == {None}
     small = dataclasses.replace(V2_SMALL, constituencies=["08", "28"])
     write_bundle_v2(tmp_path, [V2_PP, V2_PSOE, V2_PSC, V2_UPN, small], V2_DOCUMENTS)
     assert _live_import() == []
