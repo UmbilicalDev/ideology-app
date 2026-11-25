@@ -145,6 +145,14 @@ class ImportReport:
         return sum(1 for outcome in items if outcome.status is status)
 
 
+def find_election(session: Session, bundle: Bundle) -> Election | None:
+    """The Election a bundle describes (same country, type and date), or ``None``.
+
+    The public read seam for later features (``proposal-extraction``).
+    """
+    return _find_election(session, bundle)
+
+
 def _find_election(session: Session, bundle: Bundle) -> Election | None:
     return session.scalars(
         select(Election).where(

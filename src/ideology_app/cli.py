@@ -26,6 +26,7 @@ from ideology_app import config
 from ideology_app import party_logos
 from ideology_app.constituencies import CONSTITUENCIES
 from ideology_app import pipeline as pipelines
+from ideology_app.proposals import store as proposal_store
 from ideology_app import shared_db
 from ideology_app import source_bundle
 from ideology_app import source_documents as sources
@@ -57,6 +58,7 @@ from ideology_app.llm import LLMProvider, build_provider
 from ideology_app.models import (
     DatasetVersionStatus,
     PipelineRunStatus,
+    ProposalExtractionStatus,
     SourceDocumentStatus,
     ValidationResult,
 )
@@ -228,6 +230,7 @@ def _bundle_and_run_checks(session: Session) -> list[str]:
                     for problem in [
                         *bundle_import.check_against_bundle(session, bundle),
                         *ledgers.ledger_problems(bundle),
+                        *proposal_store.bundle_count_problems(session, bundle),
                     ]
                 )
         unfinished = pipelines.find_unfinished_run(session, election.id)
@@ -240,6 +243,11 @@ def _bundle_and_run_checks(session: Session) -> list[str]:
             if unfinished.status is PipelineRunStatus.RUNNING:
                 line += "; commit only if no ideology process is still running it"
             click.echo(line)
+    for extraction in proposal_store.unfinished_extractions(session):
+        click.echo(
+            f"proposal extraction {extraction.content_hash[:12]}: in_progress, "
+            f"{extraction.chunks_done}/{extraction.chunk_count} chunks"
+        )
     return problems
 
 
@@ -805,8 +813,9 @@ def data_check(app: AppContext, directory: Path) -> None:
     was not imported from the bundle, or a Party logo that differs from the
     one election.toml declares). A format-2 bundle also checks candidatures,
     document scopes, that every Constituency has a candidature, and that its
-    Ingestion Ledger (when present) is valid and up to date; the
-    constituencies table must equal the 52 seeded Constituencies.
+    Ingestion Ledger (when present) is valid and up to date and that its
+    Proposal counts equal the stored Proposals; the constituencies table must
+    equal the 52 seeded Constituencies.
     """
     bundle = source_bundle.read_bundle(directory)
     session = Session(app.engine)
@@ -816,21 +825,33 @@ def data_check(app: AppContext, directory: Path) -> None:
         # Format 2 only (L8): an invalid or out-of-date Ingestion Ledger, counted
         # apart so the summary does not blame the database for a ledger problem.
         ledger_problems = ledgers.ledger_problems(bundle)
+        # Format 2 only (P8): ledger Proposal counts that the stored Proposals do not match.
+        count_problems = proposal_store.bundle_count_problems(session, bundle)
         documents = len(bundle.parties)
     finally:
         session.rollback()
         session.close()
-    for problem in [*problems, *ledger_problems]:
+    for problem in [*problems, *ledger_problems, *count_problems]:
         click.echo(f"Error: {problem}", err=True)
     if problems:
         summary = f"database does not match bundle {bundle.slug}: {len(problems)} problems"
         if ledger_problems:
             summary += f"; ingestion ledger: {len(ledger_problems)} problems"
+        if count_problems:
+            summary += f"; proposal counts: {len(count_problems)} problems"
         raise click.ClickException(summary)
     if ledger_problems:
-        raise click.ClickException(
+        summary = (
             f"ingestion ledger of bundle {bundle.slug} is not valid and up to date: "
             f"{len(ledger_problems)} problems"
+        )
+        if count_problems:
+            summary += f"; proposal counts: {len(count_problems)} problems"
+        raise click.ClickException(summary)
+    if count_problems:
+        raise click.ClickException(
+            f"ingestion ledger proposal counts of bundle {bundle.slug} do not match the "
+            f"stored Proposals: {len(count_problems)} problems"
         )
     if bundle.format == 2:
         candidatures = sum(len(entry.constituencies or ()) for entry in bundle.parties)
@@ -1044,6 +1065,168 @@ def ingestion_gate(directory: Path) -> None:
         f"Phase 4: ready ({phases.count(ledgers.Phase.PROPOSALS_EXTRACTED)} extracted, "
         f"{phases.count(ledgers.Phase.EXCLUDED)} excluded)"
     )
+
+
+@main.group()
+def proposals() -> None:
+    """Phase 3: extract the Proposals of each kept manifesto of a format-2 bundle.
+
+    Extraction is per document content (content hash): a file shared by several
+    Parties, an unchanged file or the same bytes in another Election is
+    extracted once. Every LLM call is recorded as it returns, so extraction
+    continues over several runs without repeating a call.
+    """
+
+
+def _proposal_call(call: Callable[[], Any]) -> Any:
+    try:
+        return call()
+    except service.ElectionsError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@proposals.command("extract")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option("--file", "file", default=None, help="Only this kept document (file name).")
+@click.option(
+    "--max-calls",
+    type=click.IntRange(min=1),
+    default=proposal_store.DEFAULT_MAX_CALLS,
+    show_default=True,
+    help="Stop cleanly after this many new LLM calls; run again to continue.",
+)
+@click.option(
+    "--restart",
+    "restart",
+    default=None,
+    help="Delete the recorded calls of this document's in-progress extraction first.",
+)
+@click.option("--yes", is_flag=True, help="Do not ask for confirmation on the shared database.")
+@requires_db
+def proposals_extract(
+    app: AppContext,
+    directory: Path,
+    file: str | None,
+    max_calls: int,
+    restart: str | None,
+    yes: bool,
+) -> None:
+    """Extract every kept document's Proposals and record the counts in the ledger.
+
+    Needs an up-to-date Ingestion Ledger and the bundle imported. Provider and
+    model come from LLM_PROVIDER / LLM_MODEL; an in-progress extraction is
+    pinned to the ones it started with (--restart starts it again). "reused"
+    counts recorded calls replayed instead of calling the LLM.
+    """
+    try:
+        provider = _provider()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        plan = _proposal_call(
+            lambda: proposal_store.prepare_extraction(
+                app.engine, directory, provider, file=file, restart=restart
+            )
+        )
+        _confirm_shared(app, yes)
+        summary = _proposal_call(
+            lambda: proposal_store.execute_plan(
+                app.engine,
+                provider,
+                plan,
+                max_calls=max_calls,
+                echo=lambda line, err=False: click.echo(line, err=err),
+            )
+        )
+    finally:
+        _close(provider)
+    budget = summary.budget
+    if summary.stopped:
+        click.echo(f"Stopped after {budget.new_calls} calls; run again to continue")
+    click.echo(
+        f"Calls: {budget.new_calls} new, {budget.reused_calls} reused; "
+        f"input_tokens {budget.input_tokens}, output_tokens {budget.output_tokens}"
+    )
+    if summary.error is not None:
+        raise click.ClickException(summary.error)
+    if summary.failed:
+        raise click.ClickException(f"{len(summary.failed)} documents not extracted")
+
+
+def _count(value: int | None) -> str:
+    return "-" if value is None else str(value)
+
+
+@proposals.command("status")
+@click.argument("directory", type=click.Path(path_type=Path))
+@requires_db
+def proposals_status(app: AppContext, directory: Path) -> None:
+    """One line per kept document, then the ledger count problems. Read-only.
+
+    Columns: file, content hash (12), state, chunks done/total, validated
+    Proposals, ledger count. Exits 1 when a ledger count does not match the
+    stored Proposals.
+    """
+    bundle, ledger = _proposal_call(lambda: proposal_store.read_phase3(directory))
+    session = Session(app.engine)
+    try:
+        rows = proposal_store.status_rows(session, bundle, ledger)
+        problems = proposal_store.ledger_count_problems(session, bundle, ledger)
+    finally:
+        session.rollback()
+        session.close()
+    for row in rows:
+        click.echo(
+            f"{row.file}\t{row.content_hash[:12]}\t{row.state}\t"
+            f"{row.chunks_done}/{row.chunk_count}\t{_count(row.validated)}\t{_count(row.ledger)}"
+        )
+    for problem in problems:
+        click.echo(f"Error: {problem}", err=True)
+    if problems:
+        raise click.exceptions.Exit(1)
+
+
+@proposals.command("list")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option("--file", "file", required=True, help="The document (file name).")
+@click.option("--dropped", is_flag=True, help="List the dropped items instead.")
+@requires_db
+def proposals_list(app: AppContext, directory: Path, file: str, dropped: bool) -> None:
+    """Tab-separated Proposals of a document's complete extraction. Read-only.
+
+    Columns: ordinal, page, categories, tags, text (on one line). With
+    --dropped: chunk (1-based), page, reason, found_on, text.
+    """
+
+    def read() -> tuple[source_bundle.Bundle, str]:
+        bundle = source_bundle.read_bundle(directory)
+        ledgers.reconcile(bundle, None)  # refuses a format-1 bundle
+        return bundle, ledgers.listed_document(bundle, file).text.content_hash
+
+    _, content_hash = _proposal_call(read)
+    session = Session(app.engine)
+    try:
+        extraction = proposal_store.get_extraction(session, content_hash)
+        if extraction is None or extraction.status is not ProposalExtractionStatus.COMPLETE:
+            raise click.ClickException(
+                f"document {file}: no complete extraction for {content_hash[:12]}..."
+            )
+        if dropped:
+            for item in proposal_store.dropped_items(session, content_hash):
+                found_on = "" if item.get("found_on") is None else str(item["found_on"])
+                click.echo(
+                    f"{item['chunk'] + 1}\t{item['page']}\t{item['reason']}\t{found_on}\t"
+                    f"{_one_line(item['text'])}"
+                )
+            return
+        for proposal in proposal_store.load_proposals(session, content_hash):
+            click.echo(
+                f"{proposal.ordinal}\t{proposal.page}\t{','.join(proposal.categories)}\t"
+                f"{','.join(proposal.tags)}\t{_one_line(proposal.text)}"
+            )
+    finally:
+        session.rollback()
+        session.close()
 
 
 def _provider() -> LLMProvider:

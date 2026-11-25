@@ -151,3 +151,14 @@ def test_constituencies_are_seeded_and_no_candidatures_yet(engine: Engine) -> No
     with Session(engine) as session:
         assert elections.constituency_seed_problems(session) == []
         session.rollback()
+
+
+def test_proposal_tables_are_empty(engine: Engine) -> None:
+    # proposal-extraction scenario 12: 0017 adds empty tables; no real extraction is
+    # committed with this feature (that belongs to e2e-2026-constituencies).
+    with engine.connect() as conn:
+        counts = [
+            conn.exec_driver_sql(f"SELECT count(*) FROM {table}").scalar()
+            for table in ("proposal_extractions", "proposal_extraction_calls", "proposals")
+        ]
+    assert counts == [0, 0, 0]
