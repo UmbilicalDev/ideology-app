@@ -678,3 +678,35 @@ def test_format_1_checks_never_read_a_stray_ledger(
     assert check.exit_code == 0, check.output
     assert check.output == f"Database matches bundle {SLUG}: 2 documents\n"
     assert run("db", "check").output == "Safe to commit: yes\n"
+
+
+def test_format_2_checks_report_a_ledger_count_without_stored_proposals(
+    run, migrated, bundle_v2: Path
+) -> None:
+    # proposal-extraction P8: the ledger's Proposal counts must match the database.
+    from ideology_app import ingestion_ledger as ledgers
+
+    assert run("data", "import", str(bundle_v2)).exit_code == 0
+    assert _ledger_cli("update", str(bundle_v2)).exit_code == 0
+    assert _ledger_cli("review", str(bundle_v2), "pp.md", "--keep").exit_code == 0
+    content_hash = ledgers.listed_document(
+        ledgers.read_bundle(bundle_v2), "pp.md"
+    ).text.content_hash
+    ledgers.record_extraction_in_dir(
+        bundle_v2, "pp.md", content_hash=content_hash, validated_proposals=35
+    )
+    problem = (
+        "document pp.md: ledger records 35 validated proposals but there is no complete "
+        f"extraction for {content_hash[:12]}..."
+    )
+
+    check = run("data", "check", str(bundle_v2))
+    assert check.exit_code == 1
+    assert check.output == (
+        f"Error: {problem}\n"
+        f"Error: ingestion ledger proposal counts of bundle {SLUG} do not match the stored "
+        "Proposals: 1 problems\n"
+    )
+    db_check = run("db", "check")
+    assert db_check.exit_code == 1
+    assert db_check.output == f"Error: election 1 ({SLUG}): {problem}\nSafe to commit: no\n"
