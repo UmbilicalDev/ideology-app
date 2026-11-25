@@ -21,9 +21,14 @@ from sqlalchemy.orm import Session
 
 from ideology_app import bundle_import
 from ideology_app import elections as service
+from ideology_app import ingestion_ledger as ledgers
 from ideology_app import config
 from ideology_app import party_logos
+from ideology_app.constituencies import CONSTITUENCIES
 from ideology_app import pipeline as pipelines
+from ideology_app.pipeline import v2 as pipelines_v2
+from ideology_app.proposals import conflicts as proposal_conflicts
+from ideology_app.proposals import store as proposal_store
 from ideology_app import shared_db
 from ideology_app import source_bundle
 from ideology_app import source_documents as sources
@@ -54,7 +59,9 @@ from ideology_app.db import (
 from ideology_app.llm import LLMProvider, build_provider
 from ideology_app.models import (
     DatasetVersionStatus,
+    ModelGeneration,
     PipelineRunStatus,
+    ProposalExtractionStatus,
     SourceDocumentStatus,
     ValidationResult,
 )
@@ -209,7 +216,7 @@ def _open_checks(path: Path) -> list[str]:
 
 
 def _bundle_and_run_checks(session: Session) -> list[str]:
-    problems: list[str] = []
+    problems: list[str] = list(service.constituency_seed_problems(session))
     root = config.elections_data_dir()
     for election in service.list_elections(session):
         slug = source_bundle.bundle_slug(election, root)
@@ -223,7 +230,11 @@ def _bundle_and_run_checks(session: Session) -> list[str]:
             else:
                 problems.extend(
                     f"election {election.id} ({slug}): {problem}"
-                    for problem in bundle_import.check_against_bundle(session, bundle)
+                    for problem in [
+                        *bundle_import.check_against_bundle(session, bundle),
+                        *ledgers.ledger_problems(bundle),
+                        *proposal_store.bundle_count_problems(session, bundle),
+                    ]
                 )
         unfinished = pipelines.find_unfinished_run(session, election.id)
         if unfinished is not None:
@@ -235,6 +246,11 @@ def _bundle_and_run_checks(session: Session) -> list[str]:
             if unfinished.status is PipelineRunStatus.RUNNING:
                 line += "; commit only if no ideology process is still running it"
             click.echo(line)
+    for extraction in proposal_store.unfinished_extractions(session):
+        click.echo(
+            f"proposal extraction {extraction.content_hash[:12]}: in_progress, "
+            f"{extraction.chunks_done}/{extraction.chunk_count} chunks"
+        )
     return problems
 
 
@@ -631,6 +647,18 @@ def source_text(app: AppContext, document_id: int, page: int | None) -> None:
 
 
 @main.group()
+def constituency() -> None:
+    """The 52 Congreso Constituencies (INE province codes)."""
+
+
+@constituency.command("list")
+def constituency_list() -> None:
+    """Print every Constituency as code<TAB>name. Needs no database."""
+    for code, name in CONSTITUENCIES:
+        click.echo(f"{code}\t{name}")
+
+
+@main.group()
 def data() -> None:
     """Shared election data (Source Text Bundles under data/elections/<slug>/)."""
 
@@ -664,6 +692,11 @@ def data_import(app: AppContext, directory: Path) -> None:
             )
             if outcome.run_id is not None and trigger is None:
                 trigger = outcome
+    if report.format == 2:
+        _echo_import_v2(report)
+        if trigger is not None:
+            _echo_trigger(trigger, mode)
+        return
     for item in report.outcomes:
         party_part = (
             f"Party {item.short_name}: {'created' if item.party_created else 'exists'} "
@@ -696,7 +729,70 @@ def data_import(app: AppContext, directory: Path) -> None:
         _echo_trigger(trigger, mode)
 
 
-def _logo_line(item: bundle_import.PartyOutcome) -> str | None:
+def _diff(added: Sequence[str], removed: Sequence[str]) -> str:
+    return f"+{len(added)} -{len(removed)}"
+
+
+def _constituencies(count: int) -> str:
+    return f"{count} Constituency" if count == 1 else f"{count} Constituencies"
+
+
+def _echo_import_v2(report: bundle_import.ImportReport) -> None:
+    """The ``data import`` lines of a format-2 bundle (candidatures and scopes)."""
+    for item in report.candidatures:
+        click.echo(
+            f"Party {item.short_name} (id {item.party_id}): "
+            f"{'created' if item.party_created else 'exists'}, "
+            f"{_constituencies(item.constituencies)} ({_diff(item.added, item.removed)})"
+        )
+        logo_line = _logo_line(item)
+        if logo_line is not None:
+            click.echo(logo_line)
+    for short_name, party_id in report.left_alone:
+        removed = next(
+            (codes for s, i, codes in report.removed_candidatures if i == party_id), ()
+        )
+        if removed:
+            click.echo(
+                f"Party {short_name} (id {party_id}) is not in the bundle; candidatures "
+                f"removed ({', '.join(removed)}); row and documents left unchanged"
+            )
+        else:
+            click.echo(f"Party {short_name} (id {party_id}) is not in the bundle; left unchanged")
+    for doc in report.documents:
+        prefix = f"Document {doc.file} for {doc.short_name}"
+        if doc.status is bundle_import.DocumentStatus.ADDED:
+            what = f"added source document {doc.document_id} ({doc.page_count} pages)"
+        elif doc.status is bundle_import.DocumentStatus.REPLACED:
+            what = (
+                f"source document {doc.document_id} replaces source document "
+                f"{doc.replaced_document_id} ({doc.page_count} pages)"
+            )
+        else:
+            what = f"unchanged (source document {doc.document_id})"
+        click.echo(
+            f"{prefix}: {what}, scope {_constituencies(doc.scope)} "
+            f"({_diff(doc.scope_added, doc.scope_removed)})"
+        )
+    click.echo(f"Candidatures source: {report.candidature_source_change}")
+    candidatures = sum(item.constituencies for item in report.candidatures)
+    added = sum(len(item.added) for item in report.candidatures)
+    removed = sum(len(item.removed) for item in report.candidatures) + sum(
+        len(codes) for _, _, codes in report.removed_candidatures
+    )
+    click.echo(
+        f"Imported election {report.slug} (id {report.election_id}): "
+        f"{len(report.candidatures)} parties, {candidatures} candidatures (+{added} -{removed}), "
+        f"{len(report.documents)} source documents: "
+        f"{report.count(bundle_import.DocumentStatus.ADDED)} added, "
+        f"{report.count(bundle_import.DocumentStatus.REPLACED)} replaced, "
+        f"{report.count(bundle_import.DocumentStatus.UNCHANGED)} unchanged"
+    )
+
+
+def _logo_line(
+    item: bundle_import.PartyOutcome | bundle_import.CandidatureOutcome,
+) -> str | None:
     """The ``data import`` line for a logo that was set, replaced or removed."""
     prefix = f"Party {item.short_name} (id {item.party_id}): logo"
     if item.logo_change is party_logos.LogoChange.REMOVED:
@@ -718,23 +814,574 @@ def data_check(app: AppContext, directory: Path) -> None:
     Exits 1 and prints one line per divergence (a missing Election, Party or
     document, a different content hash or page text, a Party document that
     was not imported from the bundle, or a Party logo that differs from the
-    one election.toml declares).
+    one election.toml declares). A format-2 bundle also checks candidatures,
+    document scopes, that every Constituency has a candidature, and that its
+    Ingestion Ledger (when present) is valid and up to date and that its
+    Proposal counts equal the stored Proposals; the constituencies table must
+    equal the 52 seeded Constituencies.
     """
     bundle = source_bundle.read_bundle(directory)
     session = Session(app.engine)
     try:
-        problems = bundle_import.check_against_bundle(session, bundle)
+        problems = service.constituency_seed_problems(session)
+        problems.extend(bundle_import.check_against_bundle(session, bundle))
+        # Format 2 only (L8): an invalid or out-of-date Ingestion Ledger, counted
+        # apart so the summary does not blame the database for a ledger problem.
+        ledger_problems = ledgers.ledger_problems(bundle)
+        # Format 2 only (P8): ledger Proposal counts that the stored Proposals do not match.
+        count_problems = proposal_store.bundle_count_problems(session, bundle)
         documents = len(bundle.parties)
     finally:
         session.rollback()
         session.close()
+    for problem in [*problems, *ledger_problems, *count_problems]:
+        click.echo(f"Error: {problem}", err=True)
     if problems:
-        for problem in problems:
-            click.echo(f"Error: {problem}", err=True)
-        raise click.ClickException(
-            f"database does not match bundle {bundle.slug}: {len(problems)} problems"
+        summary = f"database does not match bundle {bundle.slug}: {len(problems)} problems"
+        if ledger_problems:
+            summary += f"; ingestion ledger: {len(ledger_problems)} problems"
+        if count_problems:
+            summary += f"; proposal counts: {len(count_problems)} problems"
+        raise click.ClickException(summary)
+    if ledger_problems:
+        summary = (
+            f"ingestion ledger of bundle {bundle.slug} is not valid and up to date: "
+            f"{len(ledger_problems)} problems"
         )
+        if count_problems:
+            summary += f"; proposal counts: {len(count_problems)} problems"
+        raise click.ClickException(summary)
+    if count_problems:
+        raise click.ClickException(
+            f"ingestion ledger proposal counts of bundle {bundle.slug} do not match the "
+            f"stored Proposals: {len(count_problems)} problems"
+        )
+    if bundle.format == 2:
+        candidatures = sum(len(entry.constituencies or ()) for entry in bundle.parties)
+        click.echo(
+            f"Database matches bundle {bundle.slug}: {len(bundle.parties)} parties, "
+            f"{candidatures} candidatures, {len(bundle.documents)} documents"
+        )
+        return
     click.echo(f"Database matches bundle {bundle.slug}: {documents} documents")
+
+
+@main.group()
+def ingestion() -> None:
+    """The Ingestion Ledger of a format-2 bundle (no database needed).
+
+    The ledger (<bundle>/ingestion-ledger.json) records per Party the phase
+    reached or why it is Excluded, and the phase-2 review of each manifesto.
+    It is written only by these commands, never by hand.
+    """
+
+
+def _ledger_call(call: Callable[[], Any]) -> Any:
+    """Run a ledger operation; a bad bundle or ledger becomes a ClickException."""
+    try:
+        return call()
+    except service.ElectionsError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _party_detail(
+    bundle: source_bundle.Bundle, ledger: ledgers.Ledger, party: ledgers.PartyEntry
+) -> str:
+    if party.phase is ledgers.Phase.PROPOSALS_EXTRACTED:
+        return f"{party.proposals} proposals"
+    reason = party.reason
+    if reason is ledgers.ExclusionReason.NO_MANIFESTO:
+        return f"no_manifesto: {party.note}" if party.note else "no_manifesto"
+    if reason is ledgers.ExclusionReason.TOO_FEW_PROPOSALS:
+        return f"too_few_proposals ({party.proposals} < {ledger.min_proposals})"
+    if reason is ledgers.ExclusionReason.DISCARDED_AT_REVIEW:
+        discarded = "; ".join(
+            f"{document.file}: {document.review.reason}"
+            for document in ledger.documents
+            if party.short_name in document.parties
+            and document.review is not None
+            and document.review.reason is not None
+        )
+        return f"discarded_at_review ({discarded})"
+    return f"next: {ledgers.next_step(bundle, ledger, party.short_name)}"
+
+
+def _party_row(
+    bundle: source_bundle.Bundle, ledger: ledgers.Ledger, party: ledgers.PartyEntry
+) -> str:
+    return f"{party.short_name}\t{party.phase.value}\t{_party_detail(bundle, ledger, party)}"
+
+
+def _echo_ledger_status(bundle: source_bundle.Bundle, stored: ledgers.Ledger | None) -> None:
+    """The ``ingestion status`` block for the derived state of ``stored``."""
+    derived, _ = ledgers.reconcile(bundle, stored)
+    click.echo(f"Ingestion ledger {bundle.slug} (N = {derived.min_proposals})")
+    if stored is None:
+        click.echo(
+            'Warning: no ingestion ledger yet; "ideology ingestion update" creates it', err=True
+        )
+    elif ledgers.render_ledger(derived) != ledgers.render_ledger(stored):
+        click.echo(
+            f'Warning: ledger is out of date; run "ideology ingestion update {bundle.path}"',
+            err=True,
+        )
+    for party in derived.parties:
+        click.echo(_party_row(bundle, derived, party))
+    phases = [party.phase for party in derived.parties]
+    pending = ledgers.pending_conflicts(derived, bundle.path)
+    click.echo(
+        f"Parties: {len(phases)}; "
+        f"extracted {phases.count(ledgers.Phase.PROPOSALS_EXTRACTED)}, "
+        f"excluded {phases.count(ledgers.Phase.EXCLUDED)}, "
+        f"pending phase 2: {phases.count(ledgers.Phase.CANDIDATURE_DECLARED)}, "
+        f"pending phase 3: {phases.count(ledgers.Phase.MANIFESTO_REVIEWED)}"
+    )
+    click.echo(f"Conflicts pending: {len(pending)}")
+    ready = not ledgers.phase4_blockers(bundle, stored)
+    click.echo(f"Phase 4: {'ready' if ready else 'blocked'}")
+
+
+def _read_for_ingestion(directory: Path) -> tuple[source_bundle.Bundle, ledgers.Ledger | None]:
+    def read() -> tuple[source_bundle.Bundle, ledgers.Ledger | None]:
+        bundle = source_bundle.read_bundle(directory)
+        # Refuses a format-1 bundle before its ledger is read.
+        ledgers.reconcile(bundle, None)
+        return bundle, ledgers.read_ledger(bundle.path)
+
+    return _ledger_call(read)
+
+
+def _echo_changes(lines: Sequence[str]) -> None:
+    for line in lines:
+        click.echo(line)
+
+
+@ingestion.command("status")
+@click.argument("directory", type=click.Path(path_type=Path))
+def ingestion_status(directory: Path) -> None:
+    """Show each Party's phase, what is pending and whether phase 4 may start. Read-only."""
+    bundle, stored = _read_for_ingestion(directory)
+    _echo_ledger_status(bundle, stored)
+
+
+@ingestion.command("update")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option(
+    "--min-proposals",
+    type=click.IntRange(*ledgers.MIN_PROPOSALS_RANGE),
+    default=None,
+    help="N: the fewest validated Proposals a Party needs (default 30 when created).",
+)
+def ingestion_update(directory: Path, min_proposals: int | None) -> None:
+    """Create or rebuild the ledger from the bundle, then show the status."""
+    bundle, ledger, lines = _ledger_call(
+        lambda: ledgers.update_in_dir(directory, min_proposals=min_proposals)
+    )
+    _echo_changes(lines or ["Ledger unchanged"])
+    _echo_ledger_status(bundle, ledger)
+
+
+_DISCARD_CHOICES = {reason.value.replace("_", "-"): reason for reason in ledgers.DiscardReason}
+
+
+@ingestion.command("review")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.argument("file")
+@click.option("--keep", is_flag=True, help="Keep the manifesto for phase 3.")
+@click.option(
+    "--discard",
+    type=click.Choice(list(_DISCARD_CHOICES)),
+    default=None,
+    help="Discard the manifesto with this reason.",
+)
+@click.option("--note", default=None, help="An optional one-line note.")
+def ingestion_review(
+    directory: Path, file: str, keep: bool, discard: str | None, note: str | None
+) -> None:
+    """Show a manifesto's review, or record it with --keep or --discard REASON.
+
+    The decision applies to every Party that lists the file.
+    """
+    if keep and discard is not None:
+        raise click.UsageError("use either --keep or --discard, not both")
+    if not keep and discard is None:
+        if note is not None:
+            raise click.UsageError("--note needs --keep or --discard")
+        bundle, stored = _read_for_ingestion(directory)
+        document = _ledger_call(lambda: ledgers.listed_document(bundle, file))
+        derived, _ = ledgers.reconcile(bundle, stored)
+        pages = document.text.pages
+        empty = sum(1 for page in pages if not page.strip())
+        characters = sum(len(page) for page in pages)
+        click.echo(
+            f"Document {file} (parties {', '.join(document.parties)}): {len(pages)} pages, "
+            f"{empty} without text, {characters} characters"
+        )
+        review = derived.document(file).review
+        click.echo(f"Review: {ledgers.review_label(review)}")
+        if review is not None and review.note is not None:
+            click.echo(f"Note: {review.note}")
+        return
+    decision = ledgers.ReviewDecision.KEPT if keep else ledgers.ReviewDecision.DISCARDED
+    reason = None if discard is None else _DISCARD_CHOICES[discard]
+    bundle, ledger, lines = _ledger_call(
+        lambda: ledgers.review_in_dir(
+            directory, file, decision=decision, reason=reason, note=note
+        )
+    )
+    _echo_changes(lines or ["Ledger unchanged"])
+    for short_name in ledger.document(file).parties:
+        click.echo(_party_row(bundle, ledger, ledger.party(short_name)))
+
+
+@ingestion.command("no-manifesto")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.argument("short_name")
+@click.option("--note", default=None, help="An optional one-line note (e.g. where you looked).")
+@click.option("--undo", is_flag=True, help="Remove the no_manifesto exclusion.")
+def ingestion_no_manifesto(
+    directory: Path, short_name: str, note: str | None, undo: bool
+) -> None:
+    """Exclude a Party that lists no document because it has no manifesto."""
+    _, _, lines = _ledger_call(
+        lambda: ledgers.no_manifesto_in_dir(directory, short_name, note=note, undo=undo)
+    )
+    _echo_changes(lines or ["Ledger unchanged"])
+
+
+@ingestion.command("gate")
+@click.argument("directory", type=click.Path(path_type=Path))
+def ingestion_gate(directory: Path) -> None:
+    """Exit 0 when phase 4 may start (every Party Extracted or Excluded). Read-only."""
+    try:
+        ledger = _ledger_call(lambda: ledgers.require_phase4_ready(directory))
+    except click.ClickException as exc:
+        cause = exc.__cause__
+        if not isinstance(cause, ledgers.Phase4Blocked):
+            raise
+        for blocker in cause.blockers:
+            click.echo(f"Error: {blocker}", err=True)
+        click.echo(f"Phase 4: blocked ({len(cause.blockers)} blockers)")
+        raise click.exceptions.Exit(1) from None
+    phases = [party.phase for party in ledger.parties]
+    click.echo(
+        f"Phase 4: ready ({phases.count(ledgers.Phase.PROPOSALS_EXTRACTED)} extracted, "
+        f"{phases.count(ledgers.Phase.EXCLUDED)} excluded)"
+    )
+
+
+@main.group()
+def proposals() -> None:
+    """Phase 3: extract the Proposals of each kept manifesto of a format-2 bundle.
+
+    Extraction is per document content (content hash): a file shared by several
+    Parties, an unchanged file or the same bytes in another Election is
+    extracted once. Every LLM call is recorded as it returns, so extraction
+    continues over several runs without repeating a call.
+    """
+
+
+def _proposal_call(call: Callable[[], Any]) -> Any:
+    try:
+        return call()
+    except service.ElectionsError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@proposals.command("extract")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option("--file", "file", default=None, help="Only this kept document (file name).")
+@click.option(
+    "--max-calls",
+    type=click.IntRange(min=1),
+    default=proposal_store.DEFAULT_MAX_CALLS,
+    show_default=True,
+    help="Stop cleanly after this many new LLM calls; run again to continue.",
+)
+@click.option(
+    "--restart",
+    "restart",
+    default=None,
+    help="Delete the recorded calls of this document's in-progress extraction first.",
+)
+@click.option("--yes", is_flag=True, help="Do not ask for confirmation on the shared database.")
+@requires_db
+def proposals_extract(
+    app: AppContext,
+    directory: Path,
+    file: str | None,
+    max_calls: int,
+    restart: str | None,
+    yes: bool,
+) -> None:
+    """Extract every kept document's Proposals and record the counts in the ledger.
+
+    Needs an up-to-date Ingestion Ledger and the bundle imported. Provider and
+    model come from LLM_PROVIDER / LLM_MODEL; an in-progress extraction is
+    pinned to the ones it started with (--restart starts it again). "reused"
+    counts recorded calls replayed instead of calling the LLM.
+    """
+    try:
+        provider = _provider()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        plan = _proposal_call(
+            lambda: proposal_store.prepare_extraction(
+                app.engine, directory, provider, file=file, restart=restart
+            )
+        )
+        _confirm_shared(app, yes)
+        summary = _proposal_call(
+            lambda: proposal_store.execute_plan(
+                app.engine,
+                provider,
+                plan,
+                max_calls=max_calls,
+                echo=lambda line, err=False: click.echo(line, err=err),
+            )
+        )
+    finally:
+        _close(provider)
+    budget = summary.budget
+    if summary.stopped:
+        click.echo(f"Stopped after {budget.new_calls} calls; run again to continue")
+    click.echo(
+        f"Calls: {budget.new_calls} new, {budget.reused_calls} reused; "
+        f"input_tokens {budget.input_tokens}, output_tokens {budget.output_tokens}"
+    )
+    if summary.error is not None:
+        raise click.ClickException(summary.error)
+    if summary.failed:
+        raise click.ClickException(f"{len(summary.failed)} documents not extracted")
+
+
+def _count(value: int | None) -> str:
+    return "-" if value is None else str(value)
+
+
+@proposals.command("status")
+@click.argument("directory", type=click.Path(path_type=Path))
+@requires_db
+def proposals_status(app: AppContext, directory: Path) -> None:
+    """One line per kept document, then the ledger count problems. Read-only.
+
+    Columns: file, content hash (12), state, chunks done/total, validated
+    Proposals, ledger count. Exits 1 when a ledger count does not match the
+    stored Proposals.
+    """
+    bundle, ledger = _proposal_call(lambda: proposal_store.read_phase3(directory))
+    session = Session(app.engine)
+    try:
+        rows = proposal_store.status_rows(session, bundle, ledger)
+        problems = proposal_store.ledger_count_problems(session, bundle, ledger)
+    finally:
+        session.rollback()
+        session.close()
+    for row in rows:
+        click.echo(
+            f"{row.file}\t{row.content_hash[:12]}\t{row.state}\t"
+            f"{row.chunks_done}/{row.chunk_count}\t{_count(row.validated)}\t{_count(row.ledger)}"
+        )
+    for problem in problems:
+        click.echo(f"Error: {problem}", err=True)
+    if problems:
+        raise click.exceptions.Exit(1)
+
+
+@proposals.command("list")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option("--file", "file", required=True, help="The document (file name).")
+@click.option("--dropped", is_flag=True, help="List the dropped items instead.")
+@requires_db
+def proposals_list(app: AppContext, directory: Path, file: str, dropped: bool) -> None:
+    """Tab-separated Proposals of a document's complete extraction. Read-only.
+
+    Columns: ordinal, page, categories, tags, text (on one line). With
+    --dropped: chunk (1-based), page, reason, found_on, text.
+    """
+
+    def read() -> tuple[source_bundle.Bundle, str]:
+        bundle = source_bundle.read_bundle(directory)
+        ledgers.reconcile(bundle, None)  # refuses a format-1 bundle
+        return bundle, ledgers.listed_document(bundle, file).text.content_hash
+
+    _, content_hash = _proposal_call(read)
+    session = Session(app.engine)
+    try:
+        extraction = proposal_store.get_extraction(session, content_hash)
+        if extraction is None or extraction.status is not ProposalExtractionStatus.COMPLETE:
+            raise click.ClickException(
+                f"document {file}: no complete extraction for {content_hash[:12]}..."
+            )
+        if dropped:
+            for item in proposal_store.dropped_items(session, content_hash):
+                found_on = "" if item.get("found_on") is None else str(item["found_on"])
+                click.echo(
+                    f"{item['chunk'] + 1}\t{item['page']}\t{item['reason']}\t{found_on}\t"
+                    f"{_one_line(item['text'])}"
+                )
+            return
+        for proposal in proposal_store.load_proposals(session, content_hash):
+            click.echo(
+                f"{proposal.ordinal}\t{proposal.page}\t{','.join(proposal.categories)}\t"
+                f"{','.join(proposal.tags)}\t{_one_line(proposal.text)}"
+            )
+    finally:
+        session.rollback()
+        session.close()
+
+
+@main.group()
+def conflicts() -> None:
+    """Conflicts between two manifestos of one Party (format-2 bundles).
+
+    Two kept documents of a Party whose Constituencies intersect form an
+    overlap. "detect" asks the LLM which of their Proposals contradict and
+    records the result in the Ingestion Ledger. A coalition's joint manifesto
+    (joint_for in election.toml) prevails automatically; any other
+    contradiction waits for "decide". Proposals are never edited.
+    """
+
+
+def _conflict_row(entry: ledgers.ConflictEntry) -> str:
+    return "\t".join(
+        [
+            entry.party,
+            " + ".join(entry.files),
+            ",".join(entry.constituencies),
+            entry.status.value,
+            str(len(entry.contradictions)),
+            entry.prevails or "-",
+            entry.reason or "-",
+        ]
+    )
+
+
+@conflicts.command("detect")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option(
+    "--max-calls",
+    type=click.IntRange(min=1),
+    default=proposal_store.DEFAULT_MAX_CALLS,
+    show_default=True,
+    help="Stop before an overlap that would exceed this many new LLM calls.",
+)
+@requires_db
+def conflicts_detect(app: AppContext, directory: Path, max_calls: int) -> None:
+    """Check every unchecked overlap and record the contradictions in the ledger.
+
+    Needs an up-to-date Ingestion Ledger and both documents' Proposals. Reads
+    the database, never writes it; only the ledger file changes, after each
+    overlap. Provider and model come from LLM_PROVIDER / LLM_MODEL.
+    """
+    try:
+        provider = _provider()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        summary = _ledger_call(
+            lambda: proposal_conflicts.detect(
+                app.engine,
+                directory,
+                provider,
+                max_calls=max_calls,
+                echo=lambda line, err=False: click.echo(line, err=err),
+            )
+        )
+    finally:
+        _close(provider)
+    click.echo(
+        f"Calls: {summary.new_calls} new; input_tokens {summary.input_tokens}, "
+        f"output_tokens {summary.output_tokens}"
+    )
+    click.echo(f"Conflicts pending: {summary.pending}")
+    if summary.error is not None:
+        raise click.ClickException(summary.error)
+    if summary.failed:
+        raise click.ClickException(f"{len(summary.failed)} overlaps not checked")
+
+
+@conflicts.command("list")
+@click.argument("directory", type=click.Path(path_type=Path))
+def conflicts_list(directory: Path) -> None:
+    """One tab-separated line per overlap. Read-only; no database needed.
+
+    Columns: party, files, Constituencies, status, contradictions, prevails,
+    reason.
+    """
+    bundle, stored = _read_for_ingestion(directory)
+    derived, _ = ledgers.reconcile(bundle, stored)
+    if stored is not None and ledgers.render_ledger(derived) != ledgers.render_ledger(stored):
+        click.echo(
+            f'Warning: ledger is out of date; run "ideology ingestion update {bundle.path}"',
+            err=True,
+        )
+    for entry in derived.conflicts:
+        click.echo(_conflict_row(entry))
+    pending = ledgers.pending_conflicts(derived, bundle.path)
+    click.echo(f"Conflicts: {len(derived.conflicts)}; pending {len(pending)}")
+
+
+@conflicts.command("show")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.argument("short_name")
+@click.argument("file_a")
+@click.argument("file_b")
+@requires_db
+def conflicts_show(
+    app: AppContext, directory: Path, short_name: str, file_a: str, file_b: str
+) -> None:
+    """Show each contradiction of a Party's overlap with both Proposals. Read-only."""
+    _, ledger = _ledger_call(lambda: proposal_store.read_phase3(directory))
+    try:
+        entry = ledger.conflict(short_name, [file_a, file_b])
+    except KeyError:
+        raise click.ClickException(
+            f"party {short_name} has no overlap between {file_a} and {file_b}"
+        ) from None
+    session = Session(app.engine)
+    try:
+        rows = proposal_conflicts.show_rows(session, entry)
+    finally:
+        session.rollback()
+        session.close()
+    click.echo(
+        f"Conflict {ledgers.conflict_label(entry)} "
+        f"({ledgers.codes_label(entry.constituencies)}): "
+        f"{proposal_conflicts.outcome_label(entry)}"
+    )
+    for row in rows:
+        click.echo(f"#{row.number} [{row.category}] {row.explanation}")
+        for side, shown in (("A", row.a), ("B", row.b)):
+            page = "?" if shown.page is None else str(shown.page)
+            text = "(not in the database)" if shown.text is None else _one_line(shown.text)
+            click.echo(f"{side} {shown.file} p.{page} #{shown.ordinal}: {text}")
+    if entry.prevails is not None:
+        click.echo(f"Prevails: {entry.prevails} ({entry.reason or 'joint manifesto'})")
+
+
+@conflicts.command("decide")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.argument("short_name")
+@click.option("--prevails", "prevails", required=True, help="The document that prevails.")
+@click.option("--over", "over", required=True, help="The document it prevails over.")
+@click.option("--reason", "reason", required=True, help="Why (one line, required).")
+def conflicts_decide(
+    directory: Path, short_name: str, prevails: str, over: str, reason: str
+) -> None:
+    """Record which document prevails in a Party's checked overlap, and why.
+
+    The other document's contradicting Proposals are set aside for that Party
+    in the overlap Constituencies only. Re-deciding overwrites the decision.
+    """
+    _, ledger, lines = _ledger_call(
+        lambda: ledgers.decide_conflict_in_dir(
+            directory, short_name, prevails=prevails, over=over, reason=reason
+        )
+    )
+    _echo_changes(lines or ["Ledger unchanged"])
+    click.echo(_conflict_row(ledger.conflict(short_name, [prevails, over])))
 
 
 def _provider() -> LLMProvider:
@@ -777,15 +1424,20 @@ def _confirm_shared(app: AppContext, yes: bool) -> None:
 
 
 def _guard_unfinished(
-    app: AppContext, election_id: int, provider: LLMProvider, fresh: bool
+    app: AppContext,
+    election_id: int,
+    provider: LLMProvider,
+    fresh: bool,
+    generation: ModelGeneration = ModelGeneration.LEGACY,
 ) -> None:
-    """Refuse (shared database) or warn (any other) when the Election has an unfinished run."""
+    """Refuse (shared database) or warn (any other) when the Election has an unfinished
+    run of the same model generation."""
     if fresh:
         return
     session = Session(app.engine)
     try:
         unfinished = pipelines.find_unfinished_run(
-            session, election_id, provider.name, provider.model
+            session, election_id, provider.name, provider.model, generation
         )
     finally:
         session.rollback()
@@ -896,6 +1548,117 @@ def pipeline_run(
     _echo_passed(outcome)
 
 
+V2_NOT_PUBLISHED = (
+    "Not published: v2 dataset versions are published from "
+    "constituency-selection-validation on"
+)
+
+
+@pipeline.command("run-v2")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option(
+    "--resume-from",
+    "resume_from",
+    type=int,
+    default=None,
+    help="Reuse the recorded LLM calls of this earlier v2 run (same election, provider "
+    "and model) and only call the LLM for the rest.",
+)
+@click.option(
+    "--reuse-from",
+    "reuse_from",
+    type=int,
+    default=None,
+    help="Reuse the identical recorded LLM calls of this earlier v2 run, even one that "
+    "already has a dataset version.",
+)
+@click.option(
+    "--fresh",
+    is_flag=True,
+    help="Start from zero even though the election has an unfinished v2 run.",
+)
+@click.option("--yes", is_flag=True, help="Do not ask for confirmation on the shared database.")
+@requires_db
+def pipeline_run_v2(
+    app: AppContext,
+    directory: Path,
+    resume_from: int | None,
+    reuse_from: int | None,
+    fresh: bool,
+    yes: bool,
+) -> None:
+    """Phase 4 of a format-2 Election: Statements from Proposals, Proposal-backed Positions.
+
+    Refuses (exit 1, nothing written) unless every Party is Extracted or
+    Excluded, no conflict is pending, the Ingestion Ledger is up to date, the
+    Election is imported and the ledger counts match the stored Proposals.
+    The passed Dataset Version stays candidate (not published yet). Every LLM
+    call is recorded; --resume-from / --reuse-from work as for "pipeline run".
+    """
+    if resume_from is not None and reuse_from is not None:
+        raise click.UsageError("pass at most one of --resume-from or --reuse-from")
+    if fresh and resume_from is not None:
+        raise click.UsageError("pass at most one of --fresh or --resume-from")
+    source_run = resume_from if resume_from is not None else reuse_from
+    try:
+        mode = config.generation_mode()
+        settings = config.validation_settings()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    session = Session(app.engine)
+    try:
+        phase4 = pipelines_v2.load_phase4(session, directory)
+    except pipelines_v2.Phase4Error as exc:
+        if not exc.blockers:
+            raise click.ClickException(str(exc)) from exc
+        for blocker in exc.blockers:
+            click.echo(f"Error: {blocker}", err=True)
+        raise click.exceptions.Exit(1) from None
+    finally:
+        session.rollback()
+        session.close()
+    try:
+        provider = _provider()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        if resume_from is None:
+            _guard_unfinished(app, phase4.election_id, provider, fresh, ModelGeneration.V2)
+        _confirm_shared(app, yes)
+        with session_scope(app.engine) as session:
+            run = pipelines_v2.queue_v2_run(
+                session,
+                phase4.election_id,
+                llm_provider=provider.name,
+                llm_model=provider.model,
+                generation_mode=mode,
+                resumed_from_run_id=source_run,
+                allow_finished_source=reuse_from is not None,
+            )
+            run_id = run.id
+        if resume_from is not None:
+            click.echo(
+                f"Pipeline run {run_id}: resuming from run {resume_from} "
+                f"({pipelines.count_recorded_calls(app.engine, resume_from)} recorded calls)"
+            )
+        if reuse_from is not None:
+            click.echo(
+                f"Pipeline run {run_id}: reusing identical calls of run {reuse_from} "
+                f"({pipelines.count_recorded_calls(app.engine, reuse_from)} recorded calls)"
+            )
+        outcome = pipelines_v2.execute_v2_run(app.engine, run_id, provider, directory, settings)
+    finally:
+        _close(provider)
+    _raise_if_failed(outcome)
+    _echo_passed(outcome)
+    if outcome.statement_count < pipelines_v2.POOL_TARGET:
+        click.echo(
+            f"Warning: pool of {outcome.statement_count} statements is below the "
+            f"{pipelines_v2.POOL_TARGET} target",
+            err=True,
+        )
+
+
 @pipeline.command("run-queued")
 @click.option(
     "--election", "election_id", type=int, default=None, help="Only this Election's runs."
@@ -956,6 +1719,11 @@ def _echo_publish(outcome: pipelines.RunOutcome) -> None:
     """Say whether a ``passed`` run's Dataset Version was published."""
     publish = outcome.publish
     if publish is None:
+        if (
+            outcome.status is PipelineRunStatus.PASSED
+            and outcome.model_generation is ModelGeneration.V2
+        ):
+            click.echo(V2_NOT_PUBLISHED)
         return
     if publish.published:
         line = (
@@ -1477,7 +2245,16 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
         ),
         ("statements", "none" if report.statement_count is None else report.statement_count),
         ("questionnaire_lengths", _lengths_line(report)),
-        *_selection_lines(report.statement_selection),
+        *(
+            _selection_lines(report.statement_selection)
+            if report.model_generation is ModelGeneration.LEGACY
+            else [
+                (
+                    "statement_selection",
+                    pipelines_v2.pool_summary(report.statement_selection) or NOT_RECORDED,
+                )
+            ]
+        ),
         ("publication", _publication(report)),
     ]
     for key, value in lines:
@@ -1485,7 +2262,10 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
     click.echo("")
     click.echo("validation report:")
     _print_rows(CHECKS_HEADER, rows)
-    if report.statement_selection is not None:
+    if (
+        report.statement_selection is not None
+        and report.model_generation is ModelGeneration.LEGACY
+    ):
         click.echo("")
         click.echo("statement pool:")
         _print_rows(

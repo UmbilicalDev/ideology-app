@@ -17,6 +17,7 @@ from ideology_app.config import GenerationMode
 from ideology_app.elections import NotFoundError
 from ideology_app.models import (
     DatasetVersionStatus,
+    ModelGeneration,
     PipelineRun,
     PipelineRunCall,
     PipelineRunStatus,
@@ -41,6 +42,8 @@ class RunReport:
     Published Dataset Version (``None`` before its first publish). ``results``
     are the run's Validation results in check order, with their entries; they
     are ORM rows, so read them inside the session that built the report.
+    ``model_generation`` says which pipeline produced the run (a v2 run's
+    ``statement_selection`` is the v2 pool report, ``v2-pool-1``).
     """
 
     run_id: int
@@ -69,6 +72,7 @@ class RunReport:
     live_dataset_version_id: int | None
     live_run_id: int | None
     results: Sequence[ValidationResult]
+    model_generation: ModelGeneration = ModelGeneration.LEGACY
 
 
 def get_run_report(session: Session, run_id: int) -> RunReport:
@@ -132,4 +136,5 @@ def get_run_report(session: Session, run_id: int) -> RunReport:
         live_dataset_version_id=None if live is None else live.id,
         live_run_id=None if live is None else live.pipeline_run_id,
         results=list_validation_results(session, run.id),
+        model_generation=run.model_generation,
     )
