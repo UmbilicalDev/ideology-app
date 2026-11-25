@@ -690,7 +690,49 @@ V2_MANIFEST_ERRORS: dict[str, tuple[str, str | int, str]] = {
         _v2(PSC_SCOPE, 'constituencies = ["00"]'), 'constituencies = ["00"]',
         "unknown Constituency '00'",
     ),
+    # joint_for (proposal-conflicts scenario 11).
+    "joint_for party not in the document": (
+        _v2('parties = ["UPN-PP"]', 'parties = ["UPN-PP"]\njoint_for = ["PP"]'),
+        'joint_for = ["PP"]', "document upn.md: joint_for party 'PP' is not in its parties",
+    ),
+    "joint_for empty": (
+        _v2('parties = ["UPN-PP"]', 'parties = ["UPN-PP"]\njoint_for = []'), "joint_for = []",
+        "document upn.md: joint_for must be a non-empty list of short names",
+    ),
+    "joint_for duplicate": (
+        _v2('parties = ["UPN-PP"]', 'parties = ["UPN-PP"]\njoint_for = ["UPN-PP", "UPN-PP"]'),
+        "joint_for = [", "document upn.md: duplicate joint_for party 'UPN-PP'",
+    ),
+    "joint_for not a list": (
+        _v2('parties = ["UPN-PP"]', 'parties = ["UPN-PP"]\njoint_for = "UPN-PP"'),
+        'joint_for = "UPN-PP"', "document upn.md: joint_for must be a non-empty list",
+    ),
+    "joint_for not a string": (
+        _v2('parties = ["UPN-PP"]', 'parties = ["UPN-PP"]\njoint_for = [1]'), "joint_for = [1]",
+        "document upn.md: joint_for party 1 must be a string",
+    ),
 }
+
+
+def test_joint_for_is_read(tmp_path: Path) -> None:
+    upn = dataclasses.replace(DOC_UPN, joint_for=["UPN-PP"])
+    documents = [upn if d.file == "upn.md" else d for d in V2_DOCUMENTS]
+    bundle = read_bundle(write_bundle_v2(tmp_path, documents=documents))
+    assert [(d.file, d.joint_for) for d in bundle.documents] == [
+        ("pp.md", ()), ("upn.md", ("UPN-PP",)), ("psoe.md", ()), ("psc.md", ()),
+    ]
+    # Without joint_for a format-2 bundle reads as before.
+    plain = read_bundle(write_bundle_v2(tmp_path / "plain"))
+    assert all(d.joint_for == () for d in plain.documents)
+
+
+def test_joint_for_is_unknown_in_format_1(tmp_path: Path) -> None:
+    manifest = manifest_text([PP, PSOE]).replace(
+        'file = "pp.md"', 'file = "pp.md"\njoint_for = ["PP"]'
+    )
+    directory = write_bundle(tmp_path, manifest=manifest)
+    with pytest.raises(BundleError, match=r"unknown key 'joint_for' in \[\[parties\]\] #1"):
+        read_bundle(directory)
 
 
 @pytest.mark.parametrize("case", sorted(V2_MANIFEST_ERRORS))

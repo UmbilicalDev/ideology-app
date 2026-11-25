@@ -81,7 +81,7 @@ _MANIFEST_PARTY_KEYS = ("short_name", "name", "file")
 _MANIFEST_PARTY_KEYS_V2 = ("short_name", "name", "constituencies")
 _MANIFEST_PARTY_OPTIONAL_KEYS = frozenset({"logo"})
 _MANIFEST_DOCUMENT_KEYS = ("file", "parties")
-_MANIFEST_DOCUMENT_OPTIONAL_KEYS = frozenset({"constituencies"})
+_MANIFEST_DOCUMENT_OPTIONAL_KEYS = frozenset({"constituencies", "joint_for"})
 _FORMAT_PROBLEM = "format must be 1 or 2"
 _CANDIDATURES_SOURCE_MAX = 500
 _URL_MAX = 2048
@@ -412,12 +412,15 @@ class BundleDocument:
     Format 1 derives one per Party (``parties=(short_name,)``, no
     ``constituencies``). ``constituencies`` is the declared scope, sorted, or
     ``None`` (every Constituency of each listed Party); see ``document_scope``.
+    ``joint_for`` names the listed Parties for which this file is the
+    coalition's own joint manifesto (format 2 only; ``proposal-conflicts``).
     """
 
     file: str
     text: SourceText
     parties: tuple[str, ...]
     constituencies: tuple[str, ...] | None = None
+    joint_for: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -548,6 +551,7 @@ class _ManifestDocument:
     parties: tuple[str, ...]
     constituencies: tuple[str, ...] | None
     line: int
+    joint_for: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -726,6 +730,31 @@ def _read_candidatures(
     return CandidatureSource(source, url)
 
 
+def _joint_for(
+    name: str, line: int, value: Any, file: str, short_names: list[str]
+) -> tuple[str, ...]:
+    """``joint_for``: a non-empty list of the document's own Parties, no duplicates."""
+    if not isinstance(value, list) or not value:
+        raise _error(
+            name, line, f"document {file}: joint_for must be a non-empty list of short names"
+        )
+    joint: list[str] = []
+    for short_name in value:
+        if not isinstance(short_name, str):
+            raise _error(
+                name, line, f"document {file}: joint_for party {short_name!r} must be a string"
+            )
+        if short_name not in short_names:
+            raise _error(
+                name, line,
+                f"document {file}: joint_for party {short_name!r} is not in its parties",
+            )
+        if short_name in joint:
+            raise _error(name, line, f"document {file}: duplicate joint_for party {short_name!r}")
+        joint.append(short_name)
+    return tuple(joint)
+
+
 def _read_documents(
     name: str, lines: _ManifestLines, manifest: dict[str, Any], parties: list[_ManifestParty]
 ) -> list[_ManifestDocument]:
@@ -794,7 +823,15 @@ def _read_documents(
                         f"document {file}: party {short_name} runs in none of its "
                         "Constituencies",
                     )
-        documents.append(_ManifestDocument(file, tuple(short_names), constituencies, line))
+        joint_for: tuple[str, ...] = ()
+        if "joint_for" in entry:
+            joint_for = _joint_for(
+                name, lines.of("documents", index, "joint_for"), entry["joint_for"], file,
+                short_names,
+            )
+        documents.append(
+            _ManifestDocument(file, tuple(short_names), constituencies, line, joint_for)
+        )
     return documents
 
 
@@ -1004,7 +1041,8 @@ def read_bundle(path: Path) -> Bundle:
             hashes[(short_name, source_text.content_hash)] = document.file
         read_documents.append(
             BundleDocument(
-                document.file, source_text, document.parties, document.constituencies
+                document.file, source_text, document.parties, document.constituencies,
+                document.joint_for,
             )
         )
     return Bundle(
