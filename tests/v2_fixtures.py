@@ -13,7 +13,9 @@ measure with the categories and tags of ``MEASURES``. The two categories are
 ``housing`` (Vivienda) and ``economy`` (Economía). The v2 fake provider
 (``v2_fake``) drafts one Statement per ``STATEMENTS`` entry whose category is
 the request's, citing every listed Proposal, and positions a Party with the
-``STANCES`` of the Proposals it lists.
+``STANCES`` of the Proposals it lists. Its ``statement_rewording_check``
+(statement-rewording) answers equivalent unless the new wording contains
+``REJECT_MARKER`` (``CAMBIO``).
 """
 
 import re
@@ -195,10 +197,32 @@ def positions_responder(
     return respond
 
 
+REJECT_MARKER = "CAMBIO"
+_NEW_TEXT_RE = re.compile(r"Nueva redacción:\n\n(.*)\n\n", re.DOTALL)
+
+
+def rewording_new_text(request: LLMRequest[Any]) -> str:
+    match = _NEW_TEXT_RE.search(request.prompt)
+    assert match is not None, request.prompt
+    return match.group(1)
+
+
+def rewording_responder() -> Callable[[LLMRequest[Any]], dict[str, Any]]:
+    """Equivalent unless the new wording contains ``REJECT_MARKER``."""
+
+    def respond(request: LLMRequest[Any]) -> dict[str, Any]:
+        if REJECT_MARKER in rewording_new_text(request):
+            return {"equivalent": False, "explanation": "La nueva redacción cambia la medida."}
+        return {"equivalent": True, "explanation": "Misma medida con palabras más sencillas."}
+
+    return respond
+
+
 def v2_fake(
     *,
     drafts: Callable[[LLMRequest[Any]], dict[str, Any]] | None = None,
     positions: Callable[[LLMRequest[Any]], dict[str, Any]] | None = None,
+    rewordings: Callable[[LLMRequest[Any]], dict[str, Any]] | None = None,
     fail_on_call: int | None = None,
     model: str = "fake-model",
 ) -> FakeProvider:
@@ -206,6 +230,7 @@ def v2_fake(
     provider: FakeProvider
     draft_fn = drafts or drafts_responder()
     position_fn = positions or positions_responder()
+    rewording_fn = rewordings or rewording_responder()
 
     def wrap(fn: Callable[[LLMRequest[Any]], dict[str, Any]]) -> Callable[..., dict[str, Any]]:
         def respond(request: LLMRequest[Any]) -> dict[str, Any]:
@@ -216,7 +241,11 @@ def v2_fake(
         return respond
 
     provider = FakeProvider(
-        {"statement_drafts": wrap(draft_fn), "proposal_positions": wrap(position_fn)},
+        {
+            "statement_drafts": wrap(draft_fn),
+            "proposal_positions": wrap(position_fn),
+            "statement_rewording_check": wrap(rewording_fn),
+        },
         model=model,
     )
     return provider

@@ -26,6 +26,7 @@ from ideology_app.models import (
     SourceDocumentRole,
     Statement,
     StatementProposal,
+    StatementRewording,
 )
 
 MESSAGE_MAX = 500
@@ -34,13 +35,19 @@ CHECK_NAME_MAX = 50
 
 @dataclass(frozen=True)
 class StatementRow:
-    """A Statement; ``context_note`` is None when it has none (versions before ``0014``)."""
+    """A Statement; ``context_note`` is None when it has none (versions before ``0014``).
+
+    ``ai_text`` and ``rewording_reason`` come from its ``statement_rewordings``
+    row (v2, ``statement-rewording``); both are None without one.
+    """
 
     id: int
     position: int
     text: str
     topic: str
     context_note: str | None = None
+    ai_text: str | None = None
+    rewording_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -147,6 +154,9 @@ class ValidationInput:
     constituency_statements: Mapping[str, tuple[tuple[int, int], ...]] = field(
         default_factory=dict
     )
+    # v2 runs only (statement-rewording): the ``applied`` entries of the run's
+    # rewording report as (Statement position, ai_text, text, reason).
+    applied_rewordings: tuple[tuple[int, str, str, str], ...] = ()
 
 
 def offered_lengths(data: ValidationInput) -> tuple[int, ...]:
@@ -207,7 +217,8 @@ def load_input(
     ``settings`` is passed through unchanged. The run must have a Dataset Version.
     For a v2 run it also reads the Statement sources, the Evidence Proposals
     and the Proposals they cite, the candidature snapshot, the Constituency
-    rows and each Constituency's ranked Statements, and ``party_ids`` are the
+    rows, each Constituency's ranked Statements, the Statement Rewording rows
+    and the ``applied`` entries of the run's rewording report, and ``party_ids`` are the
     Parties with Positions (the non-Excluded ones), not every Party of the
     Election. ``constituency_settings`` (v2 only; ``None``: the defaults) is
     passed through unchanged.
@@ -242,7 +253,23 @@ def load_input(
     candidatures: tuple[SnapshotRow, ...] = ()
     constituency_rows: tuple[ConstituencyRowData, ...] = ()
     constituency_statements: dict[str, tuple[tuple[int, int], ...]] = {}
+    rewordings: dict[int, StatementRewording] = {}
+    applied_rewordings: tuple[tuple[int, str, str, str], ...] = ()
     if generation is ModelGeneration.V2:
+        rewordings = {
+            r.statement_id: r
+            for r in session.scalars(
+                select(StatementRewording)
+                .join(Statement, StatementRewording.statement_id == Statement.id)
+                .where(Statement.dataset_version_id == version.id)
+            )
+        }
+        report = (run.statement_selection or {}).get("rewordings") or {}
+        applied_rewordings = tuple(
+            (e.get("statement"), e.get("ai_text"), e.get("text"), e.get("reason"))
+            for e in report.get("entries", ())
+            if e.get("status") == "applied"
+        )
         party_ids = sorted({p.party_id for p, _ in positions})
         sources: dict[int, list[int]] = {}
         for link in session.scalars(
@@ -319,6 +346,8 @@ def load_input(
                 text=s.text,
                 topic=s.topic,
                 context_note=s.context_note,
+                ai_text=rewordings[s.id].ai_text if s.id in rewordings else None,
+                rewording_reason=rewordings[s.id].reason if s.id in rewordings else None,
             )
             for s in statements
         ),
@@ -360,4 +389,5 @@ def load_input(
         candidatures=candidatures,
         constituency_rows=constituency_rows,
         constituency_statements=constituency_statements,
+        applied_rewordings=applied_rewordings,
     )

@@ -2,7 +2,8 @@
 
 ``constituency_summary`` is the one-line summary of ``pipeline run-v2`` and
 ``pipeline report``; ``dataset_version_problems`` is ``db check``'s
-consistency check of the three tables. Only ``SELECT`` statements; the 52-row
+consistency check of the three tables (and, since ``statement-rewording``,
+that no legacy version has ``statement_rewordings`` rows). Only ``SELECT`` statements; the 52-row
 table belongs to ``v2-run-inspection``.
 """
 
@@ -17,6 +18,7 @@ from ideology_app.models import (
     DatasetVersionConstituency,
     ModelGeneration,
     Statement,
+    StatementRewording,
 )
 
 _TABLES = (DatasetVersionConstituency, DatasetVersionCandidature, ConstituencyStatement)
@@ -60,7 +62,8 @@ def dataset_version_problems(session: Session) -> list[str]:
     Every v2 Dataset Version has one row per seeded Constituency and at least
     one candidature row, and each available row's ranks are
     1..``valid_statement_count`` (an unavailable one lists none). A legacy
-    version has no row in the three tables. Live candidatures are never read.
+    version has no row in the three tables nor in ``statement_rewordings``.
+    Live candidatures are never read.
     """
     problems: list[str] = []
     codes = [code for code, _ in CONSTITUENCIES]
@@ -77,6 +80,15 @@ def dataset_version_problems(session: Session) -> list[str]:
             for model in _TABLES
         }
         if generation is not ModelGeneration.V2:
+            counts[StatementRewording.__tablename__] = (
+                session.scalar(
+                    select(func.count())
+                    .select_from(StatementRewording)
+                    .join(Statement, StatementRewording.statement_id == Statement.id)
+                    .where(Statement.dataset_version_id == version_id)
+                )
+                or 0
+            )
             problems.extend(
                 f"dataset version {version_id} (legacy) has {count} rows in {table}"
                 for table, count in counts.items()

@@ -3,7 +3,10 @@
 Statements are drafted from groups of similar counted Proposals and every
 non-Excluded Party is positioned with its own Proposals as Evidence; then
 Constituency Selection (constituency-selection-validation, ``selection``)
-decides each Constituency's Questionnaire with ``constituency_rules``. Depends
+decides each Constituency's Questionnaire with ``constituency_rules``.
+Statement Rewordings from ``statement-rewordings.toml`` (``rewording``,
+statement-rewording) are judged after positioning and stored with the new
+Dataset Version. Depends
 on ``llm.base`` (never a concrete provider), ``models``, ``proposals``
 (``counted_proposals``, ``ledger_count_problems``), ``ingestion_ledger``,
 ``bundle_import``, ``validation`` and ``pipeline`` (checkpoint, usage, runs).
@@ -38,16 +41,32 @@ from ideology_app.pipeline.v2.positions import (
 from ideology_app.pipeline.v2.prompts import (
     PROPOSAL_POSITIONS,
     STATEMENT_DRAFTS,
+    STATEMENT_REWORDING_CHECK,
     V2_PROMPT_VERSIONS,
     V2_PROMPTS,
+    RewordingVerdict,
     draft_request,
     draft_set_schema,
     position_request,
     position_set_schema,
+    rewording_request,
+)
+from ideology_app.pipeline.v2.rewording import (
+    MAX_REWORDINGS,
+    REWORDINGS_NAME,
+    AppliedRewording,
+    RewordingEntry,
+    RewordingFile,
+    RewordingFileError,
+    RewordingOutcome,
+    apply_rewordings,
+    read_rewordings,
+    rewording_summary,
 )
 from ideology_app.pipeline.v2.run import (
     MAX_V2_CALLS_PER_RUN,
     REPORT_VERSION,
+    REWORDING_INVALID_PREFIX,
     V2Pool,
     execute_v2_run,
     plan_calls,
@@ -65,15 +84,20 @@ from ideology_app.pipeline.v2.stored import constituency_summary, dataset_versio
 
 __all__ = [
     "DRAFT_SLICE_MAX_CHARS",
+    "MAX_REWORDINGS",
     "MAX_V2_CALLS_PER_RUN",
     "POOL_TARGET",
     "POSITION_SLICE_MAX_CHARS",
     "PROPOSAL_POSITIONS",
     "REPORT_VERSION",
+    "REWORDINGS_NAME",
+    "REWORDING_INVALID_PREFIX",
     "SELECTION_VERSION",
     "STATEMENT_DRAFTS",
+    "STATEMENT_REWORDING_CHECK",
     "V2_PROMPTS",
     "V2_PROMPT_VERSIONS",
+    "AppliedRewording",
     "CandidatureRow",
     "ConstituencyRow",
     "ConstituencySelection",
@@ -86,8 +110,14 @@ __all__ = [
     "Phase4Party",
     "PhaseProposal",
     "PoolDraft",
+    "RewordingEntry",
+    "RewordingFile",
+    "RewordingFileError",
+    "RewordingOutcome",
+    "RewordingVerdict",
     "V2Pool",
     "V2Position",
+    "apply_rewordings",
     "assign_positions",
     "build_pool",
     "constituency_summary",
@@ -105,5 +135,8 @@ __all__ = [
     "position_request",
     "position_set_schema",
     "queue_v2_run",
+    "read_rewordings",
+    "rewording_request",
+    "rewording_summary",
     "select_constituencies",
 ]

@@ -118,6 +118,7 @@ def test_registry() -> None:
         "evidence_quotes", "evidence_proposals", "statement_sources",
         "statement_uniqueness", "context_note", "constituency_snapshot",
         "constituency_validity", "constituency_availability", "constituency_order",
+        "statement_rewording",
     ]
     assert [c.name for c in CHECKS] == [
         "evidence_quotes", "party_coverage", "statement_separation", "statement_uniqueness",

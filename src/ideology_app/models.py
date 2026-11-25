@@ -486,6 +486,32 @@ class Statement(Base):
     party_positions: Mapped[list["PartyPosition"]] = relationship(
         back_populates="statement", order_by="PartyPosition.party_id", passive_deletes=True
     )
+    # v2 only (``statement-rewording``): the Statement Rewording applied in the
+    # run that wrote this Statement; ``None`` when ``text`` is the AI text.
+    rewording: Mapped["StatementRewording | None"] = relationship(passive_deletes=True)
+
+
+class StatementRewording(Base):
+    """An applied Statement Rewording of a v2 Statement (``statement-rewording``). Insert-only.
+
+    ``statements.text`` holds the Operator's text; ``ai_text`` is the
+    provider's text exactly, ``reason`` the Operator's reason and
+    ``explanation`` the ``statement_rewording_check`` verdict's explanation.
+    Written only by ``pipeline.v2.run._finish_v2``, in the commit that writes
+    the Dataset Version; legacy versions never have rows (migration 0020).
+    """
+
+    __tablename__ = "statement_rewordings"
+    __table_args__ = (sa.CheckConstraint("trim(reason) <> ''", name="reason_not_blank"),)
+
+    statement_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("statements.id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    ai_text: Mapped[str] = mapped_column(sa.String(300))
+    reason: Mapped[str] = mapped_column(sa.String(500))
+    explanation: Mapped[str] = mapped_column(sa.String(500))
 
 
 # What ``packages/core`` match-score expects for a Party Position without a stance.

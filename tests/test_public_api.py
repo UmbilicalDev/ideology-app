@@ -1129,3 +1129,47 @@ def test_openapi_documents_questionnaire_lengths(client_for: Callable[[], TestCl
         "before lengths existed offer only their full length."
     )
     assert "questionnaire_lengths" in out["required"]
+
+
+# --- statement-rewording R12: a reworded v2 version serves only the final text ---------------
+
+
+def test_reworded_statement_is_served_as_the_final_text_only(
+    tmp_path: Path, migrated_engine: Engine, client_for: Callable[[], TestClient]
+) -> None:
+    from v2_fixtures import STATEMENTS, setup, v2_fake
+
+    from ideology_app.config import ConstituencySettings
+    from ideology_app.pipeline.v2 import REWORDINGS_NAME, execute_v2_run, queue_v2_run
+
+    ai_text = STATEMENTS["Vivienda"][0]
+    new_text = "Debe ponerse un tope al precio del alquiler de las viviendas."
+    reason = "MOTIVO-DEL-OPERADOR"
+    directory = setup(tmp_path / "bundles", migrated_engine)
+    (directory / REWORDINGS_NAME).write_text(
+        f'format = 1\n\n[[rewordings]]\nai_text = "{ai_text}"\ntext = "{new_text}"\n'
+        f'reason = "{reason}"\n',
+        encoding="utf-8",
+    )
+    with session_scope(migrated_engine) as session:
+        run_id = queue_v2_run(
+            session, 1, llm_provider="fake", llm_model="fake-model",
+            generation_mode=GenerationMode.PRECOMPUTED,
+        ).id
+    outcome = execute_v2_run(
+        migrated_engine, run_id, v2_fake(), directory,
+        constituency_settings=ConstituencySettings(1, 1),
+    )
+    assert outcome.dataset_version_id is not None and outcome.publish is not None
+
+    response = client_for().get(f"/api/v1/dataset-versions/{outcome.dataset_version_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [s["text"] for s in body["statements"]] == [new_text, STATEMENTS["Economía"][0]]
+    assert all(
+        list(s) == ["id", "position", "text", "topic", "context_note"] for s in body["statements"]
+    )
+    raw = response.text
+    for hidden in (ai_text, reason, "ai_text", "reason", "explanation", "rewording"):
+        assert hidden not in raw, hidden

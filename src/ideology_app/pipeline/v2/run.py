@@ -1,8 +1,11 @@
 """The v2 Pipeline Run: queue, execute, write the Dataset Version, validate.
 
 ``execute_v2_run`` runs ``build_pool`` -> ``filter_pool`` ->
-``assign_positions`` -> ``V2Pool`` -> ``select_constituencies`` ->
-``_finish_v2`` -> ``validate_run``. Constituency Selection
+``assign_positions`` -> ``apply_rewordings`` (only with a
+``statement-rewordings.toml``) -> ``V2Pool`` -> ``select_constituencies`` ->
+``_finish_v2`` -> ``validate_run``. Rewordings apply after positioning, so
+Positions and Evidence are computed on the AI text and a ``--reuse-from``
+replay reuses every draft and position call (``statement-rewording``, R3). Constituency Selection
 (constituency-selection-validation) is deterministic and AI-free; its rows
 are written by ``_finish_v2`` in the Dataset Version's commit, and a passed
 v2 run is published (``publishing.PUBLISH_ON_PASS[v2]``).
@@ -13,11 +16,13 @@ so ``--resume-from`` / ``--reuse-from`` replay recorded calls); then either
 ``validating`` with the complete ``candidate`` Dataset Version (Statements,
 source Proposals, one Position per Party x Statement with its Evidence
 Proposals, the 52 Constituency rows, the candidature snapshot, each available
-Constituency's ordered Statements, the pool report) in one commit, or ``failed`` with a reason. v2
+Constituency's ordered Statements, the applied Statement Rewordings, the pool
+report) in one commit, or ``failed`` with a reason. v2
 runs never resolve Anchors (``anchor_dataset_version_id`` stays NULL, S8).
 """
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +50,7 @@ from ideology_app.models import (
     SourceDocumentRole,
     Statement,
     StatementProposal,
+    StatementRewording,
     _utcnow,
 )
 from ideology_app.pipeline.checkpoint import CheckpointProvider
@@ -68,6 +74,13 @@ from ideology_app.pipeline.v2.positions import (
     plan_position_calls,
 )
 from ideology_app.pipeline.v2.prompts import V2_PROMPT_VERSIONS
+from ideology_app.pipeline.v2.rewording import (
+    AppliedRewording,
+    RewordingFile,
+    RewordingFileError,
+    apply_rewordings,
+    read_rewordings,
+)
 from ideology_app.pipeline.v2.selection import ConstituencySelection, select_constituencies
 
 MAX_V2_CALLS_PER_RUN = 800
@@ -75,6 +88,7 @@ REPORT_VERSION = "v2-pool-1"
 BLOCKED_PREFIX = "phase 4 blocked: "
 NO_PROPOSALS_REASON = "no counted proposals: every Party is Excluded or has none"
 NO_STATEMENTS_REASON = "no statement was drafted from the counted proposals"
+REWORDING_INVALID_PREFIX = "rewording file invalid: "
 _REASON_MAX = 500
 
 
@@ -83,12 +97,15 @@ class V2Pool:
     """What a v2 run writes: the filtered pool, every Party's Positions and the report.
 
     ``positions`` maps each non-Excluded Party id to one ``V2Position`` per
-    Statement, in ``statements`` order.
+    Statement, in ``statements`` order. ``statements`` keep the AI text;
+    ``rewordings`` maps a 0-based pool index to its applied Statement
+    Rewording, whose text ``_finish_v2`` stores instead.
     """
 
     statements: tuple[PoolDraft, ...]
     positions: dict[int, list[V2Position]]
     report: dict[str, Any]
+    rewordings: Mapping[int, AppliedRewording] = field(default_factory=dict)
 
 
 def queue_v2_run(
@@ -141,6 +158,7 @@ def queue_v2_run(
 class _Started:
     phase4: Phase4Input
     resumed_from_run_id: int | None
+    rewordings: RewordingFile | None = None
 
 
 def _start_v2(
@@ -151,7 +169,9 @@ def _start_v2(
     Raises NotFoundError / InvalidInputError (nothing changes) for an unknown
     run, one that is not ``queued`` or not v2, another provider or model, or a
     bundle of another Election. When the gate refuses, the run is set
-    ``failed`` (``phase 4 blocked: ...``) and that outcome is returned.
+    ``failed`` (``phase 4 blocked: ...``) and that outcome is returned; an
+    invalid ``statement-rewordings.toml`` sets it ``failed`` with
+    ``rewording file invalid: ...``.
     """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
@@ -181,6 +201,15 @@ def _start_v2(
                 f"bundle {phase4.slug} is election {phase4.election_id}; "
                 f"pipeline run {run_id} belongs to election {run.election_id}"
             )
+        try:
+            rewordings = read_rewordings(bundle_dir)
+        except RewordingFileError as exc:
+            run.status = PipelineRunStatus.FAILED
+            run.failure_reason = (REWORDING_INVALID_PREFIX + str(exc))[:_REASON_MAX]
+            return RunOutcome(
+                run_id, run.status, None, 0, run.failure_reason,
+                model_generation=ModelGeneration.V2,
+            )
         for party in phase4.parties:
             for position, document_id in enumerate(party.document_ids):
                 session.add(
@@ -193,7 +222,7 @@ def _start_v2(
         run.anchor_dataset_version_id = None
         run.status = PipelineRunStatus.RUNNING
         run.started_at = _utcnow()
-        return _Started(phase4, run.resumed_from_run_id)
+        return _Started(phase4, run.resumed_from_run_id, rewordings)
 
 
 def _record_failure(engine: Engine, run_id: int, usage: Usage, reason: str) -> RunOutcome:
@@ -227,8 +256,10 @@ def _finish_v2(
     exactly, its page, its Source Document and that document's URL), the
     Evidence rows, the Constituency Selection (52 Constituency rows, the
     candidature snapshot, the ranked Statements of each available
-    Constituency) and the run's ``statement_selection`` (the v2 pool report
-    with the selection report under ``"constituencies"``).
+    Constituency), one ``statement_rewordings`` row per applied Statement
+    Rewording (``statements.text`` is then the Operator's text and the row
+    keeps the AI text) and the run's ``statement_selection`` (the v2 pool
+    report with the selection report under ``"constituencies"``).
     """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
@@ -250,15 +281,24 @@ def _finish_v2(
         rows = [
             Statement(
                 dataset_version_id=version.id,
-                position=position,
-                text=draft.text,
+                position=index + 1,
+                text=pool.rewordings[index].text if index in pool.rewordings else draft.text,
                 topic=draft.category,
                 context_note=draft.context_note,
             )
-            for position, draft in enumerate(pool.statements, start=1)
+            for index, draft in enumerate(pool.statements)
         ]
         session.add_all(rows)
         session.flush()
+        session.add_all(
+            StatementRewording(
+                statement_id=rows[index].id,
+                ai_text=pool.statements[index].text,
+                reason=applied.reason,
+                explanation=applied.explanation,
+            )
+            for index, applied in sorted(pool.rewordings.items())
+        )
         for row, draft in zip(rows, pool.statements, strict=True):
             session.add_all(
                 StatementProposal(statement_id=row.id, rank=rank, proposal_id=proposal_id)
@@ -336,9 +376,10 @@ def _partial_scope(party: Phase4Party) -> bool:
     return any(c != union for c in codes)
 
 
-def plan_calls(phase4: Phase4Input) -> int:
-    """The most LLM calls a v2 run of ``phase4`` can make (drafts exact, positions bound)."""
-    return plan_draft_calls(phase4.parties) + plan_position_calls(phase4.parties)
+def plan_calls(phase4: Phase4Input, rewordings: int = 0) -> int:
+    """The most LLM calls a v2 run of ``phase4`` can make (drafts exact, positions bound),
+    plus one equivalence call per rewording entry (``rewordings``, a bound)."""
+    return plan_draft_calls(phase4.parties) + plan_position_calls(phase4.parties) + rewordings
 
 
 def execute_v2_run(
@@ -372,7 +413,10 @@ def execute_v2_run(
     provider = CheckpointProvider(provider, engine, run_id, started.resumed_from_run_id)
     usage = Usage()
     try:
-        planned = plan_calls(phase4)
+        rewording_file = started.rewordings
+        planned = plan_calls(
+            phase4, 0 if rewording_file is None else len(rewording_file.entries)
+        )
         if planned > MAX_V2_CALLS_PER_RUN:
             raise GenerationError(
                 f"too many v2 calls planned: {planned} (limit {MAX_V2_CALLS_PER_RUN})"
@@ -384,6 +428,11 @@ def execute_v2_run(
         if not kept.statements:
             raise GenerationError(NO_STATEMENTS_REASON)
         assigned = assign_positions(provider, kept.statements, phase4.parties, usage)
+        reworded = (
+            None
+            if rewording_file is None
+            else apply_rewordings(provider, kept.statements, rewording_file, usage)
+        )
         pool = V2Pool(
             statements=kept.statements,
             positions=assigned.positions,
@@ -406,7 +455,9 @@ def execute_v2_run(
                 "filtered": list(kept.filtered),
                 "pool_size": len(kept.statements),
                 "positions": assigned.report,
+                **({} if reworded is None else {"rewordings": reworded.report}),
             },
+            rewordings={} if reworded is None else reworded.applied,
         )
         selection = select_constituencies(
             pool.statements,
@@ -448,6 +499,7 @@ __all__ = [
     "NO_PROPOSALS_REASON",
     "NO_STATEMENTS_REASON",
     "REPORT_VERSION",
+    "REWORDING_INVALID_PREFIX",
     "V2Pool",
     "execute_v2_run",
     "plan_calls",

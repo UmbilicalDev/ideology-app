@@ -52,8 +52,10 @@ TABLES_AT_0018 = TABLES_AT_0017 | V2_EVIDENCE_TABLES
 SELECTION_TABLES = {
     "dataset_version_constituencies", "dataset_version_candidatures", "constituency_statements",
 }
-ALL_TABLES = TABLES_AT_0018 | SELECTION_TABLES
-HEAD = "0019"
+TABLES_AT_0019 = TABLES_AT_0018 | SELECTION_TABLES
+REWORDING_TABLES = {"statement_rewordings"}
+ALL_TABLES = TABLES_AT_0019 | REWORDING_TABLES
+HEAD = "0020"
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -311,7 +313,9 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert sql.count("ck_dataset_version_constituencies_reason_matches_available") == 1
     assert sql.count("ck_dataset_version_candidatures_excluded_reason_known") == 1
     assert sql.count("ck_constituency_statements_rank_positive") == 1
-    assert sql.count("CHECK") == 24
+    # 0020: one CHECK on the rewording reason.
+    assert sql.count("ck_statement_rewordings_reason_not_blank") == 1
+    assert sql.count("CHECK") == 25
 
 
 def test_downgrade_to_0003_drops_exactly_the_pipeline_tables(db_url: str) -> None:
@@ -2164,7 +2168,7 @@ def test_upgrade_0019_adds_three_empty_tables_and_keeps_every_row(db_url: str) -
     run_migrations(db_url, "0019")
 
     assert _version(db_url) == "0019"
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0019
     assert _counts(db_url, tuple(sorted(SELECTION_TABLES))) == dict.fromkeys(
         sorted(SELECTION_TABLES), 0
     )
@@ -2275,3 +2279,132 @@ def test_offline_postgresql_render_of_0019() -> None:
     assert "DROP TABLE constituency_statements;" in down_sql
     assert "DROP TABLE dataset_version_candidatures;" in down_sql
     assert "DROP TABLE dataset_version_constituencies;" in down_sql
+
+
+# Migration 0020: applied Statement Rewordings (statement-rewording).
+
+REWORDING_DDL = [
+    "CONSTRAINT ck_statement_rewordings_reason_not_blank CHECK (trim(reason) <> '')",
+    "CONSTRAINT pk_statement_rewordings PRIMARY KEY (statement_id)",
+    "CONSTRAINT fk_statement_rewordings_statement_id_statements FOREIGN KEY(statement_id) "
+    "REFERENCES statements (id) ON DELETE CASCADE",
+]
+REWORDING_INSERT = (
+    "INSERT INTO statement_rewordings (statement_id, ai_text, reason, explanation) VALUES "
+)
+
+
+def _seed_rewording(engine: Engine) -> None:
+    """One applied rewording of Statement 1."""
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(REWORDING_INSERT + "(1, 'Texto de la IA.', 'Confunde.', 'Equivalente.')")
+        )
+
+
+def test_upgrade_0020_adds_one_empty_table_and_keeps_every_row(db_url: str) -> None:
+    run_migrations(db_url, "0019")
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        _seed_v2_evidence(engine)
+        _seed_selection(engine)
+    finally:
+        engine.dispose()
+    tables = sorted(TABLES_AT_0019 - {"alembic_version"})
+    before = {table: _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") for table in tables}
+    schema_sql = (
+        "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE tbl_name NOT IN "
+        "('statement_rewordings', 'alembic_version') ORDER BY name"
+    )
+    schema_before = _rows(db_url, schema_sql)
+
+    run_migrations(db_url, "0020")
+
+    assert _version(db_url) == "0020"
+    assert _tables(db_url) == ALL_TABLES
+    assert _counts(db_url, ("statement_rewordings",)) == {"statement_rewordings": 0}
+    for table in tables:
+        assert _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") == before[table], table
+    assert _rows(db_url, schema_sql) == schema_before
+    ddl = _table_sql(db_url, "statement_rewordings")
+    assert ddl.count("CHECK") == 1
+    for constraint in REWORDING_DDL:
+        assert constraint in ddl, constraint
+    assert "ai_text VARCHAR(300) NOT NULL" in ddl
+    assert "reason VARCHAR(500) NOT NULL" in ddl
+    assert "explanation VARCHAR(500) NOT NULL" in ddl
+
+
+def test_0020_constraints_and_cascades(migrated_engine: Engine) -> None:
+    _seed_with_position(migrated_engine)
+    _seed_rewording(migrated_engine)
+    with pytest.raises(IntegrityError):  # one row per Statement
+        with migrated_engine.begin() as conn:
+            conn.execute(sa.text(REWORDING_INSERT + "(1, 'Otro.', 'Confunde.', 'Igual.')"))
+    for values in (
+        "(9, 'Texto.', 'Confunde.', 'Equivalente.')",  # unknown Statement
+        "(1, 'Texto.', '', 'Equivalente.')",
+        "(1, 'Texto.', '   ', 'Equivalente.')",
+        "(1, NULL, 'Confunde.', 'Equivalente.')",
+        "(1, 'Texto.', NULL, 'Equivalente.')",
+        "(1, 'Texto.', 'Confunde.', NULL)",
+    ):
+        with pytest.raises(IntegrityError):
+            with migrated_engine.begin() as conn:
+                # The row is restored when the failing transaction rolls back.
+                conn.execute(sa.text("DELETE FROM statement_rewordings"))
+                conn.execute(sa.text(REWORDING_INSERT + values))
+    with migrated_engine.begin() as conn:
+        assert conn.execute(sa.text("SELECT count(*) FROM statement_rewordings")).scalar_one() == 1
+        conn.execute(sa.text("DELETE FROM statements"))
+        assert conn.execute(sa.text("SELECT count(*) FROM statement_rewordings")).scalar_one() == 0
+
+
+def test_downgrade_to_0019_drops_only_the_new_table(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        _seed_v2_evidence(engine)
+        _seed_selection(engine)
+        _seed_rewording(engine)
+    finally:
+        engine.dispose()
+    tables = sorted(TABLES_AT_0019 - {"alembic_version"})
+    before = {table: _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") for table in tables}
+
+    downgrade(db_url, "0019")
+
+    assert _version(db_url) == "0019"
+    assert _tables(db_url) == TABLES_AT_0019
+    for table in tables:
+        assert _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") == before[table], table
+    run_migrations(db_url)
+    assert _version(db_url) == HEAD
+
+
+def test_offline_postgresql_render_of_0020() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0019:0020",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0020:0019",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    assert "CREATE TABLE statement_rewordings (" in up_sql
+    assert up_sql.count("CREATE TABLE") == 1
+    assert up_sql.count("CHECK") == 1
+    assert "CONSTRAINT ck_statement_rewordings_reason_not_blank CHECK (trim(reason) <> '')" in up_sql
+    assert "statement_id INTEGER NOT NULL" in up_sql and "SERIAL" not in up_sql
+    for forbidden in ("DROP TABLE", "DROP INDEX", "ALTER TABLE", "INSERT INTO", "UPDATE "):
+        assert forbidden not in up_sql.replace("UPDATE alembic_version", ""), forbidden
+    down_sql = down.getvalue()
+    assert "DROP TABLE statement_rewordings;" in down_sql
+    assert down_sql.count("DROP TABLE") == 1

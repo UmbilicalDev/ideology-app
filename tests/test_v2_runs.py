@@ -66,6 +66,7 @@ V2_CHECK_NAMES = [
     "evidence_quotes", "evidence_proposals", "statement_sources",
     "statement_uniqueness", "context_note", "constituency_snapshot",
     "constituency_validity", "constituency_availability", "constituency_order",
+    "statement_rewording",
 ]
 LOW = ConstituencySettings(1, 1)
 
@@ -257,7 +258,9 @@ def test_happy_path_writes_and_publishes_a_v2_version(
         run = session.get(PipelineRun, outcome.run_id)
         assert run is not None
         assert run.model_generation is ModelGeneration.V2
-        assert run.prompt_versions == {"statement_drafts": "v1", "proposal_positions": "v1"}
+        assert run.prompt_versions == {
+            "statement_drafts": "v1", "proposal_positions": "v1", "statement_rewording_check": "v1",
+        }
         assert run.anchor_dataset_version_id is None
         version = run.dataset_version
         assert version is not None

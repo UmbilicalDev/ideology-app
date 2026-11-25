@@ -9,7 +9,8 @@ statement separation (a Party on each side), statement uniqueness, statement
 count (and stored lengths), topic spread (per offered length),
 context note; v2 runs use ``V2_CHECKS``: evidence quotes, evidence
 proposals, statement sources, uniqueness, context note, then the four
-per-Constituency checks: snapshot, validity, availability, order); a
+per-Constituency checks: snapshot, validity, availability, order, and
+``statement_rewording``); a
 threshold it needs is a ``ValidationSettings`` field read from the environment
 in ``config``. ``pipeline.runs.validate_run`` stores the results.
 """
@@ -54,6 +55,7 @@ from ideology_app.validation.evidence_quotes import (
 from ideology_app.validation.evidence_proposals import EVIDENCE_PROPOSALS
 from ideology_app.validation.party_coverage import PARTY_COVERAGE
 from ideology_app.validation.statement_count import STATEMENT_COUNT
+from ideology_app.validation.statement_rewording import STATEMENT_REWORDING
 from ideology_app.validation.statement_separation import STATEMENT_SEPARATION
 from ideology_app.validation.statement_sources import STATEMENT_SOURCES
 from ideology_app.validation.statement_uniqueness import STATEMENT_UNIQUENESS
@@ -74,7 +76,8 @@ CHECKS: tuple[Check, ...] = (
 # v2 runs (statements-from-proposals): checks 1 (uniqueness), 2 (quotes on the
 # mirrored rank-1 columns and every Evidence Proposal), Statement sources and 7;
 # then (constituency-selection-validation) the per-Constituency checks that
-# replace coverage, separation, count and topic spread (3-6).
+# replace coverage, separation, count and topic spread (3-6); then
+# (statement-rewording) the Statement Rewording check.
 V2_CHECKS: tuple[Check, ...] = (
     EVIDENCE_QUOTES,
     EVIDENCE_PROPOSALS,
@@ -85,6 +88,7 @@ V2_CHECKS: tuple[Check, ...] = (
     CONSTITUENCY_VALIDITY,
     CONSTITUENCY_AVAILABILITY,
     CONSTITUENCY_ORDER,
+    STATEMENT_REWORDING,
 )
 
 
@@ -111,6 +115,7 @@ __all__ = [
     "MESSAGE_MAX",
     "PARTY_COVERAGE",
     "STATEMENT_COUNT",
+    "STATEMENT_REWORDING",
     "STATEMENT_SEPARATION",
     "STATEMENT_SOURCES",
     "STATEMENT_UNIQUENESS",

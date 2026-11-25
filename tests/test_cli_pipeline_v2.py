@@ -137,7 +137,12 @@ def test_run_passes_publishes_and_replays_with_zero_calls(
         "4 position calls\n" in report.stdout
     )
     assert "statement_agenda" not in report.stdout and "statement pool:" not in report.stdout
-    assert "prompt_versions: proposal_positions=v1, statement_drafts=v1\n" in report.stdout
+    assert (
+        "prompt_versions: proposal_positions=v1, statement_drafts=v1, "
+        "statement_rewording_check=v1\n" in report.stdout
+    )
+    assert f"\nconstituencies: {CONSTITUENCIES}\nrewordings: none\n" in report.stdout
+    assert "\nrewordings:\n" not in report.stdout
     assert "dataset_version_status: published\n" in report.stdout
     assert f"\nconstituencies: {CONSTITUENCIES}\n" in report.stdout
     assert "constituency_order\tpassed" in report.stdout
@@ -251,7 +256,10 @@ def test_report_without_a_dataset_version_says_not_recorded(
 
     report = run("pipeline", "report", "--run", "1")
 
-    assert "statement_selection: not recorded\nconstituencies: not recorded\n" in report.stdout
+    assert (
+        "statement_selection: not recorded\nconstituencies: not recorded\nrewordings: none\n"
+        in report.stdout
+    )
 
 
 def test_db_check_reports_inconsistent_constituency_rows(
@@ -276,3 +284,129 @@ def test_db_check_reports_inconsistent_constituency_rows(
     assert bad.exit_code == 1
     assert bad.stderr.endswith(line)
     assert bad.stdout.endswith("Safe to commit: no\n")
+
+
+# --- statement-rewording: the rewording file through the CLI (scenarios 1-4, R11) ------------
+
+HOUSING = "Debe limitarse el precio del alquiler de vivienda."
+ECONOMY = "Deben bajarse los impuestos a las empresas."
+NEW_HOUSING = "Debe ponerse un tope al precio del alquiler de las viviendas."
+REJECTED = "Deben subirse los impuestos CAMBIO a las empresas."
+REWORDINGS = (
+    "format = 1\n\n"
+    "[[rewordings]]\n"
+    f'ai_text = "{ECONOMY}"\n'
+    f'text = "{REJECTED}"\n'
+    'reason = "Prueba de rechazo."\n\n'
+    "[[rewordings]]\n"
+    f'ai_text = "{HOUSING}"\n'
+    f'text = "{NEW_HOUSING}"\n'
+    'reason = "«Limitarse» confunde."\n\n'
+    "[[rewordings]]\n"
+    'ai_text = "Esta afirmación no existe."\n'
+    'text = "Otra."\n'
+    'reason = "Ya no está."\n'
+)
+
+
+def test_rewording_run_prints_the_file_summary_and_warnings(
+    run, use, tmp_path: Path, migrated_engine: Engine
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    use(v2_fake())
+    assert run("pipeline", "run-v2", directory).exit_code == 0
+    (directory / "statement-rewordings.toml").write_text(REWORDINGS, encoding="utf-8")
+    provider = use(v2_fake())
+
+    result = run("pipeline", "run-v2", directory, "--reuse-from", "1")
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == (
+        "Pipeline run 2: reusing identical calls of run 1 (6 recorded calls)\n"
+        "Rewordings: statement-rewordings.toml (3 entries)\n"
+        + PASSED.format(run=2, version=2, superseded=" (superseded dataset version 1)")
+        + "Rewordings: 1 applied, 1 rejected, 0 duplicate, 1 not found\n"
+    )
+    assert result.stderr == (
+        f'Warning: rewording of "{ECONOMY}": rejected: La nueva redacción cambia la medida.\n'
+        'Warning: rewording of "Esta afirmación no existe.": not_found\n'
+        + WARNING
+    )
+    assert [r.task for r in provider.calls] == ["statement_rewording_check"] * 2
+
+    report = run("pipeline", "report", "--run", "2")
+    assert report.exit_code == 0, report.output
+    assert "\nrewordings: 1 applied, 1 rejected, 0 duplicate, 1 not found\n" in report.stdout
+    assert report.stdout.endswith(
+        "\nrewordings:\n"
+        "status\tstatement\tai_text\ttext\treason\texplanation\n"
+        f"applied\t1\t{HOUSING}\t{NEW_HOUSING}\t«Limitarse» confunde.\t"
+        "Misma medida con palabras más sencillas.\n"
+        f"rejected\t2\t{ECONOMY}\t{REJECTED}\tPrueba de rechazo.\t"
+        "La nueva redacción cambia la medida.\n"
+        "not_found\t\tEsta afirmación no existe.\tOtra.\tYa no está.\t\n"
+    )
+    statements = run("pipeline", "statements", "--dataset-version", "2")
+    assert NEW_HOUSING in statements.stdout and HOUSING not in statements.stdout
+
+    replay_provider = use(v2_fake())
+    replay = run("pipeline", "run-v2", directory, "--reuse-from", "2")
+    assert replay.exit_code == 0, replay.output
+    assert replay.stdout.startswith(
+        "Pipeline run 3: reusing identical calls of run 2 (8 recorded calls)\n"
+        "Rewordings: statement-rewordings.toml (3 entries)\n"
+    )
+    assert replay_provider.calls == []
+
+
+ENTRY = '[[rewordings]]\nai_text = "A."\ntext = "B."\nreason = "R."\n'
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ('format = 1\n[[rewordings]]\nai_text = "A."\ntext = "B."\n',
+         ":entry 1: missing key 'reason'"),
+        ("format = 1\n" + ENTRY + 'extra = "x"\n', ":entry 1: unknown key 'extra'"),
+        ("format = 2\n" + ENTRY, ": format must be 1, got 2"),
+        ('format = 1\n[[rewordings]]\nai_text = "A."\ntext = "B."\nreason = " "\n',
+         ":entry 1: reason must be 1..500 characters and not blank"),
+        (f'format = 1\n[[rewordings]]\nai_text = "A."\ntext = "{"t" * 301}"\nreason = "R."\n',
+         ":entry 1: text must be 1..300 characters with a non-space character"),
+        ('format = 1\n[[rewordings]]\nai_text = "A."\ntext = "A."\nreason = "R."\n',
+         ":entry 1: text is the same as ai_text"),
+        ("format = 1\n" + ENTRY + ENTRY, ":entry 2: same ai_text as entry 1"),
+        ("format = 1\n[[rewordings]\n", ": invalid TOML: "),
+    ],
+    ids=["missing-key", "extra-key", "format-2", "blank-reason", "long-text", "same-text",
+         "repeated-ai-text", "syntax"],
+)
+def test_a_bad_rewording_file_is_one_error_and_writes_nothing(
+    run, use, tmp_path: Path, migrated_engine: Engine, content: str, message: str
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    path = directory / "statement-rewordings.toml"
+    path.write_text(content, encoding="utf-8")
+    provider = use(v2_fake())
+
+    result = run("pipeline", "run-v2", directory)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith(f"Error: {path}{message}")
+    assert result.stderr.count("\n") == 1
+    assert provider.calls == []
+    for model in (PipelineRun, PipelineRunCall, DatasetVersion, Statement):
+        assert _count(migrated_engine, model) == 0
+
+
+def test_data_check_ignores_the_rewording_file(
+    run, use, tmp_path: Path, migrated_engine: Engine
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    before = run("data", "check", directory)
+    (directory / "statement-rewordings.toml").write_text(REWORDINGS, encoding="utf-8")
+    after = run("data", "check", directory)
+    assert (after.exit_code, after.stdout, after.stderr) == (
+        before.exit_code, before.stdout, before.stderr
+    )

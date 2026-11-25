@@ -1592,6 +1592,9 @@ def pipeline_run_v2(
     then fixed by deterministic rules (VALIDATION_V2_MIN_STATEMENTS,
     VALIDATION_V2_MIN_PARTY_SIDES); a passed run is published. Every LLM call
     is recorded; --resume-from / --reuse-from work as for "pipeline run".
+    A statement-rewordings.toml in DIRECTORY is read automatically: each
+    rewording is applied after positioning only when an LLM equivalence check
+    accepts it (rejected ones are reported, not fatal).
     """
     if resume_from is not None and reuse_from is not None:
         raise click.UsageError("pass at most one of --resume-from or --reuse-from")
@@ -1616,6 +1619,10 @@ def pipeline_run_v2(
     finally:
         session.rollback()
         session.close()
+    try:
+        rewordings = pipelines_v2.read_rewordings(directory)
+    except pipelines_v2.RewordingFileError as exc:
+        raise click.ClickException(str(exc)) from exc
     try:
         provider = _provider()
     except config.ConfigError as exc:
@@ -1645,6 +1652,11 @@ def pipeline_run_v2(
                 f"Pipeline run {run_id}: reusing identical calls of run {reuse_from} "
                 f"({pipelines.count_recorded_calls(app.engine, reuse_from)} recorded calls)"
             )
+        if rewordings is not None:
+            click.echo(
+                f"Rewordings: {pipelines_v2.REWORDINGS_NAME} "
+                f"({len(rewordings.entries)} entries)"
+            )
         outcome = pipelines_v2.execute_v2_run(
             app.engine, run_id, provider, directory, settings, constituency_settings
         )
@@ -1655,7 +1667,18 @@ def pipeline_run_v2(
     if outcome.dataset_version_id is not None:
         with session_scope(app.engine) as session:
             summary = pipelines_v2.constituency_summary(session, outcome.dataset_version_id)
+            selection = pipelines.get_run_report(session, outcome.run_id).statement_selection
         click.echo(f"Constituencies: {summary or NOT_RECORDED}")
+        reworded = pipelines_v2.rewording_summary(selection)
+        if reworded is not None:
+            click.echo(f"Rewordings: {reworded}")
+            for entry in selection["rewordings"]["entries"]:
+                if entry["status"] == "applied":
+                    continue
+                line = f'Warning: rewording of "{_one_line(entry["ai_text"])}": {entry["status"]}'
+                if entry["explanation"] is not None:
+                    line += f": {_one_line(entry['explanation'])}"
+                click.echo(line, err=True)
     if outcome.statement_count < pipelines_v2.POOL_TARGET:
         click.echo(
             f"Warning: pool of {outcome.statement_count} statements is below the "
@@ -1861,6 +1884,7 @@ def pipeline_positions(app: AppContext, dataset_version_id: int, party_id: int |
 
 
 CHECKS_HEADER = ["check", "result", "statement", "party", "message"]
+REWORDINGS_HEADER = ["status", "statement", "ai_text", "text", "reason", "explanation"]
 
 
 def _check_rows(results: Sequence[ValidationResult]) -> list[list[object]]:
@@ -2263,6 +2287,10 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
                     pipelines_v2.pool_summary(report.statement_selection) or NOT_RECORDED,
                 ),
                 ("constituencies", constituencies or NOT_RECORDED),
+                (
+                    "rewordings",
+                    pipelines_v2.rewording_summary(report.statement_selection) or "none",
+                ),
             ]
         ),
         ("publication", _publication(report)),
@@ -2272,6 +2300,28 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
     click.echo("")
     click.echo("validation report:")
     _print_rows(CHECKS_HEADER, rows)
+    rewording_entries = (
+        (report.statement_selection or {}).get("rewordings", {}).get("entries")
+        if report.model_generation is ModelGeneration.V2
+        else None
+    )
+    if rewording_entries:
+        click.echo("")
+        click.echo("rewordings:")
+        _print_rows(
+            REWORDINGS_HEADER,
+            [
+                [
+                    e["status"],
+                    e["statement"],
+                    _one_line(e["ai_text"]),
+                    _one_line(e["text"]),
+                    _one_line(e["reason"]),
+                    _one_line(e["explanation"]),
+                ]
+                for e in rewording_entries
+            ],
+        )
     if (
         report.statement_selection is not None
         and report.model_generation is ModelGeneration.LEGACY

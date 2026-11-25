@@ -18,24 +18,31 @@ from ideology_app.pipeline import PROMPT_VERSIONS, PROMPTS, request_hash
 from ideology_app.pipeline.v2.prompts import (
     PROPOSAL_POSITIONS,
     STATEMENT_DRAFTS,
+    STATEMENT_REWORDING_CHECK,
     V2_PROMPT_VERSIONS,
     V2_PROMPTS,
     DraftInput,
+    RewordingVerdict,
     V2Prompt,
     draft_request,
     draft_set_schema,
     draft_target,
     position_request,
     position_set_schema,
+    rewording_request,
 )
 
 FINGERPRINTS = {
     ("statement_drafts", "v1"): "65e7cbbf73c23328fb209ced3732cc259f01006bbf055122f1ada204b199c4aa",
     ("proposal_positions", "v1"): "d73457d36c872ed5493b251eb58212ed185945aa2c71dbea1cbca2d6f21b6c8f",
+    # statement-rewording.
+    ("statement_rewording_check", "v1"): "590843e8be947b5efb88ad0cb7af870aaba47679d7c1c4d49266d428f8f69962",
 }
 # request_hash("fake", "fake-model", <the requests of test_requests_are_byte_identical>).
 DRAFT_REQUEST_HASH = "59286a5ca3e17620b507cb6ef432bef1327c24e7f3d33f94918bbba60ea440e6"
 POSITION_REQUEST_HASH = "842455adaf0db4673b9c4e613d55ecc2896a1eecdd4d8e537c1921497b756312"
+# request_hash("fake", "fake-model", <the request of test_rewording_request_is_byte_identical>).
+REWORDING_REQUEST_HASH = "fa9146f659d79ab9ff4b962e13439227f49afc888cfda3af0555cd2d48ba94e3"
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +67,8 @@ def fingerprint(prompt: V2Prompt, schema: type[BaseModel]) -> str:
 def _reference(prompt: V2Prompt) -> type[BaseModel]:
     if prompt is STATEMENT_DRAFTS:
         return draft_set_schema(7, 3)
+    if prompt is STATEMENT_REWORDING_CHECK:
+        return RewordingVerdict
     return position_set_schema(4, 6)
 
 
@@ -72,8 +81,14 @@ def test_prompts_are_pinned_to_their_text_and_schema(prompt: V2Prompt) -> None:
 
 
 def test_versions_and_limits() -> None:
-    assert V2_PROMPT_VERSIONS == {"statement_drafts": "v1", "proposal_positions": "v1"}
-    assert (STATEMENT_DRAFTS.max_tokens, PROPOSAL_POSITIONS.max_tokens) == (16384, 4096)
+    assert V2_PROMPT_VERSIONS == {
+        "statement_drafts": "v1", "proposal_positions": "v1", "statement_rewording_check": "v1",
+    }
+    assert (
+        STATEMENT_DRAFTS.max_tokens,
+        PROPOSAL_POSITIONS.max_tokens,
+        STATEMENT_REWORDING_CHECK.max_tokens,
+    ) == (16384, 4096, 1024)
     assert not set(V2_PROMPT_VERSIONS) & set(PROMPT_VERSIONS)
     assert [p.task for p in PROMPTS] == [
         "statement_candidates", "generate_statements", "position_findings", "party_positions",
@@ -195,3 +210,59 @@ def test_no_party_or_file_names_in_the_prompts() -> None:
     for prompt in V2_PROMPTS:
         for text in (prompt.system, prompt.template):
             assert "[página" not in text and ".md" not in text
+
+
+# --- statement-rewording: the equivalence check -------------------------------------------
+
+
+def test_rewording_request_is_byte_identical() -> None:
+    request = rewording_request(
+        "Debe limitarse el precio del\n alquiler.",
+        "El alquiler es el precio que se paga por usar una vivienda.",
+        "Debe ponerse un tope al precio del alquiler.",
+    )
+    assert request_hash("fake", "fake-model", request) == REWORDING_REQUEST_HASH
+    assert request.task == "statement_rewording_check" and request.max_tokens == 1024
+    assert request.schema is RewordingVerdict
+    assert request.prompt == (
+        "Afirmación original:\n\n"
+        "Debe limitarse el precio del alquiler.\n\n"
+        "Nota de contexto de la afirmación (no cambia):\n\n"
+        "El alquiler es el precio que se paga por usar una vivienda.\n\n"
+        "Nueva redacción:\n\n"
+        "Debe ponerse un tope al precio del alquiler.\n\n"
+        "Indica si la nueva redacción es equivalente a la afirmación original y explica "
+        "por qué."
+    )
+    for blank in (("", "n", "t"), ("a", " ", "t"), ("a", "n", "\n")):
+        with pytest.raises(ValueError):
+            rewording_request(*blank)
+
+
+def test_rewording_system_text_states_the_rule() -> None:
+    system = STATEMENT_REWORDING_CHECK.system
+    for phrase in (
+        "un votante que está de acuerdo con una estaría de acuerdo con la otra",
+        "la misma medida, la misma dirección, el mismo alcance, las mismas condiciones, "
+        "las mismas cifras y los mismos plazos",
+        "no puede añadir ni quitar propuestas",
+        "nombres de partidos o de políticos",
+        "Ante la duda, responde que no son equivalentes.",
+    ):
+        assert phrase in system
+    # The Operator's reason never has a slot in the prompt.
+    assert "{reason}" not in STATEMENT_REWORDING_CHECK.template
+    assert "motivo" not in system.lower() and "razón" not in system.lower()
+
+
+def test_rewording_verdict_bounds() -> None:
+    assert RewordingVerdict.model_validate({"equivalent": True, "explanation": "Igual."}).equivalent
+    for bad in (
+        {"equivalent": True, "explanation": ""},
+        {"equivalent": True, "explanation": "   "},
+        {"equivalent": True, "explanation": "x" * 501},
+        {"equivalent": "quizá", "explanation": "x"},
+        {"explanation": "x"},
+    ):
+        with pytest.raises(ValidationError):
+            RewordingVerdict.model_validate(bad)

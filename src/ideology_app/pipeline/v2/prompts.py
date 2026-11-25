@@ -1,4 +1,6 @@
-"""The v2 prompts ``statement_drafts`` and ``proposal_positions``, their schemas and requests.
+"""The v2 prompts ``statement_drafts``, ``proposal_positions`` and ``statement_rewording_check``.
+
+Their schemas and request builders live here too.
 
 This module defines its own frozen ``V2Prompt``s and never imports
 ``pipeline.prompts``: neither task joins the legacy ``PROMPTS`` /
@@ -9,7 +11,9 @@ fingerprint pinned in ``tests/test_v2_prompts.py``.
 
 Only Proposal text (and its free tags), Statement texts, the category's
 Spanish name and the configured Context Note bounds reach the prompts: no
-Party name or short name, no file name and no page.
+Party name or short name, no file name and no page. The rewording check
+(``statement-rewording``) sees only the AI text, its Context Note and the new
+wording, never the Operator's reason.
 """
 
 import math
@@ -90,6 +94,16 @@ class ProposalPositionList(BaseModel):
     """One entry per Statement the Proposals address; an omitted one is no stance."""
 
     positions: list[ProposalPosition]
+
+
+ExplanationText = Annotated[str, StringConstraints(min_length=1, max_length=500, pattern=r"\S")]
+
+
+class RewordingVerdict(BaseModel):
+    """Whether the new wording keeps the meaning of the original Statement, and why."""
+
+    equivalent: bool
+    explanation: ExplanationText
 
 
 def _subclass(base: type[BaseModel], **fields: Any) -> Any:
@@ -292,7 +306,41 @@ PROPOSAL_POSITIONS = V2Prompt(
     max_tokens=4096,
 )
 
-V2_PROMPTS: tuple[V2Prompt, ...] = (STATEMENT_DRAFTS, PROPOSAL_POSITIONS)
+STATEMENT_REWORDING_CHECK = V2Prompt(
+    task="statement_rewording_check",
+    version="v1",
+    system=(
+        "Eres un revisor de un cuestionario de orientación de voto para unas elecciones "
+        "generales en España. Recibes una afirmación del cuestionario tal como se redactó, "
+        "su nota de contexto y una nueva redacción de la afirmación, escrita para que se "
+        "entienda mejor. Decides si la nueva redacción es equivalente a la original.\n\n"
+        "Reglas:\n"
+        "- Las dos redacciones son equivalentes solo si un votante que está de acuerdo con "
+        "una estaría de acuerdo con la otra: la misma medida, la misma dirección, el mismo "
+        "alcance, las mismas condiciones, las mismas cifras y los mismos plazos.\n"
+        "- La nueva redacción no puede añadir ni quitar propuestas, ni añadir valoraciones "
+        "ni nombres de partidos o de políticos.\n"
+        "- Usar palabras más sencillas, cambiar el orden de la frase o explicar un término "
+        "o una sigla cuenta como equivalente.\n"
+        "- La nota de contexto solo sirve para entender la afirmación original; no cambia y "
+        "no se juzga.\n"
+        "- Ante la duda, responde que no son equivalentes.\n"
+        "- En `explanation` explica tu decisión en una o dos frases."
+    ),
+    template=(
+        "Afirmación original:\n\n"
+        "{ai_text}\n\n"
+        "Nota de contexto de la afirmación (no cambia):\n\n"
+        "{context_note}\n\n"
+        "Nueva redacción:\n\n"
+        "{text}\n\n"
+        "Indica si la nueva redacción es equivalente a la afirmación original y explica "
+        "por qué."
+    ),
+    max_tokens=1024,
+)
+
+V2_PROMPTS: tuple[V2Prompt, ...] = (STATEMENT_DRAFTS, PROPOSAL_POSITIONS, STATEMENT_REWORDING_CHECK)
 V2_PROMPT_VERSIONS: dict[str, str] = {prompt.task: prompt.version for prompt in V2_PROMPTS}
 
 
@@ -386,6 +434,29 @@ def position_request(
     )
 
 
+def rewording_request(
+    ai_text: str, context_note: str, text: str
+) -> LLMRequest[RewordingVerdict]:
+    """The ``statement_rewording_check`` request: the AI text, its note and the new wording.
+
+    Each value is passed through ``one_line``. Nothing else reaches the prompt
+    (no reason, Party, file or page). Raises ``ValueError`` for a blank value.
+    """
+    if not (ai_text.strip() and context_note.strip() and text.strip()):
+        raise ValueError("a rewording request needs the AI text, its note and the new text")
+    return LLMRequest(
+        task=STATEMENT_REWORDING_CHECK.task,
+        system=STATEMENT_REWORDING_CHECK.system,
+        prompt=STATEMENT_REWORDING_CHECK.template.format(
+            ai_text=one_line(ai_text),
+            context_note=one_line(context_note),
+            text=one_line(text),
+        ),
+        schema=RewordingVerdict,
+        max_tokens=STATEMENT_REWORDING_CHECK.max_tokens,
+    )
+
+
 __all__ = [
     "CATEGORY_NAMES",
     "DRAFTS_MAX_NEW",
@@ -394,6 +465,7 @@ __all__ = [
     "NO_PREVIOUS_TEXT",
     "PROPOSAL_POSITIONS",
     "STATEMENT_DRAFTS",
+    "STATEMENT_REWORDING_CHECK",
     "V2_PROMPTS",
     "V2_PROMPT_VERSIONS",
     "DraftAddition",
@@ -402,6 +474,7 @@ __all__ = [
     "DraftStatement",
     "ProposalPosition",
     "ProposalPositionList",
+    "RewordingVerdict",
     "V2Prompt",
     "category_name",
     "draft_request",
@@ -409,4 +482,5 @@ __all__ = [
     "draft_target",
     "position_request",
     "position_set_schema",
+    "rewording_request",
 ]
