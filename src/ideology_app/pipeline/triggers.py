@@ -11,6 +11,13 @@ provider or reads an API key; queued runs are executed by the Operator
 Election: a later document joins the run that is already queued, which loads
 every ``parsed`` document when it starts. Runs already ``running`` or
 ``validating`` loaded their input earlier, so they never suppress queuing.
+
+An Election with candidatures (format 2) never gets a queued run, in either
+mode (statements-from-proposals S11): its phase 4 is ``pipeline run-v2``,
+started by the Operator once the Ingestion Ledger gate passes (a content
+change voids the document's review, so phase 4 cannot run until phases 2-3
+and the conflicts are redone). This depends on the kind of Election, not on
+the mode, so ``QUEUE_ON_SOURCE_CHANGE`` stays the only mode switch.
 """
 
 from dataclasses import dataclass
@@ -18,6 +25,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ideology_app.bundle_import import candidatures_by_party
 from ideology_app.config import GenerationMode, LLMSettings
 from ideology_app.models import (
     Party,
@@ -63,8 +71,9 @@ def queue_run_for_source_change(
 ) -> SourceChangeOutcome:
     """Queue (or join) a Pipeline Run for ``document``'s Election. Never commits.
 
-    Writes nothing when ``generation_mode`` does not queue or the document is
-    not ``parsed``. Otherwise locks the Election row, returns the lowest-id
+    Writes nothing when ``generation_mode`` does not queue, the document is
+    not ``parsed``, or its Election has candidatures (format 2; read after the
+    import's candidatures are flushed, by autoflush). Otherwise locks the Election row, returns the lowest-id
     ``queued`` run of the Election if there is one, else queues a new run with
     ``llm``'s provider and model. Raises ValueError when the mode queues and
     ``llm`` is ``None``.
@@ -77,6 +86,8 @@ def queue_run_for_source_change(
     if llm is None:
         raise ValueError(f"generation mode {generation_mode.value} needs LLM settings")
     if document.status is not SourceDocumentStatus.PARSED:
+        return SourceChangeOutcome(election_id, None, False)
+    if candidatures_by_party(session, election_id):
         return SourceChangeOutcome(election_id, None, False)
     session.scalars(publishing.election_lock_statement(election_id)).one()
     existing = session.scalar(

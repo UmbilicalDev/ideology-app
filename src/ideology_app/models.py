@@ -55,6 +55,11 @@ class Election(Base):
     status: Mapped[ElectionStatus] = mapped_column(
         _enum(ElectionStatus, "election_status"), default=ElectionStatus.DRAFT
     )
+    # Where the candidatures come from (migration 0016): the BOE proclamation
+    # named in a format-2 ``election.toml``, written only by ``data import``.
+    # NULL for Elections imported from a format-1 bundle (legacy).
+    candidatures_source: Mapped[str | None] = mapped_column(sa.String(500))
+    candidatures_source_url: Mapped[str | None] = mapped_column(sa.String(2048))
 
     parties: Mapped[list["Party"]] = relationship(
         back_populates="election", order_by="Party.id", passive_deletes=True
@@ -90,6 +95,55 @@ class Party(Base):
     election: Mapped[Election] = relationship(back_populates="parties")
     source_documents: Mapped[list["SourceDocument"]] = relationship(
         back_populates="party", order_by="SourceDocument.id", passive_deletes=True
+    )
+    candidatures: Mapped[list["Candidature"]] = relationship(
+        order_by="Candidature.constituency_code", viewonly=True
+    )
+
+
+class Constituency(Base):
+    """One of the 52 Congreso Constituencies (INE province code). Seeded by migration 0016.
+
+    Changes only by migration, and always equals ``constituencies.CONSTITUENCIES``.
+    """
+
+    __tablename__ = "constituencies"
+
+    code: Mapped[str] = mapped_column(sa.String(2), primary_key=True)
+    name: Mapped[str] = mapped_column(sa.String(100), unique=True)
+
+
+class Candidature(Base):
+    """A Party runs in a Constituency (from the BOE proclamation).
+
+    Written only by ``ideology data import`` of a format-2 manifest, never by AI.
+    Read through ``bundle_import.candidatures_by_party``.
+    """
+
+    __tablename__ = "candidatures"
+
+    party_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("parties.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True, index=True
+    )
+
+
+class SourceDocumentConstituency(Base):
+    """A Source Document applies to a Constituency (its scope).
+
+    Written only by ``ideology data import`` of a format-2 manifest. Read
+    through ``bundle_import.document_scopes``.
+    """
+
+    __tablename__ = "source_document_constituencies"
+
+    source_document_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("source_documents.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True
     )
 
 
@@ -162,6 +216,10 @@ class SourceDocument(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    scope: Mapped[list[SourceDocumentConstituency]] = relationship(
+        order_by="SourceDocumentConstituency.constituency_code",
+        viewonly=True,
+    )
 
     @property
     def stored_filename(self) -> str | None:
@@ -204,6 +262,36 @@ class DatasetVersionStatus(StrEnum):
     CANDIDATE = "candidate"
     PUBLISHED = "published"
     SUPERSEDED = "superseded"
+
+
+class ModelGeneration(StrEnum):
+    """Which pipeline produced a run and its Dataset Version (migration 0018).
+
+    ``legacy``: quote Evidence from manifesto pages (Dataset Versions 1-5).
+    ``v2``: Statements from Proposals with Proposal Evidence
+    (``statements-from-proposals``). Written once at insert, never updated.
+    """
+
+    LEGACY = "legacy"
+    V2 = "v2"
+
+
+def _generation_column() -> Any:
+    # Migration 0018 adds the column with plain ADD COLUMN and a named
+    # column-level CHECK on VARCHAR(10) (Alembic skips an Enum's implicit CHECK
+    # on SQLite ADD COLUMN); the model declares the same single CHECK by name.
+    return mapped_column(
+        sa.Enum(
+            ModelGeneration,
+            native_enum=False,
+            create_constraint=True,
+            length=10,
+            values_callable=lambda e: [m.value for m in e],
+            name="model_generation",
+        ),
+        default=ModelGeneration.LEGACY,
+        server_default=ModelGeneration.LEGACY.value,
+    )
 
 
 class PipelineRun(Base):
@@ -252,6 +340,8 @@ class PipelineRun(Base):
     # ``resumed_from_run_id`` inherits that run's value. No FOREIGN KEY, like
     # ``resumed_from_run_id``.
     anchor_dataset_version_id: Mapped[int | None] = mapped_column(sa.Integer)
+    # legacy or v2 (migration 0018): set when the run is queued, never updated.
+    model_generation: Mapped[ModelGeneration] = _generation_column()
 
     election: Mapped[Election] = relationship(back_populates="pipeline_runs")
     dataset_version: Mapped["DatasetVersion | None"] = relationship(
@@ -357,6 +447,9 @@ class DatasetVersion(Base):
     # ``pipeline.runs._finish`` in the insert and never updated; NULL on versions
     # created before lengths existed (they offer only their full length).
     questionnaire_lengths: Mapped[list[int] | None] = mapped_column(sa.JSON)
+    # Copied from the run at insert (``runs._finish`` / ``v2.run._finish_v2``);
+    # never updated. Versions created before 0018 read ``legacy``.
+    model_generation: Mapped[ModelGeneration] = _generation_column()
 
     election: Mapped[Election] = relationship(back_populates="dataset_versions")
     pipeline_run: Mapped[PipelineRun] = relationship(back_populates="dataset_version")
@@ -393,6 +486,32 @@ class Statement(Base):
     party_positions: Mapped[list["PartyPosition"]] = relationship(
         back_populates="statement", order_by="PartyPosition.party_id", passive_deletes=True
     )
+    # v2 only (``statement-rewording``): the Statement Rewording applied in the
+    # run that wrote this Statement; ``None`` when ``text`` is the AI text.
+    rewording: Mapped["StatementRewording | None"] = relationship(passive_deletes=True)
+
+
+class StatementRewording(Base):
+    """An applied Statement Rewording of a v2 Statement (``statement-rewording``). Insert-only.
+
+    ``statements.text`` holds the Operator's text; ``ai_text`` is the
+    provider's text exactly, ``reason`` the Operator's reason and
+    ``explanation`` the ``statement_rewording_check`` verdict's explanation.
+    Written only by ``pipeline.v2.run._finish_v2``, in the commit that writes
+    the Dataset Version; legacy versions never have rows (migration 0020).
+    """
+
+    __tablename__ = "statement_rewordings"
+    __table_args__ = (sa.CheckConstraint("trim(reason) <> ''", name="reason_not_blank"),)
+
+    statement_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("statements.id", ondelete="CASCADE"),
+        primary_key=True,
+        autoincrement=False,
+    )
+    ai_text: Mapped[str] = mapped_column(sa.String(300))
+    reason: Mapped[str] = mapped_column(sa.String(500))
+    explanation: Mapped[str] = mapped_column(sa.String(500))
 
 
 # What ``packages/core`` match-score expects for a Party Position without a stance.
@@ -447,6 +566,143 @@ class PartyPosition(Base):
         return NO_STANCE if self.value is None else self.value
 
 
+class StatementProposal(Base):
+    """A source Proposal of a v2 Statement, in citation order (rank 1..n). Insert-only.
+
+    Written only by ``pipeline.v2.run._finish_v2``, in the commit that writes
+    the Dataset Version (migration 0018).
+    """
+
+    __tablename__ = "statement_proposals"
+    __table_args__ = (
+        sa.UniqueConstraint("statement_id", "rank"),
+        sa.UniqueConstraint("statement_id", "proposal_id"),
+        sa.CheckConstraint("rank >= 1", name="rank_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    statement_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("statements.id", ondelete="CASCADE")
+    )
+    rank: Mapped[int] = mapped_column(sa.Integer)
+    # No cascade: Proposals are never deleted.
+    proposal_id: Mapped[int] = mapped_column(sa.ForeignKey("proposals.id"))
+
+
+class PartyPositionProposal(Base):
+    """An Evidence Proposal of a v2 Party Position (rank 1..n, citation order). Insert-only.
+
+    ``constituencies`` are the Constituency codes where the Proposal counts for
+    the Party (``counted_proposals``), frozen here. Rank 1 is mirrored into the
+    Position's ``evidence_*`` columns. Written only by ``_finish_v2``.
+    """
+
+    __tablename__ = "party_position_proposals"
+    __table_args__ = (
+        sa.UniqueConstraint("party_position_id", "rank"),
+        sa.UniqueConstraint("party_position_id", "proposal_id"),
+        sa.CheckConstraint("rank >= 1", name="rank_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    party_position_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("party_positions.id", ondelete="CASCADE")
+    )
+    rank: Mapped[int] = mapped_column(sa.Integer)
+    proposal_id: Mapped[int] = mapped_column(sa.ForeignKey("proposals.id"))
+    source_document_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("source_documents.id", ondelete="CASCADE")
+    )
+    constituencies: Mapped[list[str]] = mapped_column(sa.JSON)
+
+
+class DatasetVersionConstituency(Base):
+    """One Constituency of a v2 Dataset Version: availability, n(c) and offered lengths.
+
+    52 rows per v2 version, none for legacy versions (migration 0019). Written
+    only by ``pipeline.v2.run._finish_v2`` in the version's commit; insert-only.
+    ``unavailable_reason`` is a ``constituency_rules.UnavailableReason`` value
+    (NULL exactly when available); ``detail`` says why it is unavailable.
+    """
+
+    __tablename__ = "dataset_version_constituencies"
+    __table_args__ = (
+        sa.CheckConstraint("valid_statement_count >= 0", name="count_nonnegative"),
+        sa.CheckConstraint(
+            "(available AND unavailable_reason IS NULL) OR (NOT available AND "
+            "unavailable_reason IS NOT NULL AND unavailable_reason IN "
+            "('fewer_than_two_parties', 'too_few_statements', 'low_party_coverage'))",
+            name="reason_matches_available",
+        ),
+    )
+
+    dataset_version_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("dataset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True
+    )
+    available: Mapped[bool] = mapped_column(sa.Boolean)
+    unavailable_reason: Mapped[str | None] = mapped_column(sa.String(30))
+    valid_statement_count: Mapped[int] = mapped_column(sa.Integer)
+    offered_lengths: Mapped[list[int]] = mapped_column(sa.JSON)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(sa.JSON)
+
+
+class DatasetVersionCandidature(Base):
+    """A frozen copy of a candidature for a v2 Dataset Version (who runs where).
+
+    ``excluded_reason`` is the Party's ledger ``ExclusionReason`` value, the
+    same on every row of that Party, or NULL for a Party with Positions.
+    Written only by ``_finish_v2``; never compared with live candidatures.
+    """
+
+    __tablename__ = "dataset_version_candidatures"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "excluded_reason IS NULL OR excluded_reason IN "
+            "('no_manifesto', 'discarded_at_review', 'too_few_proposals')",
+            name="excluded_reason_known",
+        ),
+    )
+
+    dataset_version_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("dataset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    party_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("parties.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True
+    )
+    excluded_reason: Mapped[str | None] = mapped_column(sa.String(30))
+
+
+class ConstituencyStatement(Base):
+    """A Statement of an available Constituency's Questionnaire, at ``rank`` 1..n.
+
+    Ranks follow ``constituency_rules.priority_order``; a questionnaire of
+    length L is ranks 1..L. Written only by ``_finish_v2``; insert-only.
+    """
+
+    __tablename__ = "constituency_statements"
+    __table_args__ = (
+        sa.UniqueConstraint("dataset_version_id", "constituency_code", "statement_id"),
+        sa.CheckConstraint("rank >= 1", name="rank_positive"),
+    )
+
+    dataset_version_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("dataset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True
+    )
+    rank: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=False)
+    statement_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("statements.id", ondelete="CASCADE")
+    )
+
+
 class ValidationResult(Base):
     """The outcome of one Validation check on one Pipeline Run. Insert-only."""
 
@@ -491,3 +747,93 @@ class ValidationReportEntry(Base):
 
     validation_result: Mapped[ValidationResult] = relationship(back_populates="entries")
     statement: Mapped["Statement | None"] = relationship()
+
+
+class ProposalExtractionStatus(StrEnum):
+    """``in_progress`` until every chunk has a recorded call and finalize ran; then ``complete``."""
+
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+
+
+class ProposalExtraction(Base):
+    """Phase-3 extraction of one document content (``content_hash``), shared by every
+    Source Document row and Election with those bytes (proposal-extraction).
+
+    Provider, model, prompt version and chunk size are pinned when it is created;
+    a resume must match them. Written by ``proposals.store`` only: created
+    ``in_progress``, then completed once by finalize (``validated_count``,
+    ``report``, ``completed_at``). Never updated afterwards and never deleted,
+    except an ``in_progress`` one by ``ideology proposals extract --restart``.
+    """
+
+    __tablename__ = "proposal_extractions"
+    __table_args__ = (sa.UniqueConstraint("content_hash"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    content_hash: Mapped[str] = mapped_column(sa.String(64))
+    status: Mapped[ProposalExtractionStatus] = mapped_column(
+        _enum(ProposalExtractionStatus, "proposal_extraction_status")
+    )
+    llm_provider: Mapped[str] = mapped_column(sa.String(50))
+    llm_model: Mapped[str] = mapped_column(sa.String(200))
+    prompt_version: Mapped[str] = mapped_column(sa.String(20))
+    chunk_max_chars: Mapped[int] = mapped_column(sa.Integer)
+    chunk_count: Mapped[int] = mapped_column(sa.Integer)
+    check_version: Mapped[str] = mapped_column(sa.String(20))
+    validated_count: Mapped[int | None] = mapped_column(sa.Integer)
+    # Counts per drop reason and the dropped items; null until complete.
+    report: Mapped[dict[str, Any] | None] = mapped_column(sa.JSON)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
+    )
+    completed_at: Mapped[dt.datetime | None] = mapped_column(sa.DateTime(timezone=True))
+
+
+class ProposalExtractionCall(Base):
+    """One successful LLM call of an extraction (one chunk), committed as soon as it
+    returned. ``output`` is the schema-validated answer. Insert-only."""
+
+    __tablename__ = "proposal_extraction_calls"
+    __table_args__ = (sa.UniqueConstraint("extraction_id", "chunk_index"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    extraction_id: Mapped[int] = mapped_column(sa.ForeignKey("proposal_extractions.id"))
+    chunk_index: Mapped[int] = mapped_column(sa.Integer)
+    first_page: Mapped[int] = mapped_column(sa.Integer)
+    last_page: Mapped[int] = mapped_column(sa.Integer)
+    request_hash: Mapped[str] = mapped_column(sa.String(64))
+    output: Mapped[dict[str, object]] = mapped_column(sa.JSON)
+    input_tokens: Mapped[int] = mapped_column(sa.Integer)
+    output_tokens: Mapped[int] = mapped_column(sa.Integer)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        sa.DateTime(timezone=True), default=_utcnow
+    )
+
+
+class Proposal(Base):
+    """A verbatim measure or commitment of a document, on the page it starts on.
+
+    Written only by finalize, exactly as the provider returned it (text, page,
+    categories, tags), and only when its text starts on that page. Belongs to
+    the document content (``content_hash``), not to a Dataset Version or row.
+    Never updated or deleted.
+    """
+
+    __tablename__ = "proposals"
+    __table_args__ = (
+        sa.UniqueConstraint("extraction_id", "ordinal"),
+        sa.CheckConstraint("page >= 1", name="page_positive"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    extraction_id: Mapped[int] = mapped_column(sa.ForeignKey("proposal_extractions.id"))
+    content_hash: Mapped[str] = mapped_column(sa.String(64), index=True)
+    ordinal: Mapped[int] = mapped_column(sa.Integer)
+    chunk_index: Mapped[int] = mapped_column(sa.Integer)
+    page: Mapped[int] = mapped_column(sa.Integer)
+    text: Mapped[str] = mapped_column(sa.Text)
+    # 1..3 topic catalog keys, the main one first.
+    categories: Mapped[list[str]] = mapped_column(sa.JSON)
+    # 0..5 free tags.
+    tags: Mapped[list[str]] = mapped_column(sa.JSON)
