@@ -1385,3 +1385,25 @@
 - Evidence captured: `feature_list.json` -> `v2-domain-docs.evidence`.
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md`, "Constituency redesign".
 - Next best step: commit and PR into `v2`; then the next ready feature in list order, `topic-catalog`.
+
+### Session 115 (topic-catalog, implementation)
+
+- Date: 2026-11-24
+- Goal: implement `topic-catalog` per `docs/specs/topic-catalog.md` on `feature/topic-catalog` (from `v2`).
+- Completed: `src/ideology_app/topic_catalog.py` (CIS estudio 3587 Pregunta 6R source, all 55 categories with TOTAL in tenths, 6 unmapped, 18 `TopicEntry` with Spanish name and order, `rank_order`, `catalog_problems`, `render_typescript`, `python -m ideology_app.topic_catalog`); generated `packages/core/src/domain/topic-catalog.generated.ts`; `packages/core/src/domain/topics.ts` (`findTopic`) and `src/index.ts` exports; tests `tests/test_topic_catalog.py` (26) and `packages/core/test/domain/topics.test.ts` (6). No change to `prompts.py`, `agenda.py`, `selection.py`, the API, `apps/web` or `data/`.
+- Verification run: the 55 labels and TOTALs parsed from the results PDF text equal `CIS_6R_TOTALS`; targeted pytest (catalog, prompts, agenda, selection) 146 passed; core Vitest file 6 passed; typecheck ok; manual drift check (rename a name -> TS drift test fails) and blank-name check (`catalog_problems` test fails), both reverted; prompt fingerprints, pinned request hashes, `TOPICS` and the 1105 recorded `pipeline_run_calls` request hashes identical before and after (scratch script); `CI=true ./init.sh` exit 0 (pytest 2107, Vitest 1048 in 42 files, build ok). No browser check: no browser-visible change.
+- Evidence captured: `feature_list.json` -> `topic-catalog.evidence`. Status `passing`.
+- Files or artifacts updated: `ARCHITECTURE.md`, `CONSTRAINTS.md` (Pipeline: catalog edited only in Python and regenerated; keys stable; `prompts.Topic` not reordered for display), `CONTEXT.md` (Topic), `docs/technical-discovery.md` (Data and Storage: Topic catalog), `docs/risks-and-open-questions.md` (topic-catalog entry Settled; team-review defaults; `methodology-v2` handoff), `feature_list.json`, `PROGRESS.md`. Not committed.
+- Note: the Vitest delta over `v2` (1036) is 6 new tests in `topics.test.ts` plus 6 per-source-file cases that the two new core source files add to `admin-isolation`, `donate-sources` and `browser-storage` (explained by the validator).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` ("Open, for team review (`topic-catalog` defaults)" and the `methodology-v2` handoff).
+- Next best step: independent validation of `topic-catalog`, then commit and PR into `v2`.
+
+### Session 116 (topic-catalog, independent validation)
+
+- Date: 2026-11-24
+- Goal: independently validate `topic-catalog`.
+- Completed: validator verdict accept (two Low notes: the Vitest-count wording, fixed in the main session; keep the untracked `ideologiapp-flyer.png` out of the commit). Status `accepted`.
+- Verification run: CIS 6R re-parsed independently (55/55 identical); order rule reproduced; pipeline dir and prompt/schema/TOPICS fingerprints identical to `v2`; drift and negative experiments fail as expected; `CI=true ./init.sh` exit 0 (pytest 2107, Vitest 1048 in 42 files). No browser check (nothing renders the catalog).
+- Evidence captured: `feature_list.json` -> `topic-catalog.evidence`.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (topic-catalog team-review defaults).
+- Next best step: PR into `v2`; next ready feature in list order is `constituencies-and-candidatures`, stacked on `feature/topic-catalog` (user instruction 2026-11-24: keep going, stacking each feature on the previous PR).

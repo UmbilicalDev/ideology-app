@@ -161,7 +161,7 @@ Use `Party`. Reason: each candidature is one Party.
 Use `Statement Rewording`. Nothing else is ever edited.
 
 ### Topic / tema / categoría
-A main category of the topic catalog (`topic-catalog`). Secondary tags are free and are not topics.
+A main category of the topic catalog (`topic-catalog`): 18 stable keys (`housing`, `economy`, …), each with a Spanish name (Vivienda, Economía, …), in citizen-priority order: how often citizens name the issue as one of Spain's main problems in CIS estudio 3587, Pregunta 6R (November 2026; source and rule in `docs/technical-discovery.md`). Keys are never renamed or removed while a Dataset Version uses them; legacy Statements (Dataset Versions 1–5) use the same keys. Secondary tags are free and are not topics.
 
 ### Excluded vs left out
 An Excluded Party is never scored; a Statement left out by Statement Selection is a different thing. "Left out" is used only for Statements; a Party the Operator did not add to a legacy Election is "not included".
