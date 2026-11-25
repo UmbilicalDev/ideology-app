@@ -90,6 +90,7 @@ describe("createPublicApiClient listElections", () => {
         name: "Generales 2027",
         status: "active",
         publishedDatasetVersionId: 5,
+        publishedDatasetVersionGeneration: "legacy",
       },
       {
         id: 1,
@@ -99,6 +100,7 @@ describe("createPublicApiClient listElections", () => {
         name: "Generales 2023",
         status: "active",
         publishedDatasetVersionId: 1,
+        publishedDatasetVersionGeneration: "legacy",
       },
     ]);
   });
@@ -122,6 +124,7 @@ describe("createPublicApiClient listElections", () => {
       "date",
       "id",
       "name",
+      "publishedDatasetVersionGeneration",
       "publishedDatasetVersionId",
       "status",
       "type",
@@ -229,6 +232,7 @@ describe("createPublicApiClient getElection", () => {
       name: "Generales 2023",
       status: "draft",
       publishedDatasetVersionId: null,
+      publishedDatasetVersionGeneration: null,
     });
   });
 
@@ -810,5 +814,457 @@ describe("createPublicApiClient getDonationUrl", () => {
     };
     const error = await rejection(createPublicApiClient({ fetch: fetchReturning(response) }).getDonationUrl());
     expect(error.kind).toBe("invalid_response");
+  });
+});
+
+// --- public-dataset-api-v2 ------------------------------------------------------------
+
+describe("createPublicApiClient Election generation", () => {
+  test("parses legacy, v2 and null", async () => {
+    const fetch = fetchReturning(
+      jsonResponse({
+        elections: [
+          electionBody({ id: 3, published_dataset_version_id: 9, published_dataset_version_generation: "v2" }),
+          electionBody({ id: 2, published_dataset_version_id: 5, published_dataset_version_generation: "legacy" }),
+          electionBody({ id: 1, published_dataset_version_id: null, published_dataset_version_generation: null }),
+        ],
+      }),
+    );
+    const elections = await createPublicApiClient({ fetch }).listElections();
+    expect(elections.map((e) => e.publishedDatasetVersionGeneration)).toEqual(["v2", "legacy", null]);
+  });
+
+  test("a body without the key reads legacy when an id is set and null otherwise", async () => {
+    const fetch = fetchReturning(
+      jsonResponse({
+        elections: [electionBody(), electionBody({ id: 2, published_dataset_version_id: null })],
+      }),
+    );
+    const elections = await createPublicApiClient({ fetch }).listElections();
+    expect(elections.map((e) => e.publishedDatasetVersionGeneration)).toEqual(["legacy", null]);
+  });
+
+  test.each([
+    [{ published_dataset_version_generation: "v3" }, "must be one of legacy, v2"],
+    [{ published_dataset_version_generation: null }, "must be one of legacy, v2"],
+    [
+      { published_dataset_version_id: null, published_dataset_version_generation: "v2" },
+      "must be null when there is no published version",
+    ],
+  ])("rejects an inconsistent generation %#", async (overrides, message) => {
+    const fetch = fetchReturning(jsonResponse(electionBody(overrides)));
+    const error = await rejection(createPublicApiClient({ fetch }).getElection(1));
+    expect(error.kind).toBe("invalid_response");
+    expect(error.message).toContain(`election.published_dataset_version_generation ${message}`);
+  });
+});
+
+function summaryBody(code: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    code,
+    name: `Provincia ${code}`,
+    available: false,
+    unavailable_reason: "fewer_than_two_parties",
+    valid_statement_count: 0,
+    offered_lengths: [],
+    ...overrides,
+  };
+}
+
+function listBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 10,
+    election_id: 1,
+    created_at: "2026-11-25T10:30:00Z",
+    constituencies: [
+      summaryBody("01", { unavailable_reason: "too_few_statements", valid_statement_count: 1 }),
+      summaryBody("28", {
+        available: true,
+        unavailable_reason: null,
+        valid_statement_count: 24,
+        offered_lengths: [20, 24],
+      }),
+    ],
+    ...overrides,
+  };
+}
+
+function proposalBody(id: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { id, text: `Propuesta ${id}.`, page: id, url: null, source_document_id: 3, ...overrides };
+}
+
+function questionnaireBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    dataset_version_id: 10,
+    code: "28",
+    name: "Madrid",
+    available: true,
+    unavailable_reason: null,
+    offered_lengths: [2],
+    statements: [
+      { id: 101, rank: 1, text: "Primera.", topic: "housing", context_note: "Nota." },
+      { id: 104, rank: 2, text: "Segunda.", topic: "economy", context_note: null },
+    ],
+    parties: [
+      {
+        id: 1,
+        name: "Partido Alfa",
+        short_name: "PA",
+        logo_url: "/api/v1/parties/1/logo?v=0123456789abcdef",
+        positions: [
+          { statement_id: 101, value: 2, evidence_proposal_ids: [1, 6] },
+          { statement_id: 104, value: 0, evidence_proposal_ids: [3] },
+        ],
+        evidence: [
+          proposalBody(1, { url: "https://alfa.example/p.pdf" }),
+          proposalBody(3),
+          proposalBody(6),
+        ],
+      },
+      {
+        id: 2,
+        name: "Bloque Beta",
+        short_name: "BB",
+        logo_url: null,
+        positions: [
+          { statement_id: 101, value: "no_stance", evidence_proposal_ids: [] },
+          { statement_id: 104, value: -1, evidence_proposal_ids: [5] },
+        ],
+        evidence: [proposalBody(5)],
+      },
+    ],
+    excluded_parties: [{ id: 4, name: "Xarxa", short_name: "XI", reason: "no_manifesto" }],
+    ...overrides,
+  };
+}
+
+function proposalsBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    dataset_version_id: 10,
+    code: "28",
+    category: "housing",
+    parties: [
+      { party_id: 1, proposals: [proposalBody(1), proposalBody(2)] },
+      { party_id: 2, proposals: [] },
+    ],
+    ...overrides,
+  };
+}
+
+describe("createPublicApiClient listConstituencies", () => {
+  test("requests the exact path and maps to camelCase", async () => {
+    const fetch = fetchReturning(jsonResponse(listBody()));
+    const list = await createPublicApiClient({ fetch }).listConstituencies(10);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith("/api/v1/dataset-versions/10/constituencies", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    expect(list).toEqual({
+      id: 10,
+      electionId: 1,
+      createdAt: "2026-11-25T10:30:00Z",
+      constituencies: [
+        {
+          code: "01",
+          name: "Provincia 01",
+          available: false,
+          unavailableReason: "too_few_statements",
+          validStatementCount: 1,
+          offeredLengths: [],
+        },
+        {
+          code: "28",
+          name: "Provincia 28",
+          available: true,
+          unavailableReason: null,
+          validStatementCount: 24,
+          offeredLengths: [20, 24],
+        },
+      ],
+    });
+  });
+
+  test.each([
+    [{ constituencies: [summaryBody("1")] }, "constituencies[0].code must be two digits"],
+    [{ constituencies: [summaryBody("28", { unavailable_reason: "nope" })] }, "unavailable_reason must be one of"],
+    [{ constituencies: [summaryBody("28", { available: true })] }, "unavailable_reason must be null when available"],
+    [{ constituencies: [summaryBody("28", { offered_lengths: [20] })] }, "must be empty when unavailable"],
+    [
+      {
+        constituencies: [
+          summaryBody("28", { available: true, unavailable_reason: null, valid_statement_count: 3, offered_lengths: [] }),
+        ],
+      },
+      "must be non-empty when available",
+    ],
+    [
+      {
+        constituencies: [
+          summaryBody("28", { available: true, unavailable_reason: null, valid_statement_count: 3, offered_lengths: [3, 3] }),
+        ],
+      },
+      "strictly increasing",
+    ],
+    [
+      {
+        constituencies: [
+          summaryBody("28", { available: true, unavailable_reason: null, valid_statement_count: 3, offered_lengths: [4] }),
+        ],
+      },
+      "must not exceed valid_statement_count",
+    ],
+    [{ constituencies: [summaryBody("28"), summaryBody("01")] }, "constituencies[1].code must follow"],
+    [{ created_at: "2026-11-25" }, "created_at must be"],
+  ])("rejects a contract violation %#", async (overrides, message) => {
+    const fetch = fetchReturning(jsonResponse(listBody(overrides)));
+    const error = await rejection(createPublicApiClient({ fetch }).listConstituencies(10));
+    expect(error.kind).toBe("invalid_response");
+    expect(error.message).toContain(message);
+    expect(error.message).toContain("GET /api/v1/dataset-versions/10/constituencies:");
+  });
+
+  test("a bad version id throws before any request", async () => {
+    const fetch = fetchReturning(jsonResponse(listBody()));
+    const api = createPublicApiClient({ fetch });
+    for (const id of [0, -1, 1.5, Number.NaN]) {
+      await expect(api.listConstituencies(id)).rejects.toBeInstanceOf(RangeError);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test("a 404 (e.g. dataset_version_is_legacy) is an http error", async () => {
+    const response = jsonResponse({ error: { code: "dataset_version_is_legacy", message: "x" } }, 404);
+    const error = await rejection(
+      createPublicApiClient({ fetch: fetchReturning(response) }).listConstituencies(5),
+    );
+    expect(error.kind).toBe("http");
+    expect(error.status).toBe(404);
+  });
+});
+
+describe("createPublicApiClient getConstituencyQuestionnaire", () => {
+  test("requests the exact path, maps to camelCase and resolves Evidence ids", async () => {
+    const fetch = fetchReturning(jsonResponse(questionnaireBody()));
+    const result = await createPublicApiClient({ fetch }).getConstituencyQuestionnaire(10, "28");
+    expect(fetch).toHaveBeenCalledWith("/api/v1/dataset-versions/10/constituencies/28", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const one = { id: 1, text: "Propuesta 1.", page: 1, url: "https://alfa.example/p.pdf", sourceDocumentId: 3 };
+    const three = { id: 3, text: "Propuesta 3.", page: 3, url: null, sourceDocumentId: 3 };
+    const five = { id: 5, text: "Propuesta 5.", page: 5, url: null, sourceDocumentId: 3 };
+    const six = { id: 6, text: "Propuesta 6.", page: 6, url: null, sourceDocumentId: 3 };
+    expect(result).toEqual({
+      datasetVersionId: 10,
+      code: "28",
+      name: "Madrid",
+      available: true,
+      unavailableReason: null,
+      offeredLengths: [2],
+      statements: [
+        { id: 101, rank: 1, text: "Primera.", topic: "housing", contextNote: "Nota." },
+        { id: 104, rank: 2, text: "Segunda.", topic: "economy", contextNote: null },
+      ],
+      parties: [
+        {
+          id: 1,
+          name: "Partido Alfa",
+          shortName: "PA",
+          logoUrl: "/api/v1/parties/1/logo?v=0123456789abcdef",
+          positions: [
+            { statementId: 101, value: 2, evidence: [one, six] },
+            { statementId: 104, value: 0, evidence: [three] },
+          ],
+        },
+        {
+          id: 2,
+          name: "Bloque Beta",
+          shortName: "BB",
+          logoUrl: null,
+          positions: [
+            { statementId: 101, value: "no_stance", evidence: [] },
+            { statementId: 104, value: -1, evidence: [five] },
+          ],
+        },
+      ],
+      excludedParties: [{ id: 4, name: "Xarxa", shortName: "XI", reason: "no_manifesto" }],
+    });
+  });
+
+  test("parses an unavailable Constituency", async () => {
+    const body = questionnaireBody({
+      code: "01",
+      available: false,
+      unavailable_reason: "low_party_coverage",
+      offered_lengths: [],
+      statements: [],
+      parties: [{ id: 1, name: "A", short_name: "A", logo_url: null, positions: [], evidence: [] }],
+      excluded_parties: [],
+    });
+    const result = await createPublicApiClient({ fetch: fetchReturning(jsonResponse(body)) })
+      .getConstituencyQuestionnaire(10, "01");
+    expect(result.available).toBe(false);
+    expect(result.unavailableReason).toBe("low_party_coverage");
+    expect(result.parties[0]?.positions).toEqual([]);
+  });
+
+  function withParty(index: number, party: Record<string, unknown>): Record<string, unknown> {
+    const body = questionnaireBody();
+    const parties = [...(body["parties"] as Record<string, unknown>[])];
+    parties[index] = { ...parties[index], ...party };
+    return { parties };
+  }
+
+  const alfaPositions = (positions: unknown[]) => withParty(0, { positions });
+
+  test.each([
+    [
+      alfaPositions([
+        { statement_id: 104, value: 0, evidence_proposal_ids: [3] },
+        { statement_id: 101, value: 2, evidence_proposal_ids: [1] },
+      ]),
+      "parties[0].positions[0].statement_id must be 101 (Statement order)",
+    ],
+    [alfaPositions([{ statement_id: 101, value: 2, evidence_proposal_ids: [1] }]), "one entry per Statement (2), got 1"],
+    [
+      alfaPositions([
+        { statement_id: 101, value: 2, evidence_proposal_ids: [99] },
+        { statement_id: 104, value: 0, evidence_proposal_ids: [3] },
+      ]),
+      "evidence_proposal_ids[0] must be the id of an entry of the party's evidence",
+    ],
+    [
+      alfaPositions([
+        { statement_id: 101, value: "no_stance", evidence_proposal_ids: [1] },
+        { statement_id: 104, value: 0, evidence_proposal_ids: [3] },
+      ]),
+      'must be empty when value is "no_stance"',
+    ],
+    [
+      alfaPositions([
+        { statement_id: 101, value: 2, evidence_proposal_ids: [] },
+        { statement_id: 104, value: 0, evidence_proposal_ids: [3] },
+      ]),
+      'must not be empty when value is not "no_stance"',
+    ],
+    [
+      alfaPositions([
+        { statement_id: 101, value: 3, evidence_proposal_ids: [1] },
+        { statement_id: 104, value: 0, evidence_proposal_ids: [3] },
+      ]),
+      "value must be an integer from -2 to 2",
+    ],
+    [withParty(0, { evidence: [proposalBody(1), proposalBody(1)] }), "evidence[1].id 1 is a duplicate"],
+    [
+      {
+        statements: [
+          { id: 101, rank: 1, text: "A.", topic: "housing", context_note: null },
+          { id: 101, rank: 2, text: "B.", topic: "housing", context_note: null },
+        ],
+      },
+      "statements[1].id 101 is a duplicate",
+    ],
+    [
+      {
+        statements: [
+          { id: 101, rank: 2, text: "A.", topic: "housing", context_note: null },
+          { id: 104, rank: 1, text: "B.", topic: "economy", context_note: null },
+        ],
+      },
+      "statements[0].rank must be 1",
+    ],
+    [
+      {
+        statements: [
+          { id: 101, rank: 1, text: "A.", topic: "housing", context_note: null },
+          { id: 104, rank: 1, text: "B.", topic: "economy", context_note: null },
+        ],
+      },
+      "statements[1].rank must be 2",
+    ],
+    [{ code: "31" }, "constituency.code must be 28"],
+    [{ code: "2" }, "constituency.code must be two digits"],
+    [{ dataset_version_id: 11 }, "constituency.dataset_version_id must be 10"],
+    [{ unavailable_reason: "too_few_statements" }, "unavailable_reason must be null when available"],
+    [{ available: false, unavailable_reason: "nope", offered_lengths: [] }, "unavailable_reason must be one of"],
+    [{ available: false, unavailable_reason: "too_few_statements", offered_lengths: [] }, "statements must be empty when unavailable"],
+    [{ offered_lengths: [3] }, "offered_lengths must not exceed the number of statements"],
+    [
+      { excluded_parties: [{ id: 4, name: "X", short_name: "X", reason: "banned" }] },
+      "excluded_parties[0].reason must be one of no_manifesto, discarded_at_review, too_few_proposals",
+    ],
+    [
+      { excluded_parties: [{ id: 2, name: "X", short_name: "X", reason: "no_manifesto" }] },
+      "excluded_parties[0].id 2 is also a running party",
+    ],
+    [withParty(1, { id: 1 }), "parties[1] must follow the previous party by id"],
+  ])("rejects a contract violation %#", async (overrides, message) => {
+    const fetch = fetchReturning(jsonResponse(questionnaireBody(overrides)));
+    const error = await rejection(createPublicApiClient({ fetch }).getConstituencyQuestionnaire(10, "28"));
+    expect(error.kind).toBe("invalid_response");
+    expect(error.message).toContain(message);
+  });
+
+  test("a bad code throws before any request", async () => {
+    const fetch = fetchReturning(jsonResponse(questionnaireBody()));
+    const api = createPublicApiClient({ fetch });
+    for (const code of ["1", "abc", "281", " 28", "2a", ""]) {
+      await expect(api.getConstituencyQuestionnaire(10, code)).rejects.toBeInstanceOf(RangeError);
+    }
+    await expect(api.getConstituencyQuestionnaire(0, "28")).rejects.toBeInstanceOf(RangeError);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("createPublicApiClient getConstituencyProposals", () => {
+  test("requests the exact path and maps to camelCase", async () => {
+    const fetch = fetchReturning(jsonResponse(proposalsBody()));
+    const result = await createPublicApiClient({ fetch }).getConstituencyProposals(10, "28", "housing");
+    expect(fetch).toHaveBeenCalledWith("/api/v1/dataset-versions/10/constituencies/28/proposals/housing", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    expect(result).toEqual({
+      datasetVersionId: 10,
+      code: "28",
+      category: "housing",
+      parties: [
+        {
+          partyId: 1,
+          proposals: [
+            { id: 1, text: "Propuesta 1.", page: 1, url: null, sourceDocumentId: 3 },
+            { id: 2, text: "Propuesta 2.", page: 2, url: null, sourceDocumentId: 3 },
+          ],
+        },
+        { partyId: 2, proposals: [] },
+      ],
+    });
+  });
+
+  test.each([
+    [{ category: "economy" }, "constituency_proposals.category must be housing"],
+    [{ code: "31" }, "constituency_proposals.code must be 28"],
+    [{ dataset_version_id: 9 }, "constituency_proposals.dataset_version_id must be 10"],
+    [{ parties: [{ party_id: 2, proposals: [] }, { party_id: 1, proposals: [] }] }, "parties[1] must follow"],
+    [{ parties: [{ party_id: 1, proposals: [proposalBody(1), proposalBody(1)] }] }, "proposals[1].id is a duplicate"],
+    [{ parties: [{ party_id: 1, proposals: [proposalBody(1, { page: 0 })] }] }, "page must be a positive integer"],
+  ])("rejects a contract violation %#", async (overrides, message) => {
+    const fetch = fetchReturning(jsonResponse(proposalsBody(overrides)));
+    const error = await rejection(createPublicApiClient({ fetch }).getConstituencyProposals(10, "28", "housing"));
+    expect(error.kind).toBe("invalid_response");
+    expect(error.message).toContain(message);
+  });
+
+  test("a bad code or category throws before any request", async () => {
+    const fetch = fetchReturning(jsonResponse(proposalsBody()));
+    const api = createPublicApiClient({ fetch });
+    await expect(api.getConstituencyProposals(10, "1", "housing")).rejects.toBeInstanceOf(RangeError);
+    for (const category of ["Housing", "nope", "", "housing/../x"]) {
+      await expect(
+        api.getConstituencyProposals(10, "28", category as "housing"),
+      ).rejects.toBeInstanceOf(RangeError);
+    }
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -28,6 +28,12 @@ class ElectionOut(_Out):
     name: str
     status: Literal["draft", "active", "archived"]
     published_dataset_version_id: int | None
+    published_dataset_version_generation: Literal["legacy", "v2"] | None = Field(
+        description="Which model the Published Dataset Version follows: \"legacy\" "
+        "(read /api/v1/dataset-versions/{id}) or \"v2\" (read "
+        "/api/v1/dataset-versions/{id}/constituencies). Null exactly when "
+        "published_dataset_version_id is null."
+    )
 
 
 class ElectionListOut(_Out):
@@ -86,6 +92,150 @@ class DatasetVersionOut(_Out):
             "Statements. A questionnaire of length N is the first N Statements. "
             "Dataset Versions created before lengths existed offer only their full length."
         )
+    )
+
+
+# --- v2 Dataset Versions, one Constituency at a time (public-dataset-api-v2) ---------
+
+UnavailableReasonOut = Literal["fewer_than_two_parties", "too_few_statements", "low_party_coverage"]
+ExcludedReasonOut = Literal["no_manifesto", "discarded_at_review", "too_few_proposals"]
+ConstituencyCodeOut = Annotated[str, Field(pattern="^[0-9]{2}$")]
+
+_UNAVAILABLE_DESCRIPTION = (
+    "Why the Constituency is unavailable, the first rule that fails: "
+    "fewer_than_two_parties, too_few_statements or low_party_coverage. "
+    "Null exactly when available."
+)
+
+
+class ConstituencySummaryOut(_Out):
+    code: ConstituencyCodeOut = Field(description="INE province code, two digits.")
+    name: str
+    available: bool
+    unavailable_reason: UnavailableReasonOut | None = Field(description=_UNAVAILABLE_DESCRIPTION)
+    valid_statement_count: int = Field(
+        description="Statements valid in this Constituency (at least one Party running "
+        "there in favour and one against)."
+    )
+    offered_lengths: list[int] = Field(
+        description="Offered questionnaire lengths, ascending (20, 30, 40, 50 up to the "
+        "valid count, or only the valid count when it is below 20); empty when unavailable."
+    )
+
+
+class ConstituencyListOut(_Out):
+    """Every Constituency of a v2 Dataset Version (52 rows, in code order)."""
+
+    id: int
+    election_id: int
+    created_at: str = Field(description="UTC, YYYY-MM-DDTHH:MM:SSZ.")
+    constituencies: list[ConstituencySummaryOut]
+
+
+class ConstituencyStatementOut(_Out):
+    id: int
+    rank: int = Field(
+        description="1-based priority in this Constituency. A questionnaire of length L "
+        "is ranks 1..L."
+    )
+    text: str = Field(description="The final text of the Statement.")
+    topic: str
+    context_note: str | None
+
+
+class ProposalOut(_Out):
+    """A Proposal: a verbatim measure of a manifesto, on the page it starts on."""
+
+    id: int
+    text: str = Field(description="The Proposal exactly as extracted from the manifesto.")
+    page: int
+    url: str | None = Field(
+        description="The Source Document's URL for URL documents, null for uploads and "
+        "bundle files. Link as url + '#page=' + page."
+    )
+    source_document_id: int = Field(
+        description="The Party's own Source Document row: a manifesto shared by several "
+        "Parties gives the same Proposal id with a different source_document_id per Party."
+    )
+
+
+class ConstituencyPositionOut(_Out):
+    statement_id: int
+    value: PositionValue = Field(
+        description="The Party's value in this Constituency (S5): its stored value only "
+        "when one of its Evidence Proposals counts here, else \"no_stance\"."
+    )
+    evidence_proposal_ids: list[int] = Field(
+        description="Ids (in the Party's evidence list) of the Evidence Proposals that "
+        "count in this Constituency, in rank order. Empty exactly when value is "
+        "\"no_stance\"; a neutral 0 has Evidence."
+    )
+
+
+class ConstituencyPartyOut(_Out):
+    id: int
+    name: str
+    short_name: str
+    logo_url: str | None = Field(
+        description="Same-origin path of the Party's logo "
+        "(/api/v1/parties/{id}/logo?v=<sha256 prefix>), or null when it has none."
+    )
+    positions: list[ConstituencyPositionOut] = Field(
+        description="One per Statement, in the body's statements order; empty when the "
+        "Constituency is unavailable."
+    )
+    evidence: list[ProposalOut] = Field(
+        description="Every Proposal referenced by this Party's positions, once each, by id."
+    )
+
+
+class ExcludedPartyOut(_Out):
+    id: int
+    name: str
+    short_name: str
+    reason: ExcludedReasonOut = Field(
+        description="Why the Party has no Positions: no_manifesto, discarded_at_review or "
+        "too_few_proposals."
+    )
+
+
+class ConstituencyQuestionnaireOut(_Out):
+    """One Constituency of a v2 Dataset Version: its ranked Statements and its Parties."""
+
+    dataset_version_id: int
+    code: ConstituencyCodeOut
+    name: str
+    available: bool
+    unavailable_reason: UnavailableReasonOut | None = Field(description=_UNAVAILABLE_DESCRIPTION)
+    offered_lengths: list[int] = Field(description="Ascending; empty when unavailable.")
+    statements: list[ConstituencyStatementOut] = Field(
+        description="All the Constituency's Statements in rank order; empty when unavailable."
+    )
+    parties: list[ConstituencyPartyOut] = Field(
+        description="The non-Excluded Parties running in this Constituency, by id."
+    )
+    excluded_parties: list[ExcludedPartyOut] = Field(
+        description="The Excluded Parties running in this Constituency, by id."
+    )
+
+
+class PartyProposalsOut(_Out):
+    party_id: int
+    proposals: list[ProposalOut] = Field(
+        description="The Party's Proposals that count in this Constituency and carry the "
+        "category (main or not), in counted order. May be empty."
+    )
+
+
+class ConstituencyProposalsOut(_Out):
+    """Each running Party's Proposals in one category, for the Comparador."""
+
+    dataset_version_id: int
+    code: ConstituencyCodeOut
+    category: str = Field(description="A topic catalog key.")
+    parties: list[PartyProposalsOut] = Field(
+        description="Every non-Excluded Party running in this Constituency, by id, "
+        "including those with no Proposal in the category."
     )
 
 

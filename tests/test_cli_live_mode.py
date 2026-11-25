@@ -466,3 +466,45 @@ def test_pipeline_run_is_unchanged_in_live_mode(run, seeded, live, use_fake, db_
 
     assert result.exit_code == 0, result.output
     assert _statuses(db_url) == [(1, PipelineRunStatus.PASSED)]
+
+
+# statements-from-proposals S11: in live, a format-2 import queues nothing, format 1 still does.
+
+
+def test_live_format_2_import_queues_nothing_and_format_1_still_queues(
+    db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import datetime as dt
+
+    from bundle_factory import PP, DocumentSpec, manifest_text, write_bundle
+    from proposal_fixtures import write_v2
+    from v2_fixtures import P, R, documents, page
+
+    monkeypatch.setenv("GENERATION_MODE", "live")
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    runner = CliRunner()
+
+    def invoke(*args: str) -> Result:
+        return runner.invoke(main, ["--database-url", db_url, *args])
+
+    assert invoke("db", "upgrade").exit_code == 0
+    directory = write_v2(tmp_path, [P, R], documents())
+    first = invoke("data", "import", str(directory))
+    assert first.exit_code == 0, first.output
+    assert "Queued" not in first.output and "queued" not in first.output
+    changed = DocumentSpec("r.md", "R", [page("r.md") + " Otra medida."], ["R"])
+    (directory / "r.md").write_bytes(changed.content())
+    second = invoke("data", "import", str(directory))
+    assert second.exit_code == 0, second.output
+    assert "Queued" not in second.output and "queued" not in second.output
+    assert _count(db_url, PipelineRun) == 0
+
+    legacy = write_bundle(
+        tmp_path / "legacy",
+        [PP],
+        slug="es-general-2019-11-10",
+        manifest=manifest_text([PP], date=dt.date(2019, 11, 10), name="Elecciones 2019"),
+    )
+    third = invoke("data", "import", str(legacy))
+    assert third.exit_code == 0, third.output
+    assert third.output.endswith("Queued pipeline run 1 for election 2 (generation mode live)\n")

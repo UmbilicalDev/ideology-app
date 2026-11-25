@@ -18,7 +18,27 @@ export type {
   ScaleValue,
   StatementId,
 } from "./domain/match-score";
-export type { Election, ElectionStatus } from "./domain/election";
+export type { DatasetVersionGeneration, Election, ElectionStatus } from "./domain/election";
+export {
+  CONSTITUENCY_CODE_PATTERN,
+  EXCLUDED_REASONS,
+  UNAVAILABLE_REASONS,
+  isConstituencyCode,
+} from "./domain/constituency";
+export type {
+  ConstituencyList,
+  ConstituencyParty,
+  ConstituencyPosition,
+  ConstituencyProposals,
+  ConstituencyQuestionnaire,
+  ConstituencyStatement,
+  ConstituencySummary,
+  ExcludedParty,
+  ExcludedReason,
+  PartyProposals,
+  Proposal,
+  UnavailableReason,
+} from "./domain/constituency";
 export { TOPIC_CATALOG, findTopic } from "./domain/topics";
 export type { TopicEntry, TopicKey } from "./domain/topics";
 export type {
@@ -53,6 +73,7 @@ export type { Results } from "./domain/results";
 export { isQuestionnaireAvailable, sharedVersionStatus } from "./domain/shared-result";
 export type { SharedVersionStatus } from "./domain/shared-result";
 export type { PublicApi } from "./application/public-api";
+export type { ConstituencyApi } from "./application/constituency-api";
 export type { FeedbackApi, FeedbackInput } from "./application/feedback-api";
 export type { LegalHolder, LegalNotice } from "./domain/legal-notice";
 export { DONATION_URL_PATTERN, isDonationUrl } from "./domain/donation";

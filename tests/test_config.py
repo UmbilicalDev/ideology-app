@@ -232,3 +232,49 @@ def test_settings_reject_bad_min_statement_parties(value: object) -> None:
 def test_settings_accept_no_shorter_length() -> None:
     assert config.ValidationSettings(questionnaire_lengths=()).questionnaire_lengths == ()
     assert config.ValidationSettings(questionnaire_lengths=(34,)).questionnaire_lengths == (34,)
+
+
+# constituency-selection-validation: ``constituency_settings`` (K3, K4)
+
+V2_VARS = ("VALIDATION_V2_MIN_STATEMENTS", "VALIDATION_V2_MIN_PARTY_SIDES")
+
+
+def test_constituency_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in V2_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+    settings = config.constituency_settings()
+
+    assert settings == config.ConstituencySettings(10, 5)
+    assert (config.DEFAULT_V2_MIN_STATEMENTS, config.DEFAULT_V2_MIN_PARTY_SIDES) == (10, 5)
+    # Kept apart from ValidationSettings, so legacy runs record what they recorded before.
+    assert not set(config.ConstituencySettings.__dataclass_fields__) & set(
+        config.ValidationSettings.__dataclass_fields__
+    )
+
+
+def test_constituency_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VALIDATION_V2_MIN_STATEMENTS", " 20 ")
+    monkeypatch.setenv("VALIDATION_V2_MIN_PARTY_SIDES", "1")
+
+    assert config.constituency_settings() == config.ConstituencySettings(20, 1)
+
+
+@pytest.mark.parametrize("name", V2_VARS)
+@pytest.mark.parametrize("raw", ["0", "1.5", "x", "-3", "+2"])
+def test_invalid_constituency_settings_raise(
+    monkeypatch: pytest.MonkeyPatch, name: str, raw: str
+) -> None:
+    for other in V2_VARS:
+        monkeypatch.delenv(other, raising=False)
+    monkeypatch.setenv(name, raw)
+
+    with pytest.raises(ConfigError) as info:
+        config.constituency_settings()
+    assert str(info.value) == f"Invalid {name} {raw!r}; expected a positive integer"
+
+
+@pytest.mark.parametrize("values", [(0, 5), (10, 0), (True, 5), (10, 1.5)])
+def test_constituency_settings_reject_bad_values(values: tuple[object, object]) -> None:
+    with pytest.raises(ValueError):
+        config.ConstituencySettings(*values)  # type: ignore[arg-type]

@@ -695,6 +695,31 @@ def test_validate_a_run_left_in_validating(run, seeded, db_url, no_provider) -> 
     assert run("pipeline", "checks", "--run", "1").output == PASSED_CHECKS
 
 
+def test_validate_a_legacy_run_reads_the_thresholds_from_the_environment(
+    run, seeded, db_url, no_provider, monkeypatch
+) -> None:
+    # v2-run-inspection S9: only v2 runs use recorded settings; legacy is unchanged.
+    _validating_run(db_url, fake_provider())
+    monkeypatch.setenv("VALIDATION_MAX_TOPIC_SHARE_PERCENT", "45")
+    monkeypatch.setenv("VALIDATION_V2_MIN_STATEMENTS", "bogus")
+
+    result = run("pipeline", "validate", "--run", "1")
+
+    assert result.exit_code == 0, result.output
+    assert result.output == (
+        "Pipeline run 1: passed\nPublished dataset version 1 for election 1\n"
+    )
+    engine = make_engine(db_url)
+    try:
+        with Session(engine) as session:
+            validated = session.get(PipelineRun, 1)
+            assert validated is not None and validated.validation_settings is not None
+            assert validated.validation_settings["max_topic_share_percent"] == 45
+            assert "v2_min_statements" not in validated.validation_settings
+    finally:
+        engine.dispose()
+
+
 def test_validate_a_failing_run_left_in_validating(
     run, seeded, db_url, no_provider, monkeypatch
 ) -> None:

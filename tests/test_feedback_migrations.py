@@ -158,11 +158,11 @@ def inspect_tables(path: Path) -> list[str]:
 
 
 def test_shared_database_head_and_metadata_are_untouched() -> None:
-    assert shared_head_revision() == "0015"
+    assert shared_head_revision() == "0021"
     assert "feedback_messages" not in models.Base.metadata.tables
     assert "reviewed_at" in FEEDBACK_METADATA.tables["feedback_messages"].c
     shared_versions = Path(models.__file__).parent / "migrations" / "versions"
-    assert not list(shared_versions.glob("0016*"))
+    assert not list(shared_versions.glob("0022*"))
 
 
 def test_revisions_never_reach_the_shared_version_table(tmp_path: Path) -> None:

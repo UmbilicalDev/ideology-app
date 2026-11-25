@@ -13,6 +13,7 @@ function election(id: number, date: string): Election {
     name: `Generales ${date.slice(0, 4)}`,
     status: "active",
     publishedDatasetVersionId: id,
+    publishedDatasetVersionGeneration: "legacy",
   };
 }
 

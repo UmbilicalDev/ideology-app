@@ -52,6 +52,11 @@ DEFAULT_MAX_STATEMENTS = 40
 DEFAULT_MAX_TOPIC_SHARE_PERCENT = 30
 DEFAULT_QUESTIONNAIRE_LENGTHS: tuple[int, ...] = (15, 30)
 DEFAULT_MIN_STATEMENT_PARTIES = 3
+# constituency-selection-validation (K3, K4; defaults for team review): a v2
+# Constituency needs at least 10 valid Statements, and every Party running there
+# a side on at least 5 of them (``LOW_COVERAGE_THRESHOLD`` of the matching rule).
+DEFAULT_V2_MIN_STATEMENTS = 10
+DEFAULT_V2_MIN_PARTY_SIDES = 5
 
 # Context notes (pipeline-statement-clarity-context). The structural cap equals
 # ``pipeline.prompts.CONTEXT_NOTE_SCHEMA_MAX`` and the ``statements.context_note``
@@ -191,6 +196,27 @@ class ValidationSettings:
             )
         if not _is_int_in(self.min_statement_parties, 1, None):
             raise ValueError("min_statement_parties must be an integer of at least 1")
+
+
+@dataclass(frozen=True)
+class ConstituencySettings:
+    """The per-Constituency minimums of a v2 run (constituency-selection-validation).
+
+    ``v2_min_statements``: the fewest valid Statements (at least 1) an
+    available Constituency has (K3). ``v2_min_party_sides``: the fewest valid
+    Statements (at least 1) on which every Party running there takes a side
+    (K4). A Constituency below either is stored unavailable; it never fails the
+    run. Kept apart from ``ValidationSettings`` so legacy runs record exactly
+    what they recorded before; a v2 run records both, flat.
+    """
+
+    v2_min_statements: int = DEFAULT_V2_MIN_STATEMENTS
+    v2_min_party_sides: int = DEFAULT_V2_MIN_PARTY_SIDES
+
+    def __post_init__(self) -> None:
+        for name in ("v2_min_statements", "v2_min_party_sides"):
+            if not _is_int_in(getattr(self, name), 1, None):
+                raise ValueError(f"{name} must be an integer of at least 1")
 
 
 def _valid_lengths(lengths: object, below: int) -> bool:
@@ -444,6 +470,24 @@ def validation_settings() -> ValidationSettings:
         context_note_evaluative_words=words,
         questionnaire_lengths=lengths,
         min_statement_parties=min_parties,
+    )
+
+
+def constituency_settings() -> ConstituencySettings:
+    """Return the per-Constituency minimums of v2 runs from the environment.
+
+    ``VALIDATION_V2_MIN_STATEMENTS`` (default 10) and
+    ``VALIDATION_V2_MIN_PARTY_SIDES`` (default 5) are integers of at least 1;
+    anything else (``0``, decimals, signs, words) raises ``ConfigError``. Read
+    in this order; the first error wins. Legacy runs never read them.
+    """
+    return ConstituencySettings(
+        v2_min_statements=_positive_int_env(
+            "VALIDATION_V2_MIN_STATEMENTS", DEFAULT_V2_MIN_STATEMENTS
+        ),
+        v2_min_party_sides=_positive_int_env(
+            "VALIDATION_V2_MIN_PARTY_SIDES", DEFAULT_V2_MIN_PARTY_SIDES
+        ),
     )
 
 
