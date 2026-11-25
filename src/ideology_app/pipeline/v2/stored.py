@@ -5,7 +5,8 @@
 consistency check of the three tables (and, since ``statement-rewording``,
 that no legacy version has ``statement_rewordings`` rows; since
 ``public-dataset-api-v2``, the frozen counted Proposals). Only ``SELECT``
-statements; the 52-row table belongs to ``v2-run-inspection``.
+statements; the 52-row table of ``pipeline report`` lives in ``inspection``
+(v2-run-inspection).
 """
 
 from sqlalchemy import func, select

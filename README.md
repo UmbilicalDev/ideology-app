@@ -250,10 +250,11 @@ Para reanudar una ejecución hay que usar el mismo proveedor y el mismo modelo.
 Todos son de solo lectura; usa el mismo prefijo `DATABASE_URL=sqlite:///data/ideology.db .venv/bin/ideology`:
 
 - `pipeline list --election E`: las ejecuciones de una elección.
-- `pipeline report --run R`: estado, proveedor y modelo, `prompt_versions`, llamadas y tokens, `resumed_from`/`reused_calls`, `validation_settings`, `statement_selection`, `selection_coverage` (cobertura por partido), `findings_check`, `publication` y el informe de Validación.
+- `pipeline report --run R`: estado, proveedor y modelo, `prompt_versions`, llamadas y tokens, `resumed_from`/`reused_calls`, `validation_settings`, `statement_selection`, `selection_coverage` (cobertura por partido), `findings_check`, `publication` y el informe de Validación. En una ejecución v2 añade la línea `positions:` y, tras el informe, las secciones `parties:` (propuestas contadas, alcance parcial, posiciones con lado y sin postura por partido, y los partidos excluidos con su motivo), `categories:`, `filtered statements:`, `slice disagreements:`, `source parties with no stance:` (estas tres solo si no están vacías) y la tabla `constituencies:` con las 52 circunscripciones (disponibilidad y motivo, partidos, afirmaciones válidas, longitudes, lados por partido y reparto por tema).
 - `pipeline checks --run R`: los resultados de la Validación.
-- `pipeline statements --dataset-version V`: las afirmaciones de una versión.
-- `pipeline positions --dataset-version V [--party P]`: las posiciones con su Evidencia.
+- `pipeline statements --dataset-version V` (o `--run R`, la versión de esa ejecución; pasa exactamente uno de los dos): las afirmaciones de una versión. Con `--sources` (solo v2) lista las propuestas de origen de cada afirmación (archivo, página y un extracto de 120 caracteres).
+- `pipeline positions --dataset-version V` (o `--run R`) `[--party P]`: las posiciones con su Evidencia. Con `--evidence` (solo v2) lista cada propuesta de Evidencia con sus circunscripciones (`all` si son todas las del partido).
+- `pipeline run-queued` omite las ejecuciones v2 encoladas con un aviso (siguen en `queued`; lanza una nueva con `pipeline run-v2 DIR`), y `pipeline validate --run R` valida una ejecución v2 con los mínimos por circunscripción que registró, no con los del entorno.
 - `party list --election E`: los partidos y sus ids (`P` es un id de partido).
 - `source list --party P`: los documentos fuente (*Source Documents*) de un partido.
 - `source text --document D [--page N]`: el texto extraído de un documento.

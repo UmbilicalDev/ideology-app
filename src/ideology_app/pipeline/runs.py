@@ -680,8 +680,13 @@ def list_runs(session: Session, election_id: int) -> Sequence[PipelineRun]:
     ).all()
 
 
-def list_queued_run_ids(session: Session, election_id: int | None = None) -> list[int]:
-    """The ids of ``queued`` Pipeline Runs in id order, of one Election or all.
+def list_queued_run_ids(
+    session: Session,
+    election_id: int | None = None,
+    generation: ModelGeneration | None = None,
+) -> list[int]:
+    """The ids of ``queued`` Pipeline Runs in id order, of one Election or all, of one
+    model generation or (``None``) both.
 
     Raises NotFoundError for an unknown Election.
     """
@@ -689,6 +694,8 @@ def list_queued_run_ids(session: Session, election_id: int | None = None) -> lis
     if election_id is not None:
         _get_election(session, election_id)
         query = query.where(PipelineRun.election_id == election_id)
+    if generation is not None:
+        query = query.where(PipelineRun.model_generation == generation)
     return list(session.scalars(query.order_by(PipelineRun.id)))
 
 

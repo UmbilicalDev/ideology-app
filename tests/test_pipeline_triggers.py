@@ -16,6 +16,7 @@ from ideology_app.elections import DuplicateError
 from ideology_app.http_fetch import FetchError
 from ideology_app.models import (
     DatasetVersion,
+    ModelGeneration,
     PipelineRun,
     PipelineRunStatus,
     SourceDocument,
@@ -280,6 +281,30 @@ def test_queued_run_of_another_election_does_not_coalesce(
     with Session(migrated_engine) as s:
         assert list_queued_run_ids(s) == [first.run_id, other.run_id]
         assert list_queued_run_ids(s, setup["e2"]) == [other.run_id]
+
+
+def test_queued_run_ids_filter_by_model_generation(
+    migrated_engine: Engine, setup: dict[str, int], files_dir: Path, tmp_path: Path
+) -> None:
+    legacy = _add(
+        migrated_engine, setup["a"], _pdf(tmp_path, "a.pdf", "Programa A."), files_dir, LIVE
+    )
+    with session_scope(migrated_engine) as session:
+        v2 = PipelineRun(
+            election_id=setup["e2"], status=PipelineRunStatus.QUEUED, llm_provider="fake",
+            llm_model="fake-model", generation_mode=GenerationMode.LIVE, prompt_versions={},
+            llm_calls=0, input_tokens=0, output_tokens=0, model_generation=ModelGeneration.V2,
+        )
+        session.add(v2)
+        session.flush()
+        v2_id = v2.id
+
+    with Session(migrated_engine) as s:
+        assert list_queued_run_ids(s) == [legacy.run_id, v2_id]
+        assert list_queued_run_ids(s, generation=ModelGeneration.LEGACY) == [legacy.run_id]
+        assert list_queued_run_ids(s, generation=ModelGeneration.V2) == [v2_id]
+        assert list_queued_run_ids(s, setup["e1"], ModelGeneration.V2) == []
+        assert list_queued_run_ids(s, setup["e2"], ModelGeneration.V2) == [v2_id]
 
 
 @pytest.mark.parametrize(

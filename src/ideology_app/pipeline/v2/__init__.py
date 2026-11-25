@@ -6,7 +6,8 @@ Constituency Selection (constituency-selection-validation, ``selection``)
 decides each Constituency's Questionnaire with ``constituency_rules``.
 Statement Rewordings from ``statement-rewordings.toml`` (``rewording``,
 statement-rewording) are judged after positioning and stored with the new
-Dataset Version. Depends
+Dataset Version. ``inspection`` (v2-run-inspection) holds the read-only views
+the Operator CLI prints for a stored v2 version. Depends
 on ``llm.base`` (never a concrete provider), ``models``, ``proposals``
 (``counted_proposals``, ``ledger_count_problems``), ``ingestion_ledger``,
 ``bundle_import``, ``validation`` and ``pipeline`` (checkpoint, usage, runs).
@@ -19,6 +20,20 @@ from ideology_app.pipeline.v2.gate import (
     Phase4Party,
     PhaseProposal,
     load_phase4,
+)
+from ideology_app.pipeline.v2.inspection import (
+    ConstituencyTableRow,
+    EvidenceRow,
+    PartyRow,
+    PartySides,
+    SourceRow,
+    constituency_rows,
+    excerpt,
+    party_rows,
+    position_evidence,
+    recorded_constituency_settings,
+    source_no_stance,
+    statement_sources,
 )
 from ideology_app.pipeline.v2.pool import (
     DRAFT_SLICE_MAX_CHARS,
@@ -101,10 +116,14 @@ __all__ = [
     "CandidatureRow",
     "ConstituencyRow",
     "ConstituencySelection",
+    "ConstituencyTableRow",
     "DraftPool",
     "EvidenceRef",
+    "EvidenceRow",
     "ExcludedParty",
     "FilteredPool",
+    "PartyRow",
+    "PartySides",
     "Phase4Error",
     "Phase4Input",
     "Phase4Party",
@@ -115,28 +134,36 @@ __all__ = [
     "RewordingFileError",
     "RewordingOutcome",
     "RewordingVerdict",
+    "SourceRow",
     "V2Pool",
     "V2Position",
     "apply_rewordings",
     "assign_positions",
     "build_pool",
+    "constituency_rows",
     "constituency_summary",
     "dataset_version_problems",
     "draft_buckets",
     "draft_request",
     "draft_set_schema",
     "draft_slices",
+    "excerpt",
     "execute_v2_run",
     "filter_pool",
     "load_phase4",
+    "party_rows",
     "plan_calls",
     "plan_position_calls",
     "pool_summary",
+    "position_evidence",
     "position_request",
     "position_set_schema",
     "queue_v2_run",
     "read_rewordings",
+    "recorded_constituency_settings",
     "rewording_request",
     "rewording_summary",
     "select_constituencies",
+    "source_no_stance",
+    "statement_sources",
 ]

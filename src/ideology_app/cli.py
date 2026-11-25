@@ -7,7 +7,7 @@ import re
 import sys
 import tempfile
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import update_wrapper
 from pathlib import Path
 from typing import Any, Callable
@@ -58,8 +58,10 @@ from ideology_app.db import (
 )
 from ideology_app.llm import LLMProvider, build_provider
 from ideology_app.models import (
+    DatasetVersion,
     DatasetVersionStatus,
     ModelGeneration,
+    PipelineRun,
     PipelineRunStatus,
     ProposalExtractionStatus,
     SourceDocumentStatus,
@@ -1698,7 +1700,8 @@ def pipeline_run_queued(app: AppContext, election_id: int | None, yes: bool) -> 
 
     Runs are queued by "ideology source add" in live Generation Mode. A run
     that fails is reported and the next one still executes; the exit code is 1
-    if any failed. Run one executor at a time.
+    if any failed. A queued v2 run is skipped with a warning (start a new one
+    with "ideology pipeline run-v2 DIR"). Run one executor at a time.
     """
     try:
         settings = config.validation_settings()
@@ -1708,7 +1711,16 @@ def pipeline_run_queued(app: AppContext, election_id: int | None, yes: bool) -> 
     failures = 0
     try:
         with session_scope(app.engine) as session:
-            run_ids = pipelines.list_queued_run_ids(session, election_id)
+            run_ids = pipelines.list_queued_run_ids(
+                session, election_id, ModelGeneration.LEGACY
+            )
+            skipped = pipelines.list_queued_run_ids(session, election_id, ModelGeneration.V2)
+        for skipped_id in skipped:
+            click.echo(
+                f"Warning: pipeline run {skipped_id} is a queued v2 run and was skipped; "
+                'start a new one with "ideology pipeline run-v2 DIR"',
+                err=True,
+            )
         if not run_ids:
             click.echo("No queued pipeline runs")
             return
@@ -1782,13 +1794,39 @@ def _failure_message(outcome: pipelines.RunOutcome) -> str:
 @click.option("--run", "run_id", required=True, type=int, help="Pipeline Run id.")
 @requires_db
 def pipeline_validate(app: AppContext, run_id: int) -> None:
-    """Validate a run left in ``validating`` (needs no LLM provider)."""
+    """Validate a run left in ``validating`` (needs no LLM provider).
+
+    A v2 run is validated with the per-Constituency minimums and the topic
+    share it selected with (``statement_selection.constituencies.settings``),
+    not the environment's; the other thresholds come from the environment.
+    """
     try:
         settings = config.validation_settings()
     except config.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
+    with session_scope(app.engine) as session:
+        run = session.get(PipelineRun, run_id)
+        recorded = (
+            pipelines_v2.recorded_constituency_settings(run.statement_selection)
+            if run is not None
+            and run.model_generation is ModelGeneration.V2
+            and run.status is PipelineRunStatus.VALIDATING
+            else None
+        )
+    constituency_settings = None
+    if recorded is not None:
+        constituency_settings, max_topic_share = recorded
+        settings = replace(settings, max_topic_share_percent=max_topic_share)
+        click.echo(
+            "Using the run's recorded constituency settings: "
+            f"max_topic_share_percent={max_topic_share}, "
+            f"v2_min_party_sides={constituency_settings.v2_min_party_sides}, "
+            f"v2_min_statements={constituency_settings.v2_min_statements}"
+        )
     try:
-        outcome = pipelines.validate_run(app.engine, run_id, settings=settings)
+        outcome = pipelines.validate_run(
+            app.engine, run_id, settings=settings, constituency_settings=constituency_settings
+        )
     except config.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
     _raise_if_failed(outcome)
@@ -1838,19 +1876,68 @@ def pipeline_list(app: AppContext, election_id: int) -> None:
     )
 
 
+def _version_for(
+    session: Session, dataset_version_id: int | None, run_id: int | None
+) -> DatasetVersion:
+    """The Dataset Version named by exactly one of ``--dataset-version`` and ``--run``."""
+    if (dataset_version_id is None) == (run_id is None):
+        raise click.UsageError("pass exactly one of --dataset-version or --run")
+    if run_id is not None:
+        run = session.get(PipelineRun, run_id)
+        if run is None:
+            raise service.NotFoundError(f"pipeline run {run_id} not found")
+        if run.dataset_version is None:
+            raise service.InvalidInputError(f"pipeline run {run_id} has no dataset version")
+        return run.dataset_version
+    assert dataset_version_id is not None
+    return pipelines.get_dataset_version(session, dataset_version_id)
+
+
+def _require_v2(version: DatasetVersion, flag: str) -> None:
+    """Refuse ``--sources`` / ``--evidence`` on a legacy Dataset Version, before any output."""
+    if version.model_generation is not ModelGeneration.V2:
+        raise click.ClickException(
+            f"dataset version {version.id} is a legacy dataset version; {flag} needs a v2 one"
+        )
+
+
+DATASET_VERSION_HELP = "Dataset Version id (or pass --run)."
+RUN_VERSION_HELP = "Pipeline Run id: its Dataset Version (or pass --dataset-version)."
+SOURCES_HEADER = ["statement", "rank", "proposal", "party", "file", "page", "excerpt"]
+EVIDENCE_HEADER = [
+    "statement", "party", "value", "rank", "proposal", "file", "page", "constituencies", "excerpt",
+]
+
+
 @pipeline.command("statements")
 @click.option(
-    "--dataset-version", "dataset_version_id", required=True, type=int, help="Dataset Version id."
+    "--dataset-version", "dataset_version_id", type=int, default=None, help=DATASET_VERSION_HELP
+)
+@click.option("--run", "run_id", type=int, default=None, help=RUN_VERSION_HELP)
+@click.option(
+    "--sources", is_flag=True, help="List each Statement's source Proposals (v2 only)."
 )
 @requires_db
-def pipeline_statements(app: AppContext, dataset_version_id: int) -> None:
-    """List the Statements of a Dataset Version in order."""
+def pipeline_statements(
+    app: AppContext, dataset_version_id: int | None, run_id: int | None, sources: bool
+) -> None:
+    """List the Statements of a Dataset Version in order (read-only)."""
     with session_scope(app.engine) as session:
-        version = pipelines.get_dataset_version(session, dataset_version_id)
-        rows: list[list[object]] = [
-            [s.position, s.topic, s.text, _one_line(s.context_note)]
-            for s in version.statements
-        ]
+        version = _version_for(session, dataset_version_id, run_id)
+        if sources:
+            _require_v2(version, "--sources")
+            source_rows: list[list[object]] = [
+                [r.statement, r.rank, r.proposal_id, r.party_id, r.file, r.page, r.excerpt]
+                for r in pipelines_v2.statement_sources(session, version.id)
+            ]
+        else:
+            rows: list[list[object]] = [
+                [s.position, s.topic, s.text, _one_line(s.context_note)]
+                for s in version.statements
+            ]
+    if sources:
+        _print_rows(SOURCES_HEADER, source_rows)
+        return
     _print_rows(["position", "topic", "text", "context_note"], rows)
 
 
@@ -1859,27 +1946,58 @@ def _one_line(text: str | None) -> str | None:
     return None if text is None else re.sub(r"\s+", " ", text)
 
 
+def _evidence_row(row: pipelines_v2.EvidenceRow) -> list[object]:
+    codes = None
+    if row.constituencies is not None:
+        codes = "all" if row.all_constituencies else ",".join(row.constituencies)
+    return [
+        row.statement, row.party_id, row.value, row.rank, row.proposal_id, row.file, row.page,
+        codes, row.excerpt,
+    ]
+
+
 @pipeline.command("positions")
 @click.option(
-    "--dataset-version", "dataset_version_id", required=True, type=int, help="Dataset Version id."
+    "--dataset-version", "dataset_version_id", type=int, default=None, help=DATASET_VERSION_HELP
 )
+@click.option("--run", "run_id", type=int, default=None, help=RUN_VERSION_HELP)
 @click.option("--party", "party_id", type=int, default=None, help="Only this Party id.")
+@click.option(
+    "--evidence", is_flag=True, help="List each Position's Evidence Proposals (v2 only)."
+)
 @requires_db
-def pipeline_positions(app: AppContext, dataset_version_id: int, party_id: int | None) -> None:
-    """List the Party Positions of a Dataset Version with their Evidence."""
+def pipeline_positions(
+    app: AppContext,
+    dataset_version_id: int | None,
+    run_id: int | None,
+    party_id: int | None,
+    evidence: bool,
+) -> None:
+    """List the Party Positions of a Dataset Version with their Evidence (read-only)."""
     with session_scope(app.engine) as session:
-        rows: list[list[object]] = [
-            [
-                p.statement.position,
-                p.party_id,
-                p.engine_value,
-                p.evidence_source_document_id,
-                p.evidence_page,
-                p.evidence_url,
-                _one_line(p.evidence_quote),
+        version = _version_for(session, dataset_version_id, run_id)
+        if evidence:
+            _require_v2(version, "--evidence")
+            evidence_rows = [
+                _evidence_row(r)
+                for r in pipelines_v2.position_evidence(session, version.id, party_id)
             ]
-            for p in pipelines.list_positions(session, dataset_version_id, party_id)
-        ]
+        else:
+            rows: list[list[object]] = [
+                [
+                    p.statement.position,
+                    p.party_id,
+                    p.engine_value,
+                    p.evidence_source_document_id,
+                    p.evidence_page,
+                    p.evidence_url,
+                    _one_line(p.evidence_quote),
+                ]
+                for p in pipelines.list_positions(session, version.id, party_id)
+            ]
+    if evidence:
+        _print_rows(EVIDENCE_HEADER, evidence_rows)
+        return
     _print_rows(["statement", "party", "value", "document", "page", "url", "quote"], rows)
 
 
@@ -2219,6 +2337,141 @@ def _lengths_line(report: pipelines.RunReport) -> str:
     return ", ".join(str(length) for length in report.questionnaire_lengths) or "none"
 
 
+PARTIES_HEADER = [
+    "party", "short_name", "proposals", "partial_scope", "sided", "no_stance", "excluded",
+]
+CATEGORIES_HEADER = ["category", "proposals", "calls", "drafted", "additions"]
+FILTERED_HEADER = ["drafted", "status", "text"]
+DISAGREEMENTS_HEADER = ["statement", "party", "category", "values"]
+SOURCE_NO_STANCE_HEADER = ["statement", "party"]
+CONSTITUENCIES_HEADER = [
+    "code", "name", "available", "reason", "parties", "excluded", "valid", "lengths",
+    "party_sides", "topic_max_share",
+]
+
+
+@dataclass(frozen=True)
+class _V2Inspection:
+    """What ``pipeline report`` reads from the tables for a v2 version (inside the session)."""
+
+    parties: list[pipelines_v2.PartyRow]
+    source_no_stance: list[tuple[int, int]]
+    constituencies: list[pipelines_v2.ConstituencyTableRow] | None
+
+    @classmethod
+    def read(
+        cls, session: Session, version_id: int, selection: dict[str, Any]
+    ) -> "_V2Inspection":
+        return cls(
+            pipelines_v2.party_rows(session, version_id, selection),
+            pipelines_v2.source_no_stance(session, version_id),
+            pipelines_v2.constituency_rows(session, version_id, selection),
+        )
+
+
+def _positions_line(selection: dict[str, Any] | None) -> list[tuple[str, object]]:
+    """The v2 ``positions:`` key line, or nothing without the pool report's positions."""
+    positions = (selection or {}).get("positions")
+    if positions is None:
+        return []
+    return [
+        (
+            "positions",
+            f"{positions['calls']} calls, {positions['sided']} sided, "
+            f"{positions['no_stance']} no stance, "
+            f"{len(positions['slice_disagreements'])} slice disagreements, "
+            f"{positions['source_party_no_stance']} source-party no stance",
+        )
+    ]
+
+
+def _yes_no(value: bool | None) -> str | None:
+    return None if value is None else ("yes" if value else "no")
+
+
+def _joined(values: Sequence[object], separator: str) -> str:
+    return separator.join(str(v) for v in values)
+
+
+def _sides(sides: Sequence[pipelines_v2.PartySides]) -> str:
+    return " ".join(
+        f"{s.party_id}:{s.sides}"
+        + ("" if s.first_length_sides is None else f"/{s.first_length_sides}")
+        for s in sides
+    )
+
+
+def _section(title: str, header: list[str], rows: list[list[object]]) -> None:
+    click.echo("")
+    click.echo(f"{title}:")
+    _print_rows(header, rows)
+
+
+def _echo_v2_inspection(selection: dict[str, Any], inspection: _V2Inspection) -> None:
+    """The v2 report sections after the validation and rewording tables (S1, S2).
+
+    A section whose report key is missing (older scratch databases) is skipped;
+    the optional lists are printed only when non-empty.
+    """
+    if "parties" in selection:
+        _section(
+            "parties",
+            PARTIES_HEADER,
+            [
+                [
+                    p.party_id, p.short_name, p.proposals, _yes_no(p.partial_scope),
+                    p.sided, p.no_stance, p.excluded,
+                ]
+                for p in inspection.parties
+            ],
+        )
+    if "categories" in selection:
+        _section(
+            "categories",
+            CATEGORIES_HEADER,
+            [
+                [c["category"], c["proposals"], c["calls"], c["drafted"], c["additions"]]
+                for c in selection["categories"]
+            ],
+        )
+    if selection.get("filtered"):
+        _section(
+            "filtered statements",
+            FILTERED_HEADER,
+            [[f["pool"], f["status"], _one_line(f["text"])] for f in selection["filtered"]],
+        )
+    disagreements = (selection.get("positions") or {}).get("slice_disagreements")
+    if disagreements:
+        _section(
+            "slice disagreements",
+            DISAGREEMENTS_HEADER,
+            [
+                [d["pool"], d["party_id"], d["category"], _joined(d["values"], "/")]
+                for d in disagreements
+            ],
+        )
+    if inspection.source_no_stance:
+        _section(
+            "source parties with no stance",
+            SOURCE_NO_STANCE_HEADER,
+            [[position, party] for position, party in inspection.source_no_stance],
+        )
+    if inspection.constituencies is not None:
+        _section(
+            "constituencies",
+            CONSTITUENCIES_HEADER,
+            [
+                [
+                    c.code, c.name, _yes_no(c.available), c.reason,
+                    _joined(c.parties, ","), _joined(c.excluded, ","), c.valid,
+                    _joined(c.lengths, "/"), _sides(c.party_sides),
+                    _joined(c.topic_max_share, "/"),
+                ]
+                for c in inspection.constituencies
+            ],
+        )
+
+
 @pipeline.command("report")
 @click.option("--run", "run_id", required=True, type=int, help="Pipeline Run id.")
 @requires_db
@@ -2235,6 +2488,15 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
             if report.dataset_version_id is None
             or report.model_generation is not ModelGeneration.V2
             else pipelines_v2.constituency_summary(session, report.dataset_version_id)
+        )
+        inspection = (
+            None
+            if report.dataset_version_id is None
+            or report.statement_selection is None
+            or report.model_generation is not ModelGeneration.V2
+            else _V2Inspection.read(
+                session, report.dataset_version_id, report.statement_selection
+            )
         )
     # Usage is stored as zeros until generation finishes; zeros would mislead.
     usage_recorded = report.generation_finished_at is not None
@@ -2286,6 +2548,7 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
                     "statement_selection",
                     pipelines_v2.pool_summary(report.statement_selection) or NOT_RECORDED,
                 ),
+                *_positions_line(report.statement_selection),
                 ("constituencies", constituencies or NOT_RECORDED),
                 (
                     "rewordings",
@@ -2322,6 +2585,8 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
                 for e in rewording_entries
             ],
         )
+    if inspection is not None:
+        _echo_v2_inspection(report.statement_selection or {}, inspection)
     if (
         report.statement_selection is not None
         and report.model_generation is ModelGeneration.LEGACY

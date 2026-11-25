@@ -283,3 +283,37 @@ def phase_proposal(
 
 def phase_party(party_id: int, *proposals: PhaseProposal) -> Phase4Party:
     return Phase4Party(party_id=party_id, short_name=f"S{party_id}", proposals=tuple(proposals))
+
+
+# --- v2-run-inspection: a run with a filtered draft, a slice disagreement and no stances ---
+
+# Economía also drafts the Vivienda Statement again: the copy is filtered as a duplicate.
+INSPECTION_STATEMENTS: dict[str, list[str]] = {
+    "Vivienda": ["Debe limitarse el precio del alquiler de vivienda."],
+    "Economía": [
+        "Deben bajarse los impuestos a las empresas.",
+        "Debe limitarse el precio del alquiler de vivienda.",
+    ],
+}
+# P's "vivienda pública" Proposal takes the other side (a slice disagreement once each
+# Proposal is its own slice); R's housing Proposal takes none (R has no stance).
+INSPECTION_STANCES: dict[str, int] = {
+    **{k: v for k, v in STANCES.items() if not k.startswith("Liberalizar")},
+    "Construir más vivienda pública en alquiler.": -1,
+}
+
+
+def one_proposal_slices(
+    proposals: Sequence[PhaseProposal], max_chars: int = 0
+) -> list[list[PhaseProposal]]:
+    """``positions.position_slices`` with one Proposal per slice (monkeypatched in)."""
+    return [[p] for p in proposals]
+
+
+def inspection_fake() -> FakeProvider:
+    """``v2_fake`` drafting ``INSPECTION_STATEMENTS`` and positioning with
+    ``INSPECTION_STANCES``; use with ``one_proposal_slices`` patched in."""
+    return v2_fake(
+        drafts=drafts_responder(INSPECTION_STATEMENTS),
+        positions=positions_responder(INSPECTION_STANCES),
+    )
