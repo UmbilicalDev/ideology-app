@@ -26,7 +26,8 @@ from sqlalchemy import Engine, Select, exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ideology_app import config
-from ideology_app.config import GenerationMode, ValidationSettings
+from ideology_app.bundle_import import candidatures_by_party
+from ideology_app.config import ConstituencySettings, GenerationMode, ValidationSettings
 from ideology_app.db import session_scope
 from ideology_app.elections import InvalidInputError, NotFoundError
 from ideology_app.llm.base import LLMError, LLMProvider
@@ -34,6 +35,7 @@ from ideology_app.models import (
     DatasetVersion,
     DatasetVersionStatus,
     Election,
+    ModelGeneration,
     Party,
     PartyPosition,
     PipelineRun,
@@ -66,10 +68,19 @@ from ideology_app.pipeline.positions import (
 )
 from ideology_app.pipeline.prompts import PROMPT_VERSIONS, PoolStatement
 from ideology_app.pipeline.selection import anchor_summary, select_statements
-from ideology_app.validation import CHECKS, MESSAGE_MAX, Check, load_input, run_checks
+from ideology_app.validation import MESSAGE_MAX, Check, checks_for, load_input, run_checks
 
 _REASON_MAX = 500
 INTERRUPTED_REASON = "interrupted"
+LEGACY_REFUSED_REASON = "legacy run refused: election has candidatures"
+
+
+def candidatures_refusal(election_id: int) -> str:
+    """Why a legacy run is refused on an Election with candidatures (format 2)."""
+    return (
+        f'election {election_id} has candidatures (format 2); '
+        f'run "ideology pipeline run-v2 DIR"'
+    )
 
 
 @dataclass(frozen=True)
@@ -88,6 +99,7 @@ class RunOutcome:
     position_count: int = 0
     failed_checks: tuple[str, ...] = ()
     publish: publishing.PublishOutcome | None = None
+    model_generation: ModelGeneration = ModelGeneration.LEGACY
 
 
 def _get_election(session: Session, election_id: int) -> Election:
@@ -152,9 +164,12 @@ def queue_run(
     same Election, queued for the same provider and model, that has no Dataset
     Version (``--resume-from``). With ``allow_finished_source`` that run may
     also have a Dataset Version (``--reuse-from``: reuse from a finished run).
+    Refused for an Election with candidatures (format 2: ``pipeline run-v2``).
     The caller commits.
     """
     _get_election(session, election_id)
+    if candidatures_by_party(session, election_id):
+        raise InvalidInputError(candidatures_refusal(election_id))
     has_parsed = session.scalar(select(exists(_parsed_documents_query(election_id))))
     if not has_parsed:
         raise InvalidInputError(f"election {election_id} has no parsed source documents")
@@ -192,7 +207,9 @@ def _check_resumable(
     llm_model: str,
     *,
     allow_finished_source: bool = False,
+    generation: ModelGeneration = ModelGeneration.LEGACY,
 ) -> None:
+    """Refuse a source run of another Election, provider, model or generation."""
     source = session.get(PipelineRun, run_id)
     if source is None:
         raise NotFoundError(f"pipeline run {run_id} not found")
@@ -205,6 +222,11 @@ def _check_resumable(
         raise InvalidInputError(
             f"pipeline run {run_id} used {source.llm_provider}/{source.llm_model}, "
             f"not {llm_provider}/{llm_model}"
+        )
+    if source.model_generation is not generation:
+        raise InvalidInputError(
+            f"pipeline run {run_id} is a {source.model_generation.value} run, "
+            f"not {generation.value}"
         )
     if source.dataset_version is not None and not allow_finished_source:
         raise InvalidInputError(
@@ -249,7 +271,7 @@ def _resolve_anchors(
     return version.id, tuple(Anchor(text=s.text, topic=s.topic) for s in statements)
 
 
-def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
+def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput | None:
     """Check the run, mark it ``running``, record and load its input. Commits.
 
     Only current documents (``replaced_by_id`` null) are read. Each Party's
@@ -258,6 +280,9 @@ def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
     Without re-fetched replacements this is the lowest-id document. The
     anchors (``_resolve_anchors``) are resolved and recorded on the run
     (``anchor_dataset_version_id``) in the same commit.
+    A v2 run is refused (``InvalidInputError``, nothing changes). A queued
+    legacy run of an Election with candidatures is set ``failed``
+    (``LEGACY_REFUSED_REASON``) and ``None`` is returned.
     """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
@@ -267,11 +292,20 @@ def _start(engine: Engine, run_id: int, provider: LLMProvider) -> _RunInput:
             raise InvalidInputError(
                 f"pipeline run {run_id} is {run.status.value}, expected queued"
             )
+        if run.model_generation is not ModelGeneration.LEGACY:
+            raise InvalidInputError(
+                f'pipeline run {run_id} is a {run.model_generation.value} run; '
+                f'run "ideology pipeline run-v2 DIR"'
+            )
         if (provider.name, provider.model) != (run.llm_provider, run.llm_model):
             raise InvalidInputError(
                 f"pipeline run {run_id} was queued for {run.llm_provider}/{run.llm_model}, "
                 f"not {provider.name}/{provider.model}"
             )
+        if candidatures_by_party(session, run.election_id):
+            run.status = PipelineRunStatus.FAILED
+            run.failure_reason = LEGACY_REFUSED_REASON
+            return None
         party_ids = list(
             session.scalars(
                 select(Party.id).where(Party.election_id == run.election_id).order_by(Party.id)
@@ -427,6 +461,8 @@ def execute_run(
     if validation_settings is None:
         validation_settings = config.validation_settings()
     run_input = _start(engine, run_id, provider)
+    if run_input is None:
+        return RunOutcome(run_id, PipelineRunStatus.FAILED, None, 0, LEGACY_REFUSED_REASON)
     provider = CheckpointProvider(provider, engine, run_id, run_input.resumed_from_run_id)
     usage = Usage()
     findings = FindingCheck()
@@ -507,8 +543,9 @@ def _mark_failed(engine: Engine, run_id: int, reason: str) -> None:
 def validate_run(
     engine: Engine,
     run_id: int,
-    checks: Sequence[Check] = CHECKS,
+    checks: Sequence[Check] | None = None,
     settings: ValidationSettings | None = None,
+    constituency_settings: ConstituencySettings | None = None,
 ) -> RunOutcome:
     """Run every Validation check on a ``validating`` run and record the result. Commits.
 
@@ -525,19 +562,39 @@ def validate_run(
     changing nothing, when the run is unknown or not ``validating``. Needs no
     LLM provider. ``settings`` holds the check thresholds; when ``None`` it is
     read with ``config.validation_settings()`` first, so an invalid value
-    raises ``ConfigError`` before any session and changes nothing. The
-    thresholds are recorded on the run (``validation_settings``) in the commit
-    that stores the results, on both outcomes; never on the rollback path.
+    raises ``ConfigError`` before any session and changes nothing. ``checks``
+    ``None`` means ``validation.checks_for(run.model_generation)``, and a
+    passed run publishes only when ``publishing.PUBLISH_ON_PASS`` says so for
+    its generation (both publish since constituency-selection-validation).
+    ``constituency_settings`` are the per-Constituency minimums of a v2 run;
+    when ``None`` for a v2 run they are read with
+    ``config.constituency_settings()`` after reading the run's generation
+    (read-only) and before the checking session; a legacy run never reads
+    them. The thresholds are recorded on the run (``validation_settings``:
+    ``asdict(settings)``, and for a v2 run also ``asdict(constituency_settings)``,
+    flat) in the commit that stores the results, on both outcomes; never on
+    the rollback path.
     """
     if settings is None:
         settings = config.validation_settings()
+    if constituency_settings is None:
+        with Session(engine) as probe:
+            generation_of_run = probe.scalar(
+                select(PipelineRun.model_generation).where(PipelineRun.id == run_id)
+            )
+        if generation_of_run is ModelGeneration.V2:
+            constituency_settings = config.constituency_settings()
     checking = False
     try:
         with session_scope(engine) as session:
             run = _validating_run(session, run_id)
             checking = True
-            data = load_input(session, run, settings)
-            results = run_checks(data, checks)
+            generation = run.model_generation
+            v2 = generation is ModelGeneration.V2
+            data = load_input(session, run, settings, constituency_settings if v2 else None)
+            results = run_checks(
+                data, checks if checks is not None else checks_for(generation)
+            )
             for result in results:
                 session.add(
                     ValidationResult(
@@ -555,7 +612,9 @@ def validate_run(
                     )
                 )
             failed = tuple(r.name for r in results if not r.passed)
-            run.validation_settings = asdict(settings)
+            run.validation_settings = (
+                asdict(settings) | asdict(data.constituency_settings) if v2 else asdict(settings)
+            )
             if failed:
                 run.status = PipelineRunStatus.FAILED
                 run.failure_reason = ("validation failed: " + ", ".join(failed))[:_REASON_MAX]
@@ -567,7 +626,11 @@ def validate_run(
             session.flush()
             version = run.dataset_version
             assert version is not None
-            publish = None if failed else publishing.publish_dataset_version(session, version)
+            publish = (
+                None
+                if failed or not publishing.PUBLISH_ON_PASS[generation]
+                else publishing.publish_dataset_version(session, version)
+            )
             outcome = RunOutcome(
                 run_id,
                 run.status,
@@ -577,6 +640,7 @@ def validate_run(
                 len(data.positions),
                 failed,
                 publish,
+                generation,
             )
     except KeyboardInterrupt:
         if checking:
@@ -645,6 +709,7 @@ def find_unfinished_run(
     election_id: int,
     provider: str | None = None,
     model: str | None = None,
+    generation: ModelGeneration | None = None,
 ) -> UnfinishedRun | None:
     """The Election's latest run with recorded calls, when it is unfinished. Read-only.
 
@@ -652,6 +717,7 @@ def find_unfinished_run(
     recorded LLM call. It is unfinished when it has no Dataset Version, its
     status is ``running`` or ``failed``, and (when given) its provider and model
     equal ``provider`` / ``model`` (another model's run cannot be resumed).
+    With ``generation`` only runs of that model generation are considered.
     Otherwise, or when the Election has no such run, ``None``.
     """
     calls = (
@@ -659,13 +725,14 @@ def find_unfinished_run(
         .group_by(PipelineRunCall.pipeline_run_id)
         .subquery()
     )
-    row = session.execute(
+    query = (
         select(PipelineRun, calls.c.calls)
         .join(calls, calls.c.pipeline_run_id == PipelineRun.id)
         .where(PipelineRun.election_id == election_id)
-        .order_by(PipelineRun.id.desc())
-        .limit(1)
-    ).first()
+    )
+    if generation is not None:
+        query = query.where(PipelineRun.model_generation == generation)
+    row = session.execute(query.order_by(PipelineRun.id.desc()).limit(1)).first()
     if row is None:
         return None
     run, recorded = row

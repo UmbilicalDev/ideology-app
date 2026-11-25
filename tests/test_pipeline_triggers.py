@@ -415,3 +415,26 @@ def test_mode_table_covers_every_generation_mode() -> None:
 def test_list_queued_run_ids_unknown_election(session: Session) -> None:
     with pytest.raises(elections.NotFoundError):
         list_queued_run_ids(session, 999)
+
+
+# statements-from-proposals S11: an Election with candidatures never queues.
+
+
+def test_live_format_2_import_queues_nothing(migrated_engine: Engine, tmp_path: Path) -> None:
+    from proposal_fixtures import write_v2
+    from v2_fixtures import P, R, documents
+
+    from ideology_app.bundle_import import import_bundle
+    from ideology_app.source_bundle import read_bundle
+
+    directory = write_v2(tmp_path, [P, R], documents())
+    with session_scope(migrated_engine) as session:
+        report = import_bundle(session, read_bundle(directory))
+        assert report.new_documents
+        # Same transaction as the CLI: candidatures are flushed before the read.
+        outcomes = [
+            queue_run_for_source_change(session, d, generation_mode=LIVE, llm=SETTINGS)
+            for d in report.new_documents
+        ]
+    assert outcomes == [SourceChangeOutcome(1, None, False)] * len(outcomes)
+    assert _runs(migrated_engine) == []
