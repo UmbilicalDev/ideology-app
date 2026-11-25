@@ -2,7 +2,9 @@
 
 Pure tests: bundles are written in ``tmp_path`` with ``bundle_factory``; no
 database and no LLM. Party ``A`` lists ``a.md``; ``B`` shares ``a.md`` (D1) and
-has ``b.md``; ``C`` lists no document.
+has ``b.md``; ``C`` lists no document. Once both are kept, ``B``'s two
+documents overlap in ``28`` (proposal-conflicts): ``_check_b`` records a
+no-contradiction check through the public interface so the gate can open.
 """
 
 import json
@@ -83,6 +85,18 @@ def _stub_extraction(directory: Path, counts: dict[str, int]) -> list[ledgers.Pa
     return affected
 
 
+def _check_b(directory: Path) -> None:
+    """Record a no-contradiction conflict check for B's overlap a.md + b.md."""
+    ledgers.record_conflict_check_in_dir(
+        directory,
+        "B",
+        ["a.md", "b.md"],
+        content_hashes=[_hash(directory, "a.md"), _hash(directory, "b.md")],
+        check=ledgers.ConflictCheck("fake", "fake-model", "v1", 1),
+        contradictions=[],
+    )
+
+
 # --- Scenario 1: create -------------------------------------------------------------
 
 
@@ -130,7 +144,7 @@ def test_canonical_bytes_and_a_second_update_is_a_no_op(directory: Path) -> None
     assert list(obj["parties"][0]) == ["short_name", "phase", "reason", "note", "proposals"]
     assert list(obj["documents"][0]) == ["file", "content_hash", "parties", "review",
                                          "proposals"]
-    assert obj["format"] == 1 and obj["election"] == directory.name and obj["conflicts"] == []
+    assert obj["format"] == 2 and obj["election"] == directory.name and obj["conflicts"] == []
 
     _, again, lines = ledgers.update_in_dir(directory)
     assert lines == []
@@ -390,6 +404,7 @@ def test_discarding_clears_the_count(directory: Path) -> None:
         "Document b.md: discarded (incomplete) (was kept)",
         "Document b.md: proposals cleared (discarded)",
         "Party B: proposals_extracted (35 proposals) -> excluded (too_few_proposals, 20 < 30)",
+        "Conflict B a.md + b.md: removed (no longer an overlap)",
     ]
     assert ledger.document("b.md").proposals is None
 
@@ -406,7 +421,7 @@ def test_changed_file_voids_its_review_and_count(directory: Path, tmp_path: Path
     problems = ledgers.ledger_problems(bundle)
     assert problems == [
         "ingestion ledger is out of date: Document a.md: review cleared (content changed) "
-        f'(+3 more); run "ideology ingestion update {directory}"'
+        f'(+4 more); run "ideology ingestion update {directory}"'
     ]
     with pytest.raises(Phase4Blocked) as blocked:
         ledgers.require_phase4_ready(directory)
@@ -418,6 +433,7 @@ def test_changed_file_voids_its_review_and_count(directory: Path, tmp_path: Path
         "Document a.md: proposals cleared (content changed)",
         "Party A: proposals_extracted (40 proposals) -> candidature_declared",
         "Party B: proposals_extracted (55 proposals) -> candidature_declared",
+        "Conflict B a.md + b.md: removed (no longer an overlap)",
     ]
     assert ledger.document("a.md").content_hash == bundle.documents[0].text.content_hash
     assert ledgers.ledger_problems(bundle) == []
@@ -437,6 +453,7 @@ def test_removed_party_and_document_and_changed_parties(directory: Path, tmp_pat
         "Party B: removed (not in election.toml)",
         "Document a.md: parties A, B -> A",
         "Document b.md: removed (not in election.toml)",
+        "Conflict B a.md + b.md: removed (no longer an overlap)",
     ]
     assert [p.short_name for p in ledger.parties] == ["A", "C", "D"]
     assert [d.file for d in ledger.documents] == ["a.md"]
@@ -479,8 +496,12 @@ def test_gate_passes_when_every_party_is_extracted_or_excluded(directory: Path) 
     assert blocked.value.blockers == (
         'party C: candidature_declared (next: list a manifesto in [[documents]] or record '
         '"ingestion no-manifesto")',
+        f'conflict pending: B: a.md + b.md (28): not checked; run "ideology conflicts detect '
+        f'{directory}"',
     )
     assert str(blocked.value).startswith("phase 4 is blocked: party C")
+
+    _check_b(directory)
 
     ledgers.no_manifesto_in_dir(directory, "C")
     ledger = ledgers.require_phase4_ready(directory)
@@ -494,17 +515,17 @@ def test_gate_passes_when_every_party_is_extracted_or_excluded(directory: Path) 
     assert ledgers.party_states(read_bundle(directory), ledger) == ledger.parties
 
 
-def test_gate_blocks_on_pending_conflicts(
-    directory: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_gate_blocks_on_pending_conflicts(directory: Path) -> None:
     _extracted(directory, a=30, b=1)
     ledgers.no_manifesto_in_dir(directory, "C")
-    ledgers.require_phase4_ready(directory)
-
-    monkeypatch.setattr(ledgers, "pending_conflicts", lambda ledger: ("a.md p. 3 vs b.md p. 1",))
     with pytest.raises(Phase4Blocked) as blocked:
         ledgers.require_phase4_ready(directory)
-    assert blocked.value.blockers == ("conflict pending: a.md p. 3 vs b.md p. 1",)
+    assert blocked.value.blockers == (
+        f'conflict pending: B: a.md + b.md (28): not checked; run "ideology conflicts detect '
+        f'{directory}"',
+    )
+    _check_b(directory)
+    ledgers.require_phase4_ready(directory)
 
 
 def test_gate_blocks_on_an_invalid_ledger(directory: Path) -> None:
@@ -556,8 +577,8 @@ def _edit(obj: dict, path: str, value: object) -> None:
 _DELETE = object()
 
 INVALID = [
-    ("format", 2, "format: unsupported ledger format 2 (expected 1)"),
-    ("format", True, "format: unsupported ledger format True (expected 1)"),
+    ("format", 3, "format: unsupported ledger format 3 (expected 1 or 2)"),
+    ("format", True, "format: unsupported ledger format True (expected 1 or 2)"),
     ("election", "es-general-2019-11-10",
      "election: 'es-general-2019-11-10' is not this bundle's election"),
     ("min_proposals", 0, "min_proposals: must be between 1 and 1000"),
@@ -565,7 +586,8 @@ INVALID = [
     ("min_proposals", 30.0, "min_proposals: must be an integer"),
     ("extra", 1, "$: unknown key 'extra'"),
     ("conflicts", _DELETE, "$: missing key 'conflicts'"),
-    ("conflicts", [{"a": 1}], "conflicts: must be empty in ledger format 1"),
+    ("conflicts", [{"a": 1}], "conflicts[0]: unknown key 'a'"),
+    ("conflicts", {}, "conflicts: must be a list"),
     ("parties", {}, "parties: must be a list"),
     ("parties.1.phase", "done", "parties[1].phase: unknown phase 'done'"),
     ("parties.1.extra", None, "parties[1]: unknown key 'extra'"),
@@ -624,7 +646,7 @@ def test_read_refuses_non_canonical_bytes(directory: Path) -> None:
     for data, where in (
         (json.dumps(obj, indent=4).encode() + b"\n", "line 2"),
         (canonical[:-1], f"line {lines}"),
-        (canonical.replace(b'"format": 1,', b'"format": 1 ,'), "line 2"),
+        (canonical.replace(b'"format": 2,', b'"format": 2 ,'), "line 2"),
     ):
         path.write_bytes(data)
         with pytest.raises(LedgerError) as error:

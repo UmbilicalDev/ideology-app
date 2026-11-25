@@ -655,16 +655,16 @@ def test_format_2_check_reports_an_out_of_date_or_invalid_ledger(
         f"Error: election 1 ({SLUG}): {relative}\nSafe to commit: no\n"
     )
 
-    obj["format"] = 2
+    obj["format"] = 3
     ledger.write_bytes((json.dumps(obj, ensure_ascii=False, indent=2) + "\n").encode())
-    invalid = f"{ledger}: format: unsupported ledger format 2 (expected 1)"
+    invalid = f"{ledger}: format: unsupported ledger format 3 (expected 1 or 2)"
     assert run("data", "check", str(bundle_v2)).output == (
         f"Error: {invalid}\n"
         f"Error: ingestion ledger of bundle {SLUG} is not valid and up to date: 1 problems\n"
     )
     assert run("db", "check").output == (
         f"Error: election 1 ({SLUG}): data/elections/{SLUG}/{LEDGER_NAME}: format: "
-        "unsupported ledger format 2 (expected 1)\nSafe to commit: no\n"
+        "unsupported ledger format 3 (expected 1 or 2)\nSafe to commit: no\n"
     )
 
 

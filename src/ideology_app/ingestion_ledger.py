@@ -6,9 +6,13 @@ decide, and stores a derived, checked summary next to them:
 
 - facts: ``min_proposals`` (N), each document's phase-2 review (kept or
   discarded with a reason) and validated Proposal count, both for the
-  document's current ``content_hash``, and each ``no_manifesto`` exclusion;
-- derived: each Party's ``phase``, ``reason`` and ``proposals``, and each
-  document's ``parties``.
+  document's current ``content_hash``, each ``no_manifesto`` exclusion, and
+  per overlap (two kept documents of one Party whose scopes intersect) the
+  conflict check written by ``conflicts detect`` and the Operator's decision,
+  both for the pair's current content hashes (format 2, proposal-conflicts);
+- derived: each Party's ``phase``, ``reason`` and ``proposals``, each
+  document's ``parties``, and each overlap's files, Constituencies, joint
+  manifesto and ``status``.
 
 Every mutating function first rebuilds the ledger from the bundle
 (``reconcile``): it drops stale facts (a changed file, a Party or file no
@@ -16,9 +20,12 @@ longer listed, a ``no_manifesto`` exclusion on a Party that now lists a
 document) and reports each change as a line. The ledger is *up to date* when
 its bytes equal what ``reconcile`` would write.
 
-The file is written only by this module (through ``ideology ingestion``
-commands and ``record_extraction_in_dir``), never by hand or by AI. Its bytes
-are canonical (``render_ledger``) and the reader refuses anything else.
+The file is written only by this module (through ``ideology ingestion`` and
+``ideology conflicts decide`` commands, ``record_extraction_in_dir`` and
+``record_conflict_check_in_dir``), never by hand. LLM output enters it only as
+a conflict check recorded by ``conflicts detect``. Its bytes are canonical
+(``render_ledger``) and the reader refuses anything else. A format-1 file is
+still read (it has no conflicts); ``reconcile`` rewrites it as format 2.
 
 The module is pure apart from reading and writing the ledger file: no
 database, no clock, no LLM. See ``docs/specs/ingestion-ledger.md``.
@@ -29,7 +36,7 @@ import os
 import re
 import tempfile
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -39,11 +46,14 @@ from ideology_app.source_bundle import (
     MANIFEST_NAME,
     Bundle,
     BundleDocument,
+    document_scope,
     read_bundle,
 )
+from ideology_app.topic_catalog import TOPIC_CATALOG
 
 LEDGER_NAME = "ingestion-ledger.json"
-LEDGER_FORMAT = 1
+LEDGER_FORMAT = 2
+READ_FORMATS = (1, 2)
 DEFAULT_MIN_PROPOSALS = 30
 MIN_PROPOSALS_RANGE = (1, 1000)
 MAX_LEDGER_BYTES = 5 * 1024 * 1024
@@ -59,6 +69,14 @@ _TOP_KEYS = ("format", "election", "min_proposals", "parties", "documents", "con
 _PARTY_KEYS = ("short_name", "phase", "reason", "note", "proposals")
 _DOCUMENT_KEYS = ("file", "content_hash", "parties", "review", "proposals")
 _REVIEW_KEYS = ("decision", "reason", "note")
+_CONFLICT_KEYS = (
+    "party", "files", "content_hashes", "constituencies", "joint", "check",
+    "contradictions", "status", "prevails", "reason",
+)
+_CHECK_KEYS = ("provider", "model", "prompt_version", "calls")
+_CONTRADICTION_KEYS = ("proposals", "category", "explanation")
+_CODE_RE = re.compile(r"^[0-9]{2}$")
+_CATEGORY_KEYS = frozenset(entry.key for entry in TOPIC_CATALOG)
 
 
 class Phase(StrEnum):
@@ -83,6 +101,16 @@ class DiscardReason(StrEnum):
     NO_TEXT_LAYER = "no_text_layer"
     NOT_A_MANIFESTO = "not_a_manifesto"
     INCOMPLETE = "incomplete"
+
+
+class ConflictStatus(StrEnum):
+    """Derived from the check, the joint manifesto and the decision; never set."""
+
+    UNCHECKED = "unchecked"
+    NO_CONTRADICTION = "no_contradiction"
+    JOINT_MANIFESTO = "joint_manifesto"
+    DECIDED = "decided"
+    PENDING = "pending"
 
 
 class LedgerError(InvalidInputError):
@@ -131,12 +159,64 @@ class PartyEntry:
 
 
 @dataclass(frozen=True)
+class ConflictCheck:
+    """How an overlap was checked: the provider, model, prompt version and new calls."""
+
+    provider: str
+    model: str
+    prompt_version: str
+    calls: int
+
+
+@dataclass(frozen=True)
+class Contradiction:
+    """Proposal ordinals in ``files[0]`` and ``files[1]`` that cannot both hold."""
+
+    proposals: tuple[int, int]
+    category: str
+    explanation: str
+
+
+@dataclass(frozen=True)
+class ConflictEntry:
+    """An overlap: two kept documents of ``party`` whose scopes intersect.
+
+    ``files`` are sorted by name and ``content_hashes`` follow them. ``check``
+    and ``contradictions`` are written only by ``record_conflict_check``;
+    ``prevails``/``reason`` of a ``decided`` entry only by ``decide_conflict``.
+    The rest is derived.
+    """
+
+    party: str
+    files: tuple[str, str]
+    content_hashes: tuple[str, str]
+    constituencies: tuple[str, ...]
+    joint: str | None = None
+    check: ConflictCheck | None = None
+    contradictions: tuple[Contradiction, ...] = ()
+    status: ConflictStatus = ConflictStatus.UNCHECKED
+    prevails: str | None = None
+    reason: str | None = None
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (self.party, *self.files)
+
+    @property
+    def loser(self) -> str | None:
+        """The file whose contradicting Proposals are set aside, or ``None``."""
+        if self.prevails is None:
+            return None
+        return self.files[1] if self.prevails == self.files[0] else self.files[0]
+
+
+@dataclass(frozen=True)
 class Ledger:
     election: str
     min_proposals: int
     parties: tuple[PartyEntry, ...]
     documents: tuple[DocumentEntry, ...]
-    conflicts: tuple[()] = ()
+    conflicts: tuple[ConflictEntry, ...] = ()
     format: int = LEDGER_FORMAT
 
     def party(self, short_name: str) -> PartyEntry:
@@ -153,6 +233,14 @@ class Ledger:
                 return entry
         raise KeyError(file)
 
+    def conflict(self, party: str, files: Sequence[str]) -> ConflictEntry:
+        """The overlap of ``party`` between the two ``files`` (any order). Raises KeyError."""
+        key = (party, *sorted(files))
+        for entry in self.conflicts:
+            if entry.key == key:
+                return entry
+        raise KeyError(key)
+
 
 Changes = list[str]
 
@@ -167,6 +255,34 @@ def _review_obj(review: Review | None) -> dict[str, Any] | None:
         "decision": review.decision.value,
         "reason": None if review.reason is None else review.reason.value,
         "note": review.note,
+    }
+
+
+def _conflict_obj(entry: ConflictEntry) -> dict[str, Any]:
+    check = entry.check
+    return {
+        "party": entry.party,
+        "files": list(entry.files),
+        "content_hashes": list(entry.content_hashes),
+        "constituencies": list(entry.constituencies),
+        "joint": entry.joint,
+        "check": None if check is None else {
+            "provider": check.provider,
+            "model": check.model,
+            "prompt_version": check.prompt_version,
+            "calls": check.calls,
+        },
+        "contradictions": [
+            {
+                "proposals": list(item.proposals),
+                "category": item.category,
+                "explanation": item.explanation,
+            }
+            for item in entry.contradictions
+        ],
+        "status": entry.status.value,
+        "prevails": entry.prevails,
+        "reason": entry.reason,
     }
 
 
@@ -196,7 +312,7 @@ def render_ledger(ledger: Ledger) -> bytes:
             }
             for document in ledger.documents
         ],
-        "conflicts": list(ledger.conflicts),
+        "conflicts": [_conflict_obj(entry) for entry in ledger.conflicts],
     }
     return (json.dumps(obj, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
@@ -346,6 +462,158 @@ def _document_entry(reader: _Reader, raw: Any, where: str) -> DocumentEntry:
     return DocumentEntry(file, content_hash, tuple(parties), review, proposals)
 
 
+def conflict_status(
+    check: ConflictCheck | None,
+    contradictions: Sequence[Contradiction],
+    joint: str | None,
+    decided: bool,
+) -> ConflictStatus:
+    """The derived status of an overlap (the one rule the reader and ``_derive`` share)."""
+    if check is None:
+        return ConflictStatus.UNCHECKED
+    if not contradictions:
+        return ConflictStatus.NO_CONTRADICTION
+    if joint is not None:
+        return ConflictStatus.JOINT_MANIFESTO
+    if decided:
+        return ConflictStatus.DECIDED
+    return ConflictStatus.PENDING
+
+
+def _string_pair(
+    reader: _Reader, value: Any, where: str, pattern: re.Pattern[str], what: str
+) -> tuple[str, str]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise reader.error(where, f"must be a list of two {what}s")
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not pattern.match(item):
+            raise reader.error(f"{where}[{index}]", f"invalid {what} {item!r}")
+    return value[0], value[1]
+
+
+def _conflict_check(reader: _Reader, raw: Any, where: str) -> ConflictCheck | None:
+    if raw is None:
+        return None
+    entry = reader.keys(raw, _CHECK_KEYS, where)
+    return ConflictCheck(
+        reader.text(entry["provider"], f"{where}.provider"),
+        reader.text(entry["model"], f"{where}.model"),
+        reader.text(entry["prompt_version"], f"{where}.prompt_version"),
+        reader.integer(entry["calls"], f"{where}.calls", 0),
+    )
+
+
+def _contradictions(
+    reader: _Reader, raw: Any, where: str, counts: tuple[int | None, int | None]
+) -> tuple[Contradiction, ...]:
+    if not isinstance(raw, list):
+        raise reader.error(where, "must be a list")
+    items: list[Contradiction] = []
+    for index, value in enumerate(raw):
+        at = f"{where}[{index}]"
+        entry = reader.keys(value, _CONTRADICTION_KEYS, at)
+        proposals = entry["proposals"]
+        if not isinstance(proposals, list) or len(proposals) != 2:
+            raise reader.error(f"{at}.proposals", "must be a list of two Proposal ordinals")
+        ordinals: list[int] = []
+        for side, (ordinal, count) in enumerate(zip(proposals, counts, strict=True)):
+            if count is None:
+                raise reader.error(
+                    f"{at}.proposals[{side}]", "its document has no validated Proposal count"
+                )
+            ordinals.append(reader.integer(ordinal, f"{at}.proposals[{side}]", 1, count))
+        category = entry["category"]
+        if not isinstance(category, str) or category not in _CATEGORY_KEYS:
+            raise reader.error(f"{at}.category", f"unknown category {category!r}")
+        explanation = entry["explanation"]
+        if explanation is None:
+            raise reader.error(f"{at}.explanation", "must be a string")
+        problem = note_problem(explanation)
+        if problem is not None:
+            raise reader.error(f"{at}.explanation", problem)
+        items.append(Contradiction((ordinals[0], ordinals[1]), category, explanation))
+    pairs = [item.proposals for item in items]
+    if pairs != sorted(set(pairs)):
+        raise reader.error(where, "must be sorted by proposals, without a duplicate pair")
+    return tuple(items)
+
+
+def _conflict_entry(
+    reader: _Reader,
+    raw: Any,
+    where: str,
+    parties: set[str],
+    documents: dict[str, DocumentEntry],
+) -> ConflictEntry:
+    entry = reader.keys(raw, _CONFLICT_KEYS, where)
+    party = entry["party"]
+    if party not in parties:
+        raise reader.error(f"{where}.party", f"unknown party {party!r}")
+    files = _string_pair(reader, entry["files"], f"{where}.files", _FILE_RE, "file name")
+    if not files[0] < files[1]:
+        raise reader.error(f"{where}.files", "must be two different files sorted by name")
+    for index, file in enumerate(files):
+        document = documents.get(file)
+        if document is None:
+            raise reader.error(f"{where}.files[{index}]", f"{file!r} is not in documents")
+        if party not in document.parties:
+            raise reader.error(f"{where}.files[{index}]", f"{file!r} is not a document of {party}")
+    hashes = _string_pair(
+        reader, entry["content_hashes"], f"{where}.content_hashes", _HEX64_RE, "content hash"
+    )
+    for index, (file, content_hash) in enumerate(zip(files, hashes, strict=True)):
+        if documents[file].content_hash != content_hash:
+            raise reader.error(
+                f"{where}.content_hashes[{index}]", f"is not the content_hash of {file}"
+            )
+    codes = entry["constituencies"]
+    if (
+        not isinstance(codes, list)
+        or not codes
+        or not all(isinstance(code, str) and _CODE_RE.match(code) for code in codes)
+        or codes != sorted(set(codes))
+    ):
+        raise reader.error(
+            f"{where}.constituencies", "must be a non-empty sorted list of Constituency codes"
+        )
+    joint = entry["joint"]
+    if joint is not None and joint not in files:
+        raise reader.error(f"{where}.joint", "must be null or one of the files")
+    check = _conflict_check(reader, entry["check"], f"{where}.check")
+    counts = (documents[files[0]].proposals, documents[files[1]].proposals)
+    contradictions = _contradictions(
+        reader, entry["contradictions"], f"{where}.contradictions", counts
+    )
+    if check is None and contradictions:
+        raise reader.error(f"{where}.contradictions", "must be empty without a check")
+    status = reader.enum(entry["status"], ConflictStatus, f"{where}.status", "conflict status")
+    prevails, reason = entry["prevails"], entry["reason"]
+    expected = conflict_status(check, contradictions, joint, prevails is not None)
+    if status is not expected:
+        raise reader.error(f"{where}.status", f"must be {expected.value}, not {status.value}")
+    if status is ConflictStatus.JOINT_MANIFESTO:
+        if prevails != joint:
+            raise reader.error(f"{where}.prevails", "must be the joint manifesto")
+        if reason is not None:
+            raise reader.error(f"{where}.reason", "must be null for joint_manifesto")
+    elif status is ConflictStatus.DECIDED:
+        if prevails not in files:
+            raise reader.error(f"{where}.prevails", "must be one of the files")
+        if reason is None:
+            raise reader.error(f"{where}.reason", "is required when the status is decided")
+        problem = note_problem(reason)
+        if problem is not None:
+            raise reader.error(f"{where}.reason", f"reason {problem}")
+    else:
+        if prevails is not None:
+            raise reader.error(f"{where}.prevails", f"must be null when the status is {status.value}")
+        if reason is not None:
+            raise reader.error(f"{where}.reason", f"must be null when the status is {status.value}")
+    return ConflictEntry(
+        party, files, hashes, tuple(codes), joint, check, contradictions, status, prevails, reason
+    )
+
+
 def _first_difference_line(a: bytes, b: bytes) -> int:
     limit = min(len(a), len(b))
     index = next((i for i in range(limit) if a[i] != b[i]), limit)
@@ -370,8 +638,8 @@ def parse_ledger(data: bytes, *, path: Path, slug: str) -> Ledger:
         raise reader.error("file", f"invalid JSON: {exc}") from None
     top = reader.keys(raw, _TOP_KEYS, "$")
     fmt = top["format"]
-    if isinstance(fmt, bool) or not isinstance(fmt, int) or fmt != LEDGER_FORMAT:
-        raise reader.error("format", f"unsupported ledger format {fmt!r} (expected {LEDGER_FORMAT})")
+    if isinstance(fmt, bool) or not isinstance(fmt, int) or fmt not in READ_FORMATS:
+        raise reader.error("format", f"unsupported ledger format {fmt!r} (expected 1 or 2)")
     election = top["election"]
     if election != slug:
         raise reader.error("election", f"{election!r} is not this bundle's election {slug!r}")
@@ -400,10 +668,25 @@ def parse_ledger(data: bytes, *, path: Path, slug: str) -> Ledger:
         if document.file in files:
             raise reader.error(f"documents[{index}].file", f"duplicate file {document.file!r}")
         files.add(document.file)
-    conflicts = top["conflicts"]
-    if conflicts != []:
-        raise reader.error("conflicts", f"must be empty in ledger format {LEDGER_FORMAT}")
-    ledger = Ledger(election, min_proposals, parties, documents)
+    raw_conflicts = top["conflicts"]
+    if fmt == 1 and raw_conflicts != []:
+        raise reader.error("conflicts", "must be empty in ledger format 1")
+    if not isinstance(raw_conflicts, list):
+        raise reader.error("conflicts", "must be a list")
+    by_file = {document.file: document for document in documents}
+    conflicts = tuple(
+        _conflict_entry(reader, raw_conflict, f"conflicts[{index}]", seen, by_file)
+        for index, raw_conflict in enumerate(raw_conflicts)
+    )
+    keys: set[tuple[str, str, str]] = set()
+    for index, conflict in enumerate(conflicts):
+        if conflict.key in keys:
+            raise reader.error(
+                f"conflicts[{index}]",
+                f"duplicate overlap {conflict.party} {' + '.join(conflict.files)}",
+            )
+        keys.add(conflict.key)
+    ledger = Ledger(election, min_proposals, parties, documents, conflicts, fmt)
     canonical = render_ledger(ledger)
     if canonical != data:
         raise reader.error(f"line {_first_difference_line(data, canonical)}", NOT_CANONICAL)
@@ -447,6 +730,23 @@ def write_ledger(bundle_dir: Path, ledger: Ledger) -> None:
 # --- Deriving -------------------------------------------------------------------
 
 
+type ConflictKey = tuple[str, str, str]
+
+
+@dataclass(frozen=True)
+class _CheckFact:
+    content_hashes: tuple[str, str]
+    check: ConflictCheck
+    contradictions: tuple[Contradiction, ...]
+
+
+@dataclass(frozen=True)
+class _DecisionFact:
+    content_hashes: tuple[str, str]
+    prevails: str
+    reason: str
+
+
 @dataclass
 class _Facts:
     """What commands record; everything else is derived from these and the bundle."""
@@ -455,6 +755,21 @@ class _Facts:
     reviews: dict[str, Review]
     counts: dict[str, int]
     no_manifesto: dict[str, str | None]
+    checks: dict[ConflictKey, _CheckFact] = field(default_factory=dict)
+    decisions: dict[ConflictKey, _DecisionFact] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _Overlap:
+    party: str
+    files: tuple[str, str]
+    content_hashes: tuple[str, str]
+    constituencies: tuple[str, ...]
+    joint: str | None
+
+    @property
+    def key(self) -> ConflictKey:
+        return (self.party, *self.files)
 
 
 def _require_format_2(bundle: Bundle) -> None:
@@ -466,6 +781,81 @@ def _require_format_2(bundle: Bundle) -> None:
 
 def _documents_of(bundle: Bundle, short_name: str) -> list[BundleDocument]:
     return [document for document in bundle.documents if short_name in document.parties]
+
+
+def _overlaps(bundle: Bundle, reviews: dict[str, Review]) -> list[_Overlap]:
+    """Every overlap, by manifest Party then sorted file pair (pure, D1 ``document_scope``).
+
+    Two documents of a Party reviewed ``kept`` whose scopes for that Party
+    intersect. ``joint`` is the file when exactly one of the two lists the
+    Party in ``joint_for``.
+    """
+    overlaps: list[_Overlap] = []
+    for party in bundle.parties:
+        short_name = party.short_name
+        kept = [
+            document
+            for document in _documents_of(bundle, short_name)
+            if (review := reviews.get(document.file)) is not None
+            and review.decision is ReviewDecision.KEPT
+        ]
+        found: list[_Overlap] = []
+        for i, first in enumerate(kept):
+            for second in kept[i + 1:]:
+                shared = set(document_scope(bundle, first, short_name)) & set(
+                    document_scope(bundle, second, short_name)
+                )
+                if not shared:
+                    continue
+                a, b = sorted((first, second), key=lambda document: document.file)
+                joints = [d.file for d in (a, b) if short_name in d.joint_for]
+                found.append(
+                    _Overlap(
+                        short_name,
+                        (a.file, b.file),
+                        (a.text.content_hash, b.text.content_hash),
+                        tuple(sorted(shared)),
+                        joints[0] if len(joints) == 1 else None,
+                    )
+                )
+        overlaps.extend(sorted(found, key=lambda overlap: overlap.files))
+    return overlaps
+
+
+def _conflict_entries(bundle: Bundle, facts: _Facts) -> tuple[ConflictEntry, ...]:
+    entries: list[ConflictEntry] = []
+    for overlap in _overlaps(bundle, facts.reviews):
+        fact = facts.checks.get(overlap.key)
+        if fact is not None and fact.content_hashes != overlap.content_hashes:
+            fact = None
+        decision = facts.decisions.get(overlap.key)
+        if decision is not None and decision.content_hashes != overlap.content_hashes:
+            decision = None
+        check = None if fact is None else fact.check
+        contradictions = () if fact is None else fact.contradictions
+        status = conflict_status(check, contradictions, overlap.joint, decision is not None)
+        prevails: str | None = None
+        reason: str | None = None
+        if status is ConflictStatus.JOINT_MANIFESTO:
+            prevails = overlap.joint
+        elif status is ConflictStatus.DECIDED:
+            assert decision is not None
+            prevails, reason = decision.prevails, decision.reason
+        entries.append(
+            ConflictEntry(
+                overlap.party,
+                overlap.files,
+                overlap.content_hashes,
+                overlap.constituencies,
+                overlap.joint,
+                check,
+                contradictions,
+                status,
+                prevails,
+                reason,
+            )
+        )
+    return tuple(entries)
 
 
 def _derive(bundle: Bundle, facts: _Facts) -> Ledger:
@@ -519,7 +909,13 @@ def _derive(bundle: Bundle, facts: _Facts) -> Ledger:
                     proposals=total,
                 )
             )
-    return Ledger(bundle.slug, facts.min_proposals, tuple(parties), documents)
+    return Ledger(
+        bundle.slug,
+        facts.min_proposals,
+        tuple(parties),
+        documents,
+        _conflict_entries(bundle, facts),
+    )
 
 
 def state_label(party: PartyEntry, min_proposals: int) -> str:
@@ -547,6 +943,89 @@ def _party_lines(old: Ledger, new: Ledger) -> Changes:
     return lines
 
 
+def conflict_label(entry: ConflictEntry | _Overlap | ConflictKey) -> str:
+    """``UPN-PP pp.md + upn.md`` (the change-line prefix after ``Conflict``)."""
+    party, first, second = entry if isinstance(entry, tuple) else entry.key
+    return f"{party} {first} + {second}"
+
+
+def codes_label(codes: Sequence[str]) -> str:
+    return ", ".join(codes)
+
+
+def _conflict_lines(old: Ledger, new: Ledger) -> Changes:
+    """Overlaps added or removed, Constituencies, joint manifesto and status changes."""
+    lines: Changes = []
+    before = {entry.key: entry for entry in old.conflicts}
+    after = {entry.key: entry for entry in new.conflicts}
+    for entry in old.conflicts:
+        if entry.key not in after:
+            lines.append(f"Conflict {conflict_label(entry)}: removed (no longer an overlap)")
+    for entry in new.conflicts:
+        previous = before.get(entry.key)
+        label = f"Conflict {conflict_label(entry)}"
+        if previous is None:
+            lines.append(
+                f"{label} ({codes_label(entry.constituencies)}): added ({entry.status.value})"
+            )
+            continue
+        if previous.constituencies != entry.constituencies:
+            lines.append(
+                f"{label}: constituencies {codes_label(previous.constituencies)} -> "
+                f"{codes_label(entry.constituencies)}"
+            )
+        if previous.joint != entry.joint:
+            lines.append(
+                f"{label}: joint manifesto {previous.joint or 'none'} -> {entry.joint or 'none'}"
+            )
+        if previous.status is not entry.status:
+            lines.append(f"{label}: {previous.status.value} -> {entry.status.value}")
+    return lines
+
+
+def _prune_conflicts(bundle: Bundle, facts: _Facts) -> Changes:
+    """Drop conflict facts that no longer hold (C5) and say why.
+
+    A fact is kept only while an overlap with the same Party and files exists
+    and both content hashes are unchanged. A decision is also dropped once a
+    joint manifesto prevails. A fact of a vanished overlap is dropped silently:
+    ``_conflict_lines`` reports the removal.
+    """
+    lines: Changes = []
+    overlaps = {overlap.key: overlap for overlap in _overlaps(bundle, facts.reviews)}
+    current = {document.file: document.text.content_hash for document in bundle.documents}
+
+    def changed(key: ConflictKey, hashes: tuple[str, str]) -> bool:
+        return any(
+            file in current and current[file] != content_hash
+            for file, content_hash in zip(key[1:], hashes, strict=True)
+        )
+
+    for key, fact in list(facts.checks.items()):
+        if changed(key, fact.content_hashes):
+            lines.append(f"Conflict {conflict_label(key)}: check cleared (content changed)")
+            del facts.checks[key]
+        elif key not in overlaps or overlaps[key].content_hashes != fact.content_hashes:
+            del facts.checks[key]
+    for key, decision in list(facts.decisions.items()):
+        overlap = overlaps.get(key)
+        fact = facts.checks.get(key)
+        if changed(key, decision.content_hashes):
+            lines.append(f"Conflict {conflict_label(key)}: decision cleared (content changed)")
+            del facts.decisions[key]
+        elif overlap is None or overlap.content_hashes != decision.content_hashes:
+            del facts.decisions[key]
+        elif overlap.joint is not None:
+            lines.append(
+                f"Conflict {conflict_label(key)}: decision cleared "
+                f"(joint manifesto {overlap.joint} prevails)"
+            )
+            del facts.decisions[key]
+        elif fact is None or not fact.contradictions:
+            del facts.decisions[key]
+    return lines
+
+
 def _check_min_proposals(value: Any) -> int:
     low, high = MIN_PROPOSALS_RANGE
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
@@ -563,6 +1042,18 @@ def _facts_from(ledger: Ledger) -> _Facts:
             p.short_name: p.note
             for p in ledger.parties
             if p.reason is ExclusionReason.NO_MANIFESTO
+        },
+        {
+            c.key: _CheckFact(c.content_hashes, c.check, c.contradictions)
+            for c in ledger.conflicts
+            if c.check is not None
+        },
+        {
+            c.key: _DecisionFact(c.content_hashes, c.prevails, c.reason)
+            for c in ledger.conflicts
+            if c.status is ConflictStatus.DECIDED
+            and c.prevails is not None
+            and c.reason is not None
         },
     )
 
@@ -587,6 +1078,8 @@ def _reconcile(
             f"election {bundle.slug!r}"
         )
     lines: Changes = []
+    if ledger.format != LEDGER_FORMAT:
+        lines.append(f"Ledger: format {ledger.format} -> {LEDGER_FORMAT}")
     facts = _facts_from(ledger)
     if min_proposals is not None and min_proposals != facts.min_proposals:
         lines.append(f"N: {facts.min_proposals} -> {min_proposals}")
@@ -638,8 +1131,10 @@ def _reconcile(
             )
             del facts.no_manifesto[short_name]
 
+    lines.extend(_prune_conflicts(bundle, facts))
     new = _derive(bundle, facts)
     lines.extend(_party_lines(ledger, new))
+    lines.extend(_conflict_lines(ledger, new))
     if not lines and render_ledger(new) != render_ledger(ledger):
         lines.append(f"Ledger: entries reordered to follow {MANIFEST_NAME}")
     return new, facts, lines
@@ -662,8 +1157,10 @@ def _apply(
 ) -> tuple[Ledger, Changes]:
     base, facts, lines = _reconcile(bundle, ledger)
     lines.extend(mutate(facts))
+    lines.extend(_prune_conflicts(bundle, facts))
     new = _derive(bundle, facts)
     lines.extend(_party_lines(base, new))
+    lines.extend(_conflict_lines(base, new))
     return new, lines
 
 
@@ -835,6 +1332,169 @@ def record_extraction(
     return _apply(bundle, ledger, mutate)
 
 
+def _clean_text(value: Any, what: str) -> str:
+    if not isinstance(value, str):
+        raise LedgerError(f"{what} must be a string")
+    problem = note_problem(value)
+    if problem is not None:
+        raise LedgerError(f"{what} {problem}")
+    return value
+
+
+def _overlap_of(bundle: Bundle, facts: _Facts, party: str, files: Sequence[str]) -> _Overlap:
+    try:
+        bundle.party(party)
+    except KeyError:
+        raise LedgerError(f"party {party!r} is not in {MANIFEST_NAME}") from None
+    if len(files) != 2 or files[0] == files[1]:
+        raise LedgerError("a conflict is between two different files")
+    key = (party, *sorted(files))
+    for overlap in _overlaps(bundle, facts.reviews):
+        if overlap.key == key:
+            return overlap
+    raise LedgerError(
+        f"party {party} has no overlap between {key[1]} and {key[2]} (two documents of the "
+        "Party, both reviewed kept, whose Constituencies intersect)"
+    )
+
+
+def _checked_contradictions(
+    facts: _Facts, overlap: _Overlap, contradictions: Sequence[Contradiction]
+) -> tuple[Contradiction, ...]:
+    counts = [facts.counts.get(file) for file in overlap.files]
+    for file, count in zip(overlap.files, counts, strict=True):
+        if count is None:
+            raise LedgerError(
+                f"document {file} has no validated Proposal count; extract its Proposals first"
+            )
+    items: list[Contradiction] = []
+    for item in contradictions:
+        pair = tuple(item.proposals)
+        if len(pair) != 2:
+            raise LedgerError("a contradiction names two Proposal ordinals")
+        for ordinal, count, file in zip(pair, counts, overlap.files, strict=True):
+            if isinstance(ordinal, bool) or not isinstance(ordinal, int) or not 1 <= ordinal <= (count or 0):
+                raise LedgerError(
+                    f"Proposal ordinal {ordinal!r} of {file} must be between 1 and {count}"
+                )
+        if item.category not in _CATEGORY_KEYS:
+            raise LedgerError(f"unknown category {item.category!r}")
+        explanation = _clean_text(item.explanation, "explanation")
+        items.append(Contradiction((pair[0], pair[1]), item.category, explanation))
+    pairs = [item.proposals for item in items]
+    if len(set(pairs)) != len(pairs):
+        raise LedgerError("a pair of Proposals is listed twice")
+    return tuple(sorted(items, key=lambda item: item.proposals))
+
+
+def record_conflict_check(
+    bundle: Bundle,
+    ledger: Ledger | None,
+    party: str,
+    files: Sequence[str],
+    *,
+    content_hashes: Sequence[str],
+    check: ConflictCheck,
+    contradictions: Sequence[Contradiction],
+) -> tuple[Ledger, Changes]:
+    """Record the conflict check of ``party``'s overlap between ``files`` (``conflicts detect``).
+
+    ``files`` and ``content_hashes`` are in sorted-file order; each
+    contradiction's ``proposals`` are the ordinals in ``files[0]`` and
+    ``files[1]``. Refused for a stale hash, an ordinal above a document's
+    ledger count, an unknown category or an invalid explanation. An overlap is
+    checked once: recording the same check again changes nothing and a
+    different one is refused (a content change clears the check, C5/C7).
+    """
+    _require_format_2(bundle)
+    files = list(files)
+    hashes = list(content_hashes)
+    if len(hashes) != 2:
+        raise LedgerError("content_hashes must name the two files' hashes")
+    if sorted(files) != files:
+        raise LedgerError("files must be sorted by name")
+    if not isinstance(check, ConflictCheck):
+        raise LedgerError("check must be a ConflictCheck")
+    for what, value in (
+        ("provider", check.provider), ("model", check.model),
+        ("prompt_version", check.prompt_version),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise LedgerError(f"check {what} must be a non-empty string")
+    if isinstance(check.calls, bool) or not isinstance(check.calls, int) or check.calls < 0:
+        raise LedgerError("check calls must be an integer >= 0")
+
+    def mutate(facts: _Facts) -> Changes:
+        overlap = _overlap_of(bundle, facts, party, files)
+        if tuple(hashes) != overlap.content_hashes:
+            raise LedgerError(
+                f"conflict {conflict_label(overlap)}: content hashes are stale "
+                "(a document changed since the check started)"
+            )
+        items = _checked_contradictions(facts, overlap, contradictions)
+        fact = _CheckFact(overlap.content_hashes, check, items)
+        previous = facts.checks.get(overlap.key)
+        if previous == fact:
+            return []
+        if previous is not None:
+            raise LedgerError(f"conflict {conflict_label(overlap)} is already checked")
+        facts.checks[overlap.key] = fact
+        return [
+            f"Conflict {conflict_label(overlap)}: checked ({len(items)} contradictions, "
+            f"{check.calls} calls)"
+        ]
+
+    return _apply(bundle, ledger, mutate)
+
+
+def decide_conflict(
+    bundle: Bundle,
+    ledger: Ledger | None,
+    party: str,
+    *,
+    prevails: str,
+    over: str,
+    reason: str,
+) -> tuple[Ledger, Changes]:
+    """Record which of ``party``'s two overlapping documents prevails, and why.
+
+    Only for a ``pending`` or ``decided`` overlap (checked, with
+    contradictions and no single joint manifesto). Re-deciding overwrites the
+    decision (C11). The reason is required: one line, at most 500 characters.
+    """
+    _require_format_2(bundle)
+    if reason is None:
+        raise LedgerError("a decision needs a reason")
+    cleaned = _clean_text(reason.strip() if isinstance(reason, str) else reason, "reason")
+
+    def mutate(facts: _Facts) -> Changes:
+        overlap = _overlap_of(bundle, facts, party, [prevails, over])
+        label = conflict_label(overlap)
+        fact = facts.checks.get(overlap.key)
+        if fact is None:
+            raise LedgerError(
+                f"conflict {label} is not checked yet; run \"ideology conflicts detect "
+                f"{bundle.path}\" first"
+            )
+        if not fact.contradictions:
+            raise LedgerError(f"conflict {label} has no contradiction; nothing to decide")
+        if overlap.joint is not None:
+            raise LedgerError(
+                f"conflict {label}: the joint manifesto {overlap.joint} prevails automatically"
+            )
+        decision = _DecisionFact(overlap.content_hashes, prevails, cleaned)
+        previous = facts.decisions.get(overlap.key)
+        if previous == decision:
+            return []
+        facts.decisions[overlap.key] = decision
+        line = f"Conflict {label}: {prevails} prevails over {over} ({cleaned})"
+        if previous is not None:
+            line += f" (was {previous.prevails}: {previous.reason})"
+        return [line]
+
+    return _apply(bundle, ledger, mutate)
+
+
 # --- Reading the state ----------------------------------------------------------
 
 
@@ -866,9 +1526,27 @@ def next_step(bundle: Bundle, ledger: Ledger, short_name: str) -> str | None:
     return f"extract Proposals from {', '.join(uncounted)}"
 
 
-def pending_conflicts(ledger: Ledger) -> tuple[str, ...]:
-    """Conflicts still to decide (always ``()`` in ledger format 1; ``proposal-conflicts``)."""
-    return ()
+def pending_line(entry: ConflictEntry, bundle_dir: Path | str = "DIR") -> str:
+    """Why ``entry`` blocks phase 4 and the command that unblocks it."""
+    where = f"{entry.party}: {' + '.join(entry.files)} ({codes_label(entry.constituencies)})"
+    if entry.status is ConflictStatus.UNCHECKED:
+        return f'{where}: not checked; run "ideology conflicts detect {bundle_dir}"'
+    return (
+        f"{where}: {len(entry.contradictions)} contradictions; run \"ideology conflicts decide "
+        f'{bundle_dir} {entry.party} --prevails FILE --over FILE --reason TEXT"'
+    )
+
+
+def pending_conflicts(ledger: Ledger, bundle_dir: Path | str = "DIR") -> tuple[str, ...]:
+    """One line per overlap still ``unchecked`` or ``pending`` whose Party is not
+    Excluded (C9). Read it on a derived ledger (``reconcile``) or an up-to-date one."""
+    excluded = {party.short_name for party in ledger.parties if party.phase is Phase.EXCLUDED}
+    return tuple(
+        pending_line(entry, bundle_dir)
+        for entry in ledger.conflicts
+        if entry.status in (ConflictStatus.UNCHECKED, ConflictStatus.PENDING)
+        and entry.party not in excluded
+    )
 
 
 def out_of_date_problem(bundle: Bundle, lines: Changes) -> str:
@@ -914,8 +1592,9 @@ def phase4_blockers(bundle: Bundle, ledger: Ledger | None) -> list[str]:
         step = next_step(bundle, derived, party.short_name)
         if step is not None:
             blockers.append(f"party {party.short_name}: {party.phase.value} (next: {step})")
-    if ledger is not None:
-        blockers.extend(f"conflict pending: {conflict}" for conflict in pending_conflicts(ledger))
+    blockers.extend(
+        f"conflict pending: {conflict}" for conflict in pending_conflicts(derived, bundle.path)
+    )
     return blockers
 
 
@@ -938,11 +1617,23 @@ def require_phase4_ready(bundle_dir: Path) -> Ledger:
 
 
 def _in_dir(
-    bundle_dir: Path, apply: Callable[[Bundle, Ledger | None], tuple[Ledger, Changes]]
+    bundle_dir: Path,
+    apply: Callable[[Bundle, Ledger | None], tuple[Ledger, Changes]],
+    *,
+    current: bool = False,
 ) -> tuple[Bundle, Ledger, Changes]:
     bundle = read_bundle(Path(bundle_dir))
     _require_format_2(bundle)
     old = read_ledger(bundle.path)
+    if current:
+        # Conflict facts are recorded only on the overlaps the Operator last saw.
+        if old is None:
+            raise LedgerError(
+                f'no ingestion ledger yet; run "ideology ingestion update {bundle.path}"'
+            )
+        derived, lines = reconcile(bundle, old)
+        if render_ledger(derived) != render_ledger(old):
+            raise LedgerError(out_of_date_problem(bundle, lines))
     new, lines = apply(bundle, old)
     if old is None or render_ledger(new) != render_ledger(old):
         write_ledger(bundle.path, new)
@@ -993,10 +1684,45 @@ def record_extraction_in_dir(
     return tuple(ledger.party(short_name) for short_name in affected)
 
 
+def record_conflict_check_in_dir(
+    bundle_dir: Path,
+    party: str,
+    files: Sequence[str],
+    *,
+    content_hashes: Sequence[str],
+    check: ConflictCheck,
+    contradictions: Sequence[Contradiction],
+) -> tuple[Bundle, Ledger, Changes]:
+    """``conflicts detect`` on disk: needs an up-to-date ledger; records and writes."""
+    return _in_dir(
+        bundle_dir,
+        lambda b, l: record_conflict_check(
+            b, l, party, files, content_hashes=content_hashes, check=check,
+            contradictions=contradictions,
+        ),
+        current=True,
+    )
+
+
+def decide_conflict_in_dir(
+    bundle_dir: Path, party: str, *, prevails: str, over: str, reason: str
+) -> tuple[Bundle, Ledger, Changes]:
+    """``conflicts decide`` on disk: needs an up-to-date ledger; records and writes."""
+    return _in_dir(
+        bundle_dir,
+        lambda b, l: decide_conflict(b, l, party, prevails=prevails, over=over, reason=reason),
+        current=True,
+    )
+
+
 __all__ = [
     "DEFAULT_MIN_PROPOSALS",
     "LEDGER_FORMAT",
     "LEDGER_NAME",
+    "ConflictCheck",
+    "ConflictEntry",
+    "ConflictStatus",
+    "Contradiction",
     "DiscardReason",
     "DocumentEntry",
     "ExclusionReason",
@@ -1007,15 +1733,23 @@ __all__ = [
     "Phase4Blocked",
     "Review",
     "ReviewDecision",
+    "codes_label",
+    "conflict_label",
+    "conflict_status",
+    "decide_conflict",
+    "decide_conflict_in_dir",
     "ledger_problems",
     "listed_document",
     "next_step",
     "party_states",
     "pending_conflicts",
+    "pending_line",
     "phase4_blockers",
     "read_ledger",
     "reconcile",
     "record_extraction",
+    "record_conflict_check",
+    "record_conflict_check_in_dir",
     "record_extraction_in_dir",
     "render_ledger",
     "require_phase4_ready",

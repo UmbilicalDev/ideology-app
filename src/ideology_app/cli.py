@@ -26,6 +26,7 @@ from ideology_app import config
 from ideology_app import party_logos
 from ideology_app.constituencies import CONSTITUENCIES
 from ideology_app import pipeline as pipelines
+from ideology_app.proposals import conflicts as proposal_conflicts
 from ideology_app.proposals import store as proposal_store
 from ideology_app import shared_db
 from ideology_app import source_bundle
@@ -925,7 +926,7 @@ def _echo_ledger_status(bundle: source_bundle.Bundle, stored: ledgers.Ledger | N
     for party in derived.parties:
         click.echo(_party_row(bundle, derived, party))
     phases = [party.phase for party in derived.parties]
-    conflicts = ledgers.pending_conflicts(stored) if stored is not None else ()
+    pending = ledgers.pending_conflicts(derived, bundle.path)
     click.echo(
         f"Parties: {len(phases)}; "
         f"extracted {phases.count(ledgers.Phase.PROPOSALS_EXTRACTED)}, "
@@ -933,7 +934,7 @@ def _echo_ledger_status(bundle: source_bundle.Bundle, stored: ledgers.Ledger | N
         f"pending phase 2: {phases.count(ledgers.Phase.CANDIDATURE_DECLARED)}, "
         f"pending phase 3: {phases.count(ledgers.Phase.MANIFESTO_REVIEWED)}"
     )
-    click.echo(f"Conflicts pending: {len(conflicts)}")
+    click.echo(f"Conflicts pending: {len(pending)}")
     ready = not ledgers.phase4_blockers(bundle, stored)
     click.echo(f"Phase 4: {'ready' if ready else 'blocked'}")
 
@@ -1227,6 +1228,158 @@ def proposals_list(app: AppContext, directory: Path, file: str, dropped: bool) -
     finally:
         session.rollback()
         session.close()
+
+
+@main.group()
+def conflicts() -> None:
+    """Conflicts between two manifestos of one Party (format-2 bundles).
+
+    Two kept documents of a Party whose Constituencies intersect form an
+    overlap. "detect" asks the LLM which of their Proposals contradict and
+    records the result in the Ingestion Ledger. A coalition's joint manifesto
+    (joint_for in election.toml) prevails automatically; any other
+    contradiction waits for "decide". Proposals are never edited.
+    """
+
+
+def _conflict_row(entry: ledgers.ConflictEntry) -> str:
+    return "\t".join(
+        [
+            entry.party,
+            " + ".join(entry.files),
+            ",".join(entry.constituencies),
+            entry.status.value,
+            str(len(entry.contradictions)),
+            entry.prevails or "-",
+            entry.reason or "-",
+        ]
+    )
+
+
+@conflicts.command("detect")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.option(
+    "--max-calls",
+    type=click.IntRange(min=1),
+    default=proposal_store.DEFAULT_MAX_CALLS,
+    show_default=True,
+    help="Stop before an overlap that would exceed this many new LLM calls.",
+)
+@requires_db
+def conflicts_detect(app: AppContext, directory: Path, max_calls: int) -> None:
+    """Check every unchecked overlap and record the contradictions in the ledger.
+
+    Needs an up-to-date Ingestion Ledger and both documents' Proposals. Reads
+    the database, never writes it; only the ledger file changes, after each
+    overlap. Provider and model come from LLM_PROVIDER / LLM_MODEL.
+    """
+    try:
+        provider = _provider()
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
+    try:
+        summary = _ledger_call(
+            lambda: proposal_conflicts.detect(
+                app.engine,
+                directory,
+                provider,
+                max_calls=max_calls,
+                echo=lambda line, err=False: click.echo(line, err=err),
+            )
+        )
+    finally:
+        _close(provider)
+    click.echo(
+        f"Calls: {summary.new_calls} new; input_tokens {summary.input_tokens}, "
+        f"output_tokens {summary.output_tokens}"
+    )
+    click.echo(f"Conflicts pending: {summary.pending}")
+    if summary.error is not None:
+        raise click.ClickException(summary.error)
+    if summary.failed:
+        raise click.ClickException(f"{len(summary.failed)} overlaps not checked")
+
+
+@conflicts.command("list")
+@click.argument("directory", type=click.Path(path_type=Path))
+def conflicts_list(directory: Path) -> None:
+    """One tab-separated line per overlap. Read-only; no database needed.
+
+    Columns: party, files, Constituencies, status, contradictions, prevails,
+    reason.
+    """
+    bundle, stored = _read_for_ingestion(directory)
+    derived, _ = ledgers.reconcile(bundle, stored)
+    if stored is not None and ledgers.render_ledger(derived) != ledgers.render_ledger(stored):
+        click.echo(
+            f'Warning: ledger is out of date; run "ideology ingestion update {bundle.path}"',
+            err=True,
+        )
+    for entry in derived.conflicts:
+        click.echo(_conflict_row(entry))
+    pending = ledgers.pending_conflicts(derived, bundle.path)
+    click.echo(f"Conflicts: {len(derived.conflicts)}; pending {len(pending)}")
+
+
+@conflicts.command("show")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.argument("short_name")
+@click.argument("file_a")
+@click.argument("file_b")
+@requires_db
+def conflicts_show(
+    app: AppContext, directory: Path, short_name: str, file_a: str, file_b: str
+) -> None:
+    """Show each contradiction of a Party's overlap with both Proposals. Read-only."""
+    _, ledger = _ledger_call(lambda: proposal_store.read_phase3(directory))
+    try:
+        entry = ledger.conflict(short_name, [file_a, file_b])
+    except KeyError:
+        raise click.ClickException(
+            f"party {short_name} has no overlap between {file_a} and {file_b}"
+        ) from None
+    session = Session(app.engine)
+    try:
+        rows = proposal_conflicts.show_rows(session, entry)
+    finally:
+        session.rollback()
+        session.close()
+    click.echo(
+        f"Conflict {ledgers.conflict_label(entry)} "
+        f"({ledgers.codes_label(entry.constituencies)}): "
+        f"{proposal_conflicts.outcome_label(entry)}"
+    )
+    for row in rows:
+        click.echo(f"#{row.number} [{row.category}] {row.explanation}")
+        for side, shown in (("A", row.a), ("B", row.b)):
+            page = "?" if shown.page is None else str(shown.page)
+            text = "(not in the database)" if shown.text is None else _one_line(shown.text)
+            click.echo(f"{side} {shown.file} p.{page} #{shown.ordinal}: {text}")
+    if entry.prevails is not None:
+        click.echo(f"Prevails: {entry.prevails} ({entry.reason or 'joint manifesto'})")
+
+
+@conflicts.command("decide")
+@click.argument("directory", type=click.Path(path_type=Path))
+@click.argument("short_name")
+@click.option("--prevails", "prevails", required=True, help="The document that prevails.")
+@click.option("--over", "over", required=True, help="The document it prevails over.")
+@click.option("--reason", "reason", required=True, help="Why (one line, required).")
+def conflicts_decide(
+    directory: Path, short_name: str, prevails: str, over: str, reason: str
+) -> None:
+    """Record which document prevails in a Party's checked overlap, and why.
+
+    The other document's contradicting Proposals are set aside for that Party
+    in the overlap Constituencies only. Re-deciding overwrites the decision.
+    """
+    _, ledger, lines = _ledger_call(
+        lambda: ledgers.decide_conflict_in_dir(
+            directory, short_name, prevails=prevails, over=over, reason=reason
+        )
+    )
+    _echo_changes(lines or ["Ledger unchanged"])
+    click.echo(_conflict_row(ledger.conflict(short_name, [prevails, over])))
 
 
 def _provider() -> LLMProvider:

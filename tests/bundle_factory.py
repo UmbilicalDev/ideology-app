@@ -128,6 +128,7 @@ class DocumentSpec:
     parties: Sequence[str]
     constituencies: Sequence[str] | str | None = None
     source_url: str | None = None
+    joint_for: Sequence[str] | None = None
 
     def content(self) -> bytes:
         return serialise_source_text(
@@ -208,6 +209,12 @@ def manifest_v2_text(
         ]
         if document.constituencies is not None:
             lines.append(f"constituencies = {_toml_codes(document.constituencies)}")
+        if document.joint_for is not None:
+            lines.append(
+                "joint_for = ["
+                + ", ".join(json.dumps(p, ensure_ascii=False) for p in document.joint_for)
+                + "]"
+            )
     return "\n".join(lines) + "\n"
 
 
