@@ -116,7 +116,8 @@ def test_registry() -> None:
     assert checks_for(ModelGeneration.V2) is V2_CHECKS
     assert [c.name for c in V2_CHECKS] == [
         "evidence_quotes", "evidence_proposals", "statement_sources",
-        "statement_uniqueness", "context_note",
+        "statement_uniqueness", "context_note", "constituency_snapshot",
+        "constituency_validity", "constituency_availability", "constituency_order",
     ]
     assert [c.name for c in CHECKS] == [
         "evidence_quotes", "party_coverage", "statement_separation", "statement_uniqueness",

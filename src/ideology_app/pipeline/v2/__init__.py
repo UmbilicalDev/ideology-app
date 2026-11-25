@@ -1,13 +1,16 @@
 """Phase 4 of a format-2 Election (statements-from-proposals): the v2 Pipeline Run.
 
 Statements are drafted from groups of similar counted Proposals and every
-non-Excluded Party is positioned with its own Proposals as Evidence. Depends
+non-Excluded Party is positioned with its own Proposals as Evidence; then
+Constituency Selection (constituency-selection-validation, ``selection``)
+decides each Constituency's Questionnaire with ``constituency_rules``. Depends
 on ``llm.base`` (never a concrete provider), ``models``, ``proposals``
 (``counted_proposals``, ``ledger_count_problems``), ``ingestion_ledger``,
 ``bundle_import``, ``validation`` and ``pipeline`` (checkpoint, usage, runs).
 """
 
 from ideology_app.pipeline.v2.gate import (
+    ExcludedParty,
     Phase4Error,
     Phase4Input,
     Phase4Party,
@@ -51,6 +54,14 @@ from ideology_app.pipeline.v2.run import (
     pool_summary,
     queue_v2_run,
 )
+from ideology_app.pipeline.v2.selection import (
+    SELECTION_VERSION,
+    CandidatureRow,
+    ConstituencyRow,
+    ConstituencySelection,
+    select_constituencies,
+)
+from ideology_app.pipeline.v2.stored import constituency_summary, dataset_version_problems
 
 __all__ = [
     "DRAFT_SLICE_MAX_CHARS",
@@ -59,11 +70,16 @@ __all__ = [
     "POSITION_SLICE_MAX_CHARS",
     "PROPOSAL_POSITIONS",
     "REPORT_VERSION",
+    "SELECTION_VERSION",
     "STATEMENT_DRAFTS",
     "V2_PROMPTS",
     "V2_PROMPT_VERSIONS",
+    "CandidatureRow",
+    "ConstituencyRow",
+    "ConstituencySelection",
     "DraftPool",
     "EvidenceRef",
+    "ExcludedParty",
     "FilteredPool",
     "Phase4Error",
     "Phase4Input",
@@ -74,6 +90,8 @@ __all__ = [
     "V2Position",
     "assign_positions",
     "build_pool",
+    "constituency_summary",
+    "dataset_version_problems",
     "draft_buckets",
     "draft_request",
     "draft_set_schema",
@@ -87,4 +105,5 @@ __all__ = [
     "position_request",
     "position_set_schema",
     "queue_v2_run",
+    "select_constituencies",
 ]

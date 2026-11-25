@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import sqlalchemy as sa
 from click.testing import CliRunner, Result
 from pipeline_fixtures import offline_guard
 from sqlalchemy import Engine, func, select
@@ -26,11 +27,18 @@ from ideology_app.models import (
     Statement,
 )
 
+UNAVAILABLE = ", ".join(
+    f"{code:02d} fewer_than_two_parties" for code in range(1, 53) if code != 28
+)
+CONSTITUENCIES = (
+    f"1 available, 51 unavailable ({UNAVAILABLE}); "
+    "0 statements valid in no available constituency"
+)
 PASSED = (
     "Pipeline run {run}: passed (dataset version {version}, 2 statements, "
     "4 party positions)\n"
-    "Not published: v2 dataset versions are published from "
-    "constituency-selection-validation on\n"
+    "Published dataset version {version} for election 1{superseded}\n"
+    f"Constituencies: {CONSTITUENCIES}\n"
 )
 WARNING = "Warning: pool of 2 statements is below the 200 target\n"
 
@@ -38,6 +46,9 @@ WARNING = "Warning: pool of 2 statements is below the 200 target\n"
 @pytest.fixture(autouse=True)
 def _offline(monkeypatch: pytest.MonkeyPatch) -> None:
     offline_guard(monkeypatch)
+    # The fixture's one available Constituency (28) has 2 valid Statements.
+    monkeypatch.setenv("VALIDATION_V2_MIN_STATEMENTS", "1")
+    monkeypatch.setenv("VALIDATION_V2_MIN_PARTY_SIDES", "1")
 
 
 @pytest.fixture
@@ -97,7 +108,7 @@ def test_not_imported_is_one_error_line(run, use, tmp_path: Path, migrated_engin
     )
 
 
-def test_run_passes_stays_candidate_and_replays_with_zero_calls(
+def test_run_passes_publishes_and_replays_with_zero_calls(
     run, use, tmp_path: Path, migrated_engine: Engine
 ) -> None:
     directory = setup(tmp_path, migrated_engine)
@@ -106,7 +117,7 @@ def test_run_passes_stays_candidate_and_replays_with_zero_calls(
     first = run("pipeline", "run-v2", directory)
 
     assert first.exit_code == 0, first.output
-    assert first.stdout == PASSED.format(run=1, version=1)
+    assert first.stdout == PASSED.format(run=1, version=1, superseded="")
     assert first.stderr == WARNING
     assert len(provider.calls) == 6
 
@@ -115,7 +126,7 @@ def test_run_passes_stays_candidate_and_replays_with_zero_calls(
     assert replay.exit_code == 0, replay.output
     assert replay.stdout == (
         "Pipeline run 2: reusing identical calls of run 1 (6 recorded calls)\n"
-        + PASSED.format(run=2, version=2)
+        + PASSED.format(run=2, version=2, superseded=" (superseded dataset version 1)")
     )
     assert replay_provider.calls == []
 
@@ -127,7 +138,9 @@ def test_run_passes_stays_candidate_and_replays_with_zero_calls(
     )
     assert "statement_agenda" not in report.stdout and "statement pool:" not in report.stdout
     assert "prompt_versions: proposal_positions=v1, statement_drafts=v1\n" in report.stdout
-    assert "dataset_version_status: candidate\n" in report.stdout
+    assert "dataset_version_status: published\n" in report.stdout
+    assert f"\nconstituencies: {CONSTITUENCIES}\n" in report.stdout
+    assert "constituency_order\tpassed" in report.stdout
     assert "evidence_proposals\tpassed" in report.stdout
 
 
@@ -181,3 +194,85 @@ def test_legacy_commands_refuse_an_election_with_candidatures(
         "Error: pipeline run 1 failed: legacy run refused: election has candidatures\n"
         "Error: 1 of 1 queued pipeline runs failed\n"
     )
+
+
+# --- constituency-selection-validation: defaults, settings, report, db check -----------------
+
+
+def test_default_minimums_fail_the_run_and_publish_nothing(
+    run, use, tmp_path: Path, migrated_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    monkeypatch.delenv("VALIDATION_V2_MIN_STATEMENTS")
+    monkeypatch.delenv("VALIDATION_V2_MIN_PARTY_SIDES")
+    use(v2_fake())
+
+    result = run("pipeline", "run-v2", directory)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert result.stderr == (
+        "Error: pipeline run 1 failed: validation failed: constituency_availability; "
+        'see "ideology pipeline checks --run 1"\n'
+    )
+    report = run("pipeline", "report", "--run", "1")
+    assert "dataset_version_status: candidate\n" in report.stdout
+    assert (
+        "\nconstituencies: 0 available, 52 unavailable (01 fewer_than_two_parties, "
+        in report.stdout
+    )
+    assert "28 too_few_statements" in report.stdout
+    assert "; 2 statements valid in no available constituency\n" in report.stdout
+    checks = run("pipeline", "checks", "--run", "1")
+    assert "no constituency is available" in checks.stdout
+
+
+@pytest.mark.parametrize("name", ["VALIDATION_V2_MIN_STATEMENTS", "VALIDATION_V2_MIN_PARTY_SIDES"])
+def test_an_invalid_minimum_is_an_error_before_anything_is_written(
+    run, use, tmp_path: Path, migrated_engine: Engine, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    monkeypatch.setenv(name, "1.5")
+    provider = use(v2_fake())
+
+    result = run("pipeline", "run-v2", directory)
+
+    assert result.exit_code == 1
+    assert result.stderr == f"Error: Invalid {name} '1.5'; expected a positive integer\n"
+    assert provider.calls == [] and _count(migrated_engine, PipelineRun) == 0
+
+
+def test_report_without_a_dataset_version_says_not_recorded(
+    run, use, tmp_path: Path, migrated_engine: Engine
+) -> None:
+    directory = setup(tmp_path, migrated_engine)
+    use(v2_fake(fail_on_call=1))
+    assert run("pipeline", "run-v2", directory).exit_code == 1
+
+    report = run("pipeline", "report", "--run", "1")
+
+    assert "statement_selection: not recorded\nconstituencies: not recorded\n" in report.stdout
+
+
+def test_db_check_reports_inconsistent_constituency_rows(
+    run, use, tmp_path: Path, migrated_engine: Engine
+) -> None:
+    # The fixture bundle covers 2 of 52 Constituencies, so db check has other errors;
+    # only the Constituency row lines matter here.
+    directory = setup(tmp_path, migrated_engine)
+    use(v2_fake())
+    assert run("pipeline", "run-v2", directory).exit_code == 0
+    line = (
+        "Error: dataset version 1 has 51 constituency rows, expected one for each of the 52 "
+        "constituencies\n"
+    )
+    assert "dataset version" not in run("db", "check").stderr
+
+    with migrated_engine.begin() as conn:
+        conn.execute(
+            sa.text("DELETE FROM dataset_version_constituencies WHERE constituency_code = '52'")
+        )
+    bad = run("db", "check")
+    assert bad.exit_code == 1
+    assert bad.stderr.endswith(line)
+    assert bad.stdout.endswith("Safe to commit: no\n")

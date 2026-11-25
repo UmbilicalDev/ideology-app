@@ -48,8 +48,12 @@ TABLES_AT_0016 = TABLES_AT_0015 | CONSTITUENCY_TABLES
 PROPOSAL_TABLES = {"proposal_extractions", "proposal_extraction_calls", "proposals"}
 TABLES_AT_0017 = TABLES_AT_0016 | PROPOSAL_TABLES
 V2_EVIDENCE_TABLES = {"statement_proposals", "party_position_proposals"}
-ALL_TABLES = TABLES_AT_0017 | V2_EVIDENCE_TABLES
-HEAD = "0018"
+TABLES_AT_0018 = TABLES_AT_0017 | V2_EVIDENCE_TABLES
+SELECTION_TABLES = {
+    "dataset_version_constituencies", "dataset_version_candidatures", "constituency_statements",
+}
+ALL_TABLES = TABLES_AT_0018 | SELECTION_TABLES
+HEAD = "0019"
 
 
 def test_upgrade_on_empty_database_creates_tables_at_head(db_url: str) -> None:
@@ -302,7 +306,12 @@ def test_offline_postgresql_render_has_each_check_once() -> None:
     assert sql.count("ck_dataset_versions_model_generation") == 1
     assert sql.count("ck_statement_proposals_rank_positive") == 1
     assert sql.count("ck_party_position_proposals_rank_positive") == 1
-    assert sql.count("CHECK") == 20
+    # 0019: two CHECKs on the Constituency rows, one per other new table.
+    assert sql.count("ck_dataset_version_constituencies_count_nonnegative") == 1
+    assert sql.count("ck_dataset_version_constituencies_reason_matches_available") == 1
+    assert sql.count("ck_dataset_version_candidatures_excluded_reason_known") == 1
+    assert sql.count("ck_constituency_statements_rank_positive") == 1
+    assert sql.count("CHECK") == 24
 
 
 def test_downgrade_to_0003_drops_exactly_the_pipeline_tables(db_url: str) -> None:
@@ -1967,7 +1976,7 @@ def test_upgrade_0018_reads_legacy_and_keeps_every_row_and_the_index(db_url: str
     run_migrations(db_url, "0018")
 
     assert _version(db_url) == "0018"
-    assert _tables(db_url) == ALL_TABLES
+    assert _tables(db_url) == TABLES_AT_0018
     assert _counts(db_url, tuple(sorted(V2_EVIDENCE_TABLES))) == dict.fromkeys(
         sorted(V2_EVIDENCE_TABLES), 0
     )
@@ -2078,3 +2087,191 @@ def test_offline_postgresql_render_of_0018() -> None:
     assert "DROP TABLE statement_proposals;" in down_sql
     assert "ALTER TABLE dataset_versions DROP COLUMN model_generation;" in down_sql
     assert "ALTER TABLE pipeline_runs DROP COLUMN model_generation;" in down_sql
+
+
+# Migration 0019: per-Constituency rows of v2 Dataset Versions
+# (constituency-selection-validation).
+
+SELECTION_DDL = {
+    "dataset_version_constituencies": [
+        "CONSTRAINT ck_dataset_version_constituencies_count_nonnegative CHECK "
+        "(valid_statement_count >= 0)",
+        "CONSTRAINT ck_dataset_version_constituencies_reason_matches_available CHECK "
+        "((available AND unavailable_reason IS NULL) OR (NOT available AND unavailable_reason "
+        "IS NOT NULL AND unavailable_reason IN ('fewer_than_two_parties', 'too_few_statements', "
+        "'low_party_coverage')))",
+        "CONSTRAINT pk_dataset_version_constituencies PRIMARY KEY (dataset_version_id, "
+        "constituency_code)",
+    ],
+    "dataset_version_candidatures": [
+        "CONSTRAINT ck_dataset_version_candidatures_excluded_reason_known CHECK "
+        "(excluded_reason IS NULL OR excluded_reason IN ('no_manifesto', 'discarded_at_review', "
+        "'too_few_proposals'))",
+        "CONSTRAINT pk_dataset_version_candidatures PRIMARY KEY (dataset_version_id, party_id, "
+        "constituency_code)",
+    ],
+    "constituency_statements": [
+        "CONSTRAINT ck_constituency_statements_rank_positive CHECK (rank >= 1)",
+        "CONSTRAINT pk_constituency_statements PRIMARY KEY (dataset_version_id, "
+        "constituency_code, rank)",
+        "CONSTRAINT uq_constituency_statements_dataset_version_id_constituency_code_statement_id "
+        "UNIQUE (dataset_version_id, constituency_code, statement_id)",
+    ],
+}
+
+
+def _seed_selection(engine: Engine) -> None:
+    """One Constituency row, one candidature and one ranked Statement on version 1."""
+    with engine.begin() as conn:
+        conn.execute(
+            sa.text(
+                "INSERT INTO dataset_version_constituencies (dataset_version_id, "
+                "constituency_code, available, unavailable_reason, valid_statement_count, "
+                "offered_lengths, detail) VALUES (1, '28', 1, NULL, 1, '[1]', NULL)"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO dataset_version_candidatures (dataset_version_id, party_id, "
+                "constituency_code, excluded_reason) VALUES (1, 1, '28', NULL)"
+            )
+        )
+        conn.execute(
+            sa.text(
+                "INSERT INTO constituency_statements (dataset_version_id, constituency_code, "
+                "rank, statement_id) VALUES (1, '28', 1, 1)"
+            )
+        )
+
+
+def test_upgrade_0019_adds_three_empty_tables_and_keeps_every_row(db_url: str) -> None:
+    run_migrations(db_url, "0018")
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        _seed_v2_evidence(engine)
+    finally:
+        engine.dispose()
+    tables = sorted(TABLES_AT_0018 - {"alembic_version"})
+    before = {table: _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") for table in tables}
+    schema_sql = (
+        "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE tbl_name NOT IN "
+        "('dataset_version_constituencies', 'dataset_version_candidatures', "
+        "'constituency_statements', 'alembic_version') ORDER BY name"
+    )
+    schema_before = _rows(db_url, schema_sql)
+
+    run_migrations(db_url, "0019")
+
+    assert _version(db_url) == "0019"
+    assert _tables(db_url) == ALL_TABLES
+    assert _counts(db_url, tuple(sorted(SELECTION_TABLES))) == dict.fromkeys(
+        sorted(SELECTION_TABLES), 0
+    )
+    for table in tables:
+        assert _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") == before[table], table
+    assert _rows(db_url, schema_sql) == schema_before
+    for table, constraints in SELECTION_DDL.items():
+        ddl = _table_sql(db_url, table)
+        assert ddl.count("CHECK") == sum("CHECK" in c for c in constraints), table
+        for constraint in constraints:
+            assert constraint in ddl, (table, constraint)
+
+
+def test_0019_constraints_and_cascades(migrated_engine: Engine) -> None:
+    _seed_with_position(migrated_engine)
+    _seed_selection(migrated_engine)
+    constituency = (
+        "INSERT INTO dataset_version_constituencies (dataset_version_id, constituency_code, "
+        "available, unavailable_reason, valid_statement_count, offered_lengths, detail) VALUES "
+    )
+    candidature = (
+        "INSERT INTO dataset_version_candidatures (dataset_version_id, party_id, "
+        "constituency_code, excluded_reason) VALUES "
+    )
+    ranked = (
+        "INSERT INTO constituency_statements (dataset_version_id, constituency_code, rank, "
+        "statement_id) VALUES "
+    )
+    for statement in (
+        constituency + "(1, '28', 1, NULL, 1, '[1]', NULL)",  # repeated code
+        constituency + "(1, '31', 1, 'too_few_statements', 0, '[]', NULL)",  # reason when available
+        constituency + "(1, '31', 0, NULL, 0, '[]', NULL)",  # no reason when unavailable
+        constituency + "(1, '31', 0, 'bogus', 0, '[]', NULL)",
+        constituency + "(1, '31', 0, 'too_few_statements', -1, '[]', NULL)",
+        constituency + "(1, '99', 0, 'too_few_statements', 0, '[]', NULL)",  # unknown code
+        constituency + "(1, '31', 0, 'too_few_statements', 0, NULL, NULL)",
+        constituency + "(9, '31', 0, 'too_few_statements', 0, '[]', NULL)",
+        candidature + "(1, 1, '28', NULL)",
+        candidature + "(1, 1, '31', 'bogus')",
+        candidature + "(1, 9, '31', NULL)",
+        candidature + "(1, 1, '99', NULL)",
+        ranked + "(1, '28', 1, 1)",  # repeated rank
+        ranked + "(1, '28', 2, 1)",  # repeated Statement
+        ranked + "(1, '28', 0, 1)",
+        ranked + "(1, '28', 2, 9)",
+    ):
+        with pytest.raises(IntegrityError):
+            with migrated_engine.begin() as conn:
+                conn.execute(sa.text(statement))
+    with migrated_engine.begin() as conn:
+        conn.execute(sa.text(constituency + "(1, '31', 0, 'low_party_coverage', 3, '[]', "
+                                            "'{\"minimum\": 5}')"))
+        conn.execute(sa.text(candidature + "(1, 1, '31', 'no_manifesto')"))
+        conn.execute(sa.text("DELETE FROM statements"))
+        assert conn.execute(sa.text("SELECT count(*) FROM constituency_statements")).scalar_one() == 0
+        conn.execute(sa.text("DELETE FROM dataset_versions"))
+        for table in ("dataset_version_constituencies", "dataset_version_candidatures"):
+            assert conn.execute(sa.text(f"SELECT count(*) FROM {table}")).scalar_one() == 0
+
+
+def test_downgrade_to_0018_drops_only_the_new_tables(db_url: str) -> None:
+    run_migrations(db_url)
+    engine = make_engine(db_url)
+    try:
+        _seed_with_position(engine)
+        _seed_v2_evidence(engine)
+        _seed_selection(engine)
+    finally:
+        engine.dispose()
+    tables = sorted(TABLES_AT_0018 - {"alembic_version"})
+    before = {table: _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") for table in tables}
+
+    downgrade(db_url, "0018")
+
+    assert _version(db_url) == "0018"
+    assert _tables(db_url) == TABLES_AT_0018
+    for table in tables:
+        assert _rows(db_url, f"SELECT * FROM {table} ORDER BY 1") == before[table], table
+    run_migrations(db_url)
+    assert _version(db_url) == HEAD
+
+
+def test_offline_postgresql_render_of_0019() -> None:
+    upgrade = io.StringIO()
+    command.upgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=upgrade),
+        "0018:0019",
+        sql=True,
+    )
+    down = io.StringIO()
+    command.downgrade(
+        alembic_config("postgresql://user:secret@localhost/ideology", output_buffer=down),
+        "0019:0018",
+        sql=True,
+    )
+    up_sql = upgrade.getvalue()
+    for table in sorted(SELECTION_TABLES):
+        assert f"CREATE TABLE {table} (" in up_sql
+    assert up_sql.count("CREATE TABLE") == 3
+    assert up_sql.count("CHECK") == 4
+    assert "CONSTRAINT ck_dataset_version_constituencies_reason_matches_available CHECK" in up_sql
+    assert "available BOOLEAN NOT NULL" in up_sql
+    for forbidden in ("DROP TABLE", "DROP INDEX", "ALTER TABLE", "INSERT INTO", "UPDATE "):
+        assert forbidden not in up_sql.replace(
+            "UPDATE alembic_version", ""
+        ), forbidden
+    down_sql = down.getvalue()
+    assert "DROP TABLE constituency_statements;" in down_sql
+    assert "DROP TABLE dataset_version_candidatures;" in down_sql
+    assert "DROP TABLE dataset_version_constituencies;" in down_sql

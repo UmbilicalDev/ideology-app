@@ -1,18 +1,19 @@
 """The v2 Pipeline Run: queue, execute, write the Dataset Version, validate.
 
 ``execute_v2_run`` runs ``build_pool`` -> ``filter_pool`` ->
-``assign_positions`` -> ``V2Pool`` -> ``_finish_v2`` -> ``validate_run``. The
-seam for ``constituency-selection-validation`` is ``V2Pool``: it inserts its
-per-Constituency selection between ``V2Pool`` and ``_finish_v2``, extends
-``_finish_v2`` with its rows in the same commit, and flips
-``publishing.PUBLISH_ON_PASS[v2]``.
+``assign_positions`` -> ``V2Pool`` -> ``select_constituencies`` ->
+``_finish_v2`` -> ``validate_run``. Constituency Selection
+(constituency-selection-validation) is deterministic and AI-free; its rows
+are written by ``_finish_v2`` in the Dataset Version's commit, and a passed
+v2 run is published (``publishing.PUBLISH_ON_PASS[v2]``).
 
 Commits, as ``runs.execute_run``: ``running`` (with the Source Documents it
 reads) before any LLM call; each call as it returns (``CheckpointProvider``,
 so ``--resume-from`` / ``--reuse-from`` replay recorded calls); then either
 ``validating`` with the complete ``candidate`` Dataset Version (Statements,
 source Proposals, one Position per Party x Statement with its Evidence
-Proposals, the pool report) in one commit, or ``failed`` with a reason. v2
+Proposals, the 52 Constituency rows, the candidature snapshot, each available
+Constituency's ordered Statements, the pool report) in one commit, or ``failed`` with a reason. v2
 runs never resolve Anchors (``anchor_dataset_version_id`` stays NULL, S8).
 """
 
@@ -24,12 +25,15 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from ideology_app import config
-from ideology_app.config import GenerationMode, ValidationSettings
+from ideology_app.config import ConstituencySettings, GenerationMode, ValidationSettings
 from ideology_app.db import session_scope
 from ideology_app.elections import InvalidInputError, NotFoundError
 from ideology_app.llm.base import LLMError, LLMProvider
 from ideology_app.models import (
+    ConstituencyStatement,
     DatasetVersion,
+    DatasetVersionCandidature,
+    DatasetVersionConstituency,
     DatasetVersionStatus,
     Election,
     ModelGeneration,
@@ -64,6 +68,7 @@ from ideology_app.pipeline.v2.positions import (
     plan_position_calls,
 )
 from ideology_app.pipeline.v2.prompts import V2_PROMPT_VERSIONS
+from ideology_app.pipeline.v2.selection import ConstituencySelection, select_constituencies
 
 MAX_V2_CALLS_PER_RUN = 800
 REPORT_VERSION = "v2-pool-1"
@@ -206,7 +211,13 @@ def _record_failure(engine: Engine, run_id: int, usage: Usage, reason: str) -> R
         )
 
 
-def _finish_v2(engine: Engine, run_id: int, usage: Usage, pool: V2Pool) -> RunOutcome:
+def _finish_v2(
+    engine: Engine,
+    run_id: int,
+    usage: Usage,
+    pool: V2Pool,
+    selection: ConstituencySelection,
+) -> RunOutcome:
     """Write the complete ``candidate`` v2 Dataset Version in one commit (insert-only).
 
     The version (``model_generation`` v2, ``questionnaire_lengths`` NULL), the
@@ -214,7 +225,10 @@ def _finish_v2(engine: Engine, run_id: int, usage: Usage, pool: V2Pool) -> RunOu
     in citation order, one Position per Party x Statement with rank 1 of its
     Evidence mirrored into the ``evidence_*`` columns (the Proposal text
     exactly, its page, its Source Document and that document's URL), the
-    Evidence rows, and the run's ``statement_selection`` (the v2 pool report).
+    Evidence rows, the Constituency Selection (52 Constituency rows, the
+    candidature snapshot, the ranked Statements of each available
+    Constituency) and the run's ``statement_selection`` (the v2 pool report
+    with the selection report under ``"constituencies"``).
     """
     with session_scope(engine) as session:
         run = session.get(PipelineRun, run_id)
@@ -223,7 +237,7 @@ def _finish_v2(engine: Engine, run_id: int, usage: Usage, pool: V2Pool) -> RunOu
         run.input_tokens = usage.input_tokens
         run.output_tokens = usage.output_tokens
         run.generation_finished_at = _utcnow()
-        run.statement_selection = pool.report
+        run.statement_selection = {**pool.report, "constituencies": selection.report}
         version = DatasetVersion(
             election_id=run.election_id,
             pipeline_run_id=run.id,
@@ -276,6 +290,37 @@ def _finish_v2(engine: Engine, run_id: int, usage: Usage, pool: V2Pool) -> RunOu
                     for rank, ref in enumerate(position.evidence, start=1)
                 )
                 count += 1
+        session.add_all(
+            DatasetVersionConstituency(
+                dataset_version_id=version.id,
+                constituency_code=row.code,
+                available=row.available,
+                unavailable_reason=row.unavailable_reason,
+                valid_statement_count=row.valid_statement_count,
+                offered_lengths=list(row.offered_lengths),
+                detail=row.detail,
+            )
+            for row in selection.rows
+        )
+        session.add_all(
+            DatasetVersionCandidature(
+                dataset_version_id=version.id,
+                party_id=item.party_id,
+                constituency_code=item.code,
+                excluded_reason=item.excluded_reason,
+            )
+            for item in selection.snapshot
+        )
+        session.add_all(
+            ConstituencyStatement(
+                dataset_version_id=version.id,
+                constituency_code=code,
+                rank=rank,
+                statement_id=rows[number - 1].id,
+            )
+            for code, numbers in selection.statements_by_code.items()
+            for rank, number in enumerate(numbers, start=1)
+        )
         run.status = PipelineRunStatus.VALIDATING
         session.flush()
         return RunOutcome(
@@ -302,12 +347,15 @@ def execute_v2_run(
     provider: LLMProvider,
     bundle_dir: Path,
     validation_settings: ValidationSettings | None = None,
+    constituency_settings: ConstituencySettings | None = None,
 ) -> RunOutcome:
-    """Draft the pool, position every Party, write the Dataset Version, validate it.
+    """Draft the pool, position every Party, select per Constituency, write, validate.
 
     See the module docstring. ``validation_settings`` (``None``: read first
     with ``config.validation_settings()``) gives the filter's Context Note
-    rules, the prompt's note bounds and the Validation thresholds. Planned calls
+    rules, the prompt's note bounds, the topic share of the Constituency order
+    and the Validation thresholds; ``constituency_settings`` (``None``: read
+    first with ``config.constituency_settings()``) the per-Constituency minimums. Planned calls
     above ``MAX_V2_CALLS_PER_RUN`` fail the run before any call. ``LLMError`` /
     ``GenerationError`` give ``failed`` with the reason; Ctrl-C records
     ``interrupted`` and re-raises; any other error records
@@ -315,6 +363,8 @@ def execute_v2_run(
     """
     if validation_settings is None:
         validation_settings = config.validation_settings()
+    if constituency_settings is None:
+        constituency_settings = config.constituency_settings()
     started = _start_v2(engine, run_id, provider, Path(bundle_dir))
     if isinstance(started, RunOutcome):
         return started
@@ -358,7 +408,14 @@ def execute_v2_run(
                 "positions": assigned.report,
             },
         )
-        outcome = _finish_v2(engine, run_id, usage, pool)
+        selection = select_constituencies(
+            pool.statements,
+            pool.positions,
+            phase4,
+            validation_settings.max_topic_share_percent,
+            constituency_settings,
+        )
+        _finish_v2(engine, run_id, usage, pool, selection)
     except (LLMError, GenerationError) as exc:
         return _record_failure(engine, run_id, usage, str(exc))
     except KeyboardInterrupt:
@@ -367,7 +424,12 @@ def execute_v2_run(
     except Exception as exc:
         _record_failure(engine, run_id, usage, f"unexpected error: {type(exc).__name__}")
         raise
-    return validate_run(engine, run_id, settings=validation_settings)
+    return validate_run(
+        engine,
+        run_id,
+        settings=validation_settings,
+        constituency_settings=constituency_settings,
+    )
 
 
 def pool_summary(report: dict[str, Any] | None) -> str | None:

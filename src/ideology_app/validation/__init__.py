@@ -8,7 +8,8 @@ imports ``pipeline``, ``llm`` or ``pdf_text``. To add a check, write
 statement separation (a Party on each side), statement uniqueness, statement
 count (and stored lengths), topic spread (per offered length),
 context note; v2 runs use ``V2_CHECKS``: evidence quotes, evidence
-proposals, statement sources, uniqueness, context note); a
+proposals, statement sources, uniqueness, context note, then the four
+per-Constituency checks: snapshot, validity, availability, order); a
 threshold it needs is a ``ValidationSettings`` field read from the environment
 in ``config``. ``pipeline.runs.validate_run`` stores the results.
 """
@@ -23,15 +24,23 @@ from ideology_app.validation.base import (
     MESSAGE_MAX,
     Check,
     CheckResult,
+    ConstituencyRowData,
     EvidenceRow,
     PositionRow,
     ProposalRow,
     ReportEntry,
     RunDocument,
+    SnapshotRow,
     StatementRow,
     ValidationInput,
     load_input,
     offered_lengths,
+)
+from ideology_app.validation.constituencies import (
+    CONSTITUENCY_AVAILABILITY,
+    CONSTITUENCY_ORDER,
+    CONSTITUENCY_SNAPSHOT,
+    CONSTITUENCY_VALIDITY,
 )
 from ideology_app.validation.context_note import CONTEXT_NOTE
 from ideology_app.validation.evidence_quotes import (
@@ -63,15 +72,19 @@ CHECKS: tuple[Check, ...] = (
 )
 
 # v2 runs (statements-from-proposals): checks 1 (uniqueness), 2 (quotes on the
-# mirrored rank-1 columns and every Evidence Proposal), Statement sources and 7.
-# Coverage, separation, count and topic spread become per-Constituency checks
-# in ``constituency-selection-validation``.
+# mirrored rank-1 columns and every Evidence Proposal), Statement sources and 7;
+# then (constituency-selection-validation) the per-Constituency checks that
+# replace coverage, separation, count and topic spread (3-6).
 V2_CHECKS: tuple[Check, ...] = (
     EVIDENCE_QUOTES,
     EVIDENCE_PROPOSALS,
     STATEMENT_SOURCES,
     STATEMENT_UNIQUENESS,
     CONTEXT_NOTE,
+    CONSTITUENCY_SNAPSHOT,
+    CONSTITUENCY_VALIDITY,
+    CONSTITUENCY_AVAILABILITY,
+    CONSTITUENCY_ORDER,
 )
 
 
@@ -88,6 +101,10 @@ def run_checks(data: ValidationInput, checks: Sequence[Check] = CHECKS) -> list[
 __all__ = [
     "CHECKS",
     "CHECK_NAME_MAX",
+    "CONSTITUENCY_AVAILABILITY",
+    "CONSTITUENCY_ORDER",
+    "CONSTITUENCY_SNAPSHOT",
+    "CONSTITUENCY_VALIDITY",
     "CONTEXT_NOTE",
     "EVIDENCE_PROPOSALS",
     "EVIDENCE_QUOTES",
@@ -101,12 +118,14 @@ __all__ = [
     "V2_CHECKS",
     "Check",
     "CheckResult",
+    "ConstituencyRowData",
     "EvidenceRow",
     "PositionRow",
     "ProposalRow",
     "QuoteMiss",
     "ReportEntry",
     "RunDocument",
+    "SnapshotRow",
     "StatementRow",
     "ValidationInput",
     "ValidationSettings",

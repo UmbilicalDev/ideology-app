@@ -590,6 +590,93 @@ class PartyPositionProposal(Base):
     constituencies: Mapped[list[str]] = mapped_column(sa.JSON)
 
 
+class DatasetVersionConstituency(Base):
+    """One Constituency of a v2 Dataset Version: availability, n(c) and offered lengths.
+
+    52 rows per v2 version, none for legacy versions (migration 0019). Written
+    only by ``pipeline.v2.run._finish_v2`` in the version's commit; insert-only.
+    ``unavailable_reason`` is a ``constituency_rules.UnavailableReason`` value
+    (NULL exactly when available); ``detail`` says why it is unavailable.
+    """
+
+    __tablename__ = "dataset_version_constituencies"
+    __table_args__ = (
+        sa.CheckConstraint("valid_statement_count >= 0", name="count_nonnegative"),
+        sa.CheckConstraint(
+            "(available AND unavailable_reason IS NULL) OR (NOT available AND "
+            "unavailable_reason IS NOT NULL AND unavailable_reason IN "
+            "('fewer_than_two_parties', 'too_few_statements', 'low_party_coverage'))",
+            name="reason_matches_available",
+        ),
+    )
+
+    dataset_version_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("dataset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True
+    )
+    available: Mapped[bool] = mapped_column(sa.Boolean)
+    unavailable_reason: Mapped[str | None] = mapped_column(sa.String(30))
+    valid_statement_count: Mapped[int] = mapped_column(sa.Integer)
+    offered_lengths: Mapped[list[int]] = mapped_column(sa.JSON)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(sa.JSON)
+
+
+class DatasetVersionCandidature(Base):
+    """A frozen copy of a candidature for a v2 Dataset Version (who runs where).
+
+    ``excluded_reason`` is the Party's ledger ``ExclusionReason`` value, the
+    same on every row of that Party, or NULL for a Party with Positions.
+    Written only by ``_finish_v2``; never compared with live candidatures.
+    """
+
+    __tablename__ = "dataset_version_candidatures"
+    __table_args__ = (
+        sa.CheckConstraint(
+            "excluded_reason IS NULL OR excluded_reason IN "
+            "('no_manifesto', 'discarded_at_review', 'too_few_proposals')",
+            name="excluded_reason_known",
+        ),
+    )
+
+    dataset_version_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("dataset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    party_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("parties.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True
+    )
+    excluded_reason: Mapped[str | None] = mapped_column(sa.String(30))
+
+
+class ConstituencyStatement(Base):
+    """A Statement of an available Constituency's Questionnaire, at ``rank`` 1..n.
+
+    Ranks follow ``constituency_rules.priority_order``; a questionnaire of
+    length L is ranks 1..L. Written only by ``_finish_v2``; insert-only.
+    """
+
+    __tablename__ = "constituency_statements"
+    __table_args__ = (
+        sa.UniqueConstraint("dataset_version_id", "constituency_code", "statement_id"),
+        sa.CheckConstraint("rank >= 1", name="rank_positive"),
+    )
+
+    dataset_version_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("dataset_versions.id", ondelete="CASCADE"), primary_key=True
+    )
+    constituency_code: Mapped[str] = mapped_column(
+        sa.ForeignKey("constituencies.code"), primary_key=True
+    )
+    rank: Mapped[int] = mapped_column(sa.Integer, primary_key=True, autoincrement=False)
+    statement_id: Mapped[int] = mapped_column(
+        sa.ForeignKey("statements.id", ondelete="CASCADE")
+    )
+
+
 class ValidationResult(Base):
     """The outcome of one Validation check on one Pipeline Run. Insert-only."""
 

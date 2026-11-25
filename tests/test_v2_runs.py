@@ -1,5 +1,10 @@
 """The v2 Pipeline Run on a scratch database (statements-from-proposals scenarios 1-10, 12).
 
+A run that should pass uses ``ConstituencySettings(1, 1)`` (``LOW``): with the
+default minimums no Constituency of the fixture is available and the run fails
+(constituency-selection-validation K8, covered in ``test_v2_selection``). A
+passed v2 run is published (K12).
+
 FakeProvider only; the offline guard blocks every other LLM path. Bundles live
 in ``tmp_path`` (see ``v2_fixtures``).
 """
@@ -26,7 +31,7 @@ from v2_fixtures import (
 )
 
 from ideology_app import ingestion_ledger as ledgers
-from ideology_app.config import GenerationMode
+from ideology_app.config import ConstituencySettings, GenerationMode
 from ideology_app.db import make_engine, run_migrations, session_scope
 from ideology_app.elections import InvalidInputError
 from ideology_app.models import (
@@ -59,8 +64,10 @@ from ideology_app.pipeline.v2 import run as v2_run
 
 V2_CHECK_NAMES = [
     "evidence_quotes", "evidence_proposals", "statement_sources",
-    "statement_uniqueness", "context_note",
+    "statement_uniqueness", "context_note", "constituency_snapshot",
+    "constituency_validity", "constituency_availability", "constituency_order",
 ]
+LOW = ConstituencySettings(1, 1)
 
 
 @pytest.fixture(autouse=True)
@@ -80,9 +87,17 @@ def _queue(engine: Engine, election_id: int = 1, **kwargs: Any) -> int:
         ).id
 
 
-def _run(engine: Engine, directory: Path, provider: Any, **kwargs: Any):
+def _run(
+    engine: Engine,
+    directory: Path,
+    provider: Any,
+    constituency_settings: ConstituencySettings = LOW,
+    **kwargs: Any,
+):
     run_id = _queue(engine, **kwargs)
-    return execute_v2_run(engine, run_id, provider, directory)
+    return execute_v2_run(
+        engine, run_id, provider, directory, constituency_settings=constituency_settings
+    )
 
 
 def _count(engine: Engine, model: type) -> int:
@@ -221,7 +236,9 @@ def test_start_marks_the_run_failed_when_the_gate_closes(
 # --- Scenarios 2-4, 9: happy path, Evidence, against, neutrality ---------------------------
 
 
-def test_happy_path_writes_a_candidate_v2_version(tmp_path: Path, migrated_engine: Engine) -> None:
+def test_happy_path_writes_and_publishes_a_v2_version(
+    tmp_path: Path, migrated_engine: Engine
+) -> None:
     directory = setup(tmp_path, migrated_engine)
     ids = _party_ids(migrated_engine)
     provider = v2_fake()
@@ -230,7 +247,10 @@ def test_happy_path_writes_a_candidate_v2_version(tmp_path: Path, migrated_engin
 
     assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
     assert outcome.model_generation is ModelGeneration.V2
-    assert outcome.publish is None and outcome.statement_count == 2
+    assert outcome.publish is not None and outcome.publish.published
+    assert outcome.publish.published_dataset_version_id == outcome.dataset_version_id
+    assert outcome.publish.superseded_dataset_version_id is None
+    assert outcome.statement_count == 2
     assert outcome.position_count == 4  # P and R only; X is Excluded
     assert [r.task for r in provider.calls] == ["statement_drafts"] * 2 + ["proposal_positions"] * 4
     with Session(migrated_engine) as session:
@@ -242,9 +262,12 @@ def test_happy_path_writes_a_candidate_v2_version(tmp_path: Path, migrated_engin
         version = run.dataset_version
         assert version is not None
         assert version.model_generation is ModelGeneration.V2
-        assert version.status is DatasetVersionStatus.CANDIDATE
+        assert version.status is DatasetVersionStatus.PUBLISHED
         assert version.questionnaire_lengths is None
-        assert session.get(type(run.election), run.election_id).status.value == "draft"
+        assert session.get(type(run.election), run.election_id).status.value == "active"
+        assert run.validation_settings is not None
+        assert run.validation_settings["v2_min_statements"] == 1
+        assert run.validation_settings["v2_min_party_sides"] == 1
         assert [r.check_name for r in session.scalars(select(ValidationResult))] == V2_CHECK_NAMES
         assert all(r.passed for r in session.scalars(select(ValidationResult)))
         documents = session.execute(
@@ -304,7 +327,12 @@ def test_report_records_the_pool_and_partial_scope(tmp_path: Path, migrated_engi
     with Session(migrated_engine) as session:
         report = get_run_report(session, outcome.run_id)
     assert report.model_generation is ModelGeneration.V2
-    assert report.statement_selection == {
+    selection = dict(report.statement_selection or {})
+    constituencies = selection.pop("constituencies")
+    assert constituencies["version"] == "v2-constituency-1"
+    assert constituencies["available"] == 1
+    assert constituencies["valid_nowhere"] == []
+    assert selection == {
         "version": "v2-pool-1",
         "bundle": "es-general-2023-07-23",
         "parties": [
@@ -337,13 +365,18 @@ def test_omitted_statement_is_no_stance_and_counted_as_source_party(
         "Subir el salario mínimo cada año.": -1,
     }
     outcome = _run(migrated_engine, directory, v2_fake(positions=positions_responder(stances)))
-    assert outcome.status is PipelineRunStatus.PASSED, outcome.failure_reason
+    # Nothing separates P and R anywhere: no Constituency is available (K8), but the
+    # version is written in full and the valid-nowhere Statements are kept (K7).
+    assert outcome.status is PipelineRunStatus.FAILED
+    assert outcome.failure_reason == "validation failed: constituency_availability"
+    assert outcome.publish is None
     rows = _dataset(migrated_engine, outcome.dataset_version_id)
     r_rows = [r for r in rows if r[0] == "P" and r[2] == ids["R"]]
     assert [(r[3], r[4], r[8]) for r in r_rows] == [(None, None, ()), (None, None, ())]
     with Session(migrated_engine) as session:
         selection = get_run_report(session, outcome.run_id).statement_selection
     assert selection["positions"]["source_party_no_stance"] == 2
+    assert selection["constituencies"]["valid_nowhere"] == [1, 2]
 
 
 def test_empty_evidence_fails_the_run(tmp_path: Path, migrated_engine: Engine) -> None:

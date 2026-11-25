@@ -10,8 +10,11 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from ideology_app.config import ValidationSettings
+from ideology_app.config import ConstituencySettings, ValidationSettings
 from ideology_app.models import (
+    ConstituencyStatement,
+    DatasetVersionCandidature,
+    DatasetVersionConstituency,
     ModelGeneration,
     Party,
     PartyPosition,
@@ -85,6 +88,27 @@ class ProposalRow:
 
 
 @dataclass(frozen=True)
+class SnapshotRow:
+    """A frozen candidature of a v2 Dataset Version (``dataset_version_candidatures``)."""
+
+    party_id: int
+    code: str
+    excluded_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class ConstituencyRowData:
+    """A stored ``dataset_version_constituencies`` row."""
+
+    code: str
+    available: bool
+    unavailable_reason: str | None
+    valid_statement_count: int
+    offered_lengths: tuple[int, ...]
+    detail: Mapping[str, object] | None = None
+
+
+@dataclass(frozen=True)
 class ValidationInput:
     """Everything the checks may read about one run, as plain data.
 
@@ -113,6 +137,16 @@ class ValidationInput:
     evidence: Mapping[tuple[int, int], tuple[EvidenceRow, ...]] = field(default_factory=dict)
     # Proposal id -> every Proposal cited as a source or as Evidence.
     proposals: Mapping[int, ProposalRow] = field(default_factory=dict)
+    # v2 runs only (constituency-selection-validation); empty for legacy runs.
+    constituency_settings: ConstituencySettings = ConstituencySettings()
+    # The frozen candidature copy, by Party id then code.
+    candidatures: tuple[SnapshotRow, ...] = ()
+    # The stored Constituency rows, by code.
+    constituency_rows: tuple[ConstituencyRowData, ...] = ()
+    # Constituency code -> its (rank, Statement id) rows in rank order.
+    constituency_statements: Mapping[str, tuple[tuple[int, int], ...]] = field(
+        default_factory=dict
+    )
 
 
 def offered_lengths(data: ValidationInput) -> tuple[int, ...]:
@@ -163,14 +197,20 @@ class CheckResult:
 
 
 def load_input(
-    session: Session, run: PipelineRun, settings: ValidationSettings
+    session: Session,
+    run: PipelineRun,
+    settings: ValidationSettings,
+    constituency_settings: ConstituencySettings | None = None,
 ) -> ValidationInput:
     """Read the run's Dataset Version and the Source Documents it read.
 
     ``settings`` is passed through unchanged. The run must have a Dataset Version.
     For a v2 run it also reads the Statement sources, the Evidence Proposals
-    and the Proposals they cite, and ``party_ids`` are the Parties with
-    Positions (the non-Excluded ones), not every Party of the Election.
+    and the Proposals they cite, the candidature snapshot, the Constituency
+    rows and each Constituency's ranked Statements, and ``party_ids`` are the
+    Parties with Positions (the non-Excluded ones), not every Party of the
+    Election. ``constituency_settings`` (v2 only; ``None``: the defaults) is
+    passed through unchanged.
     """
     version = run.dataset_version
     assert version is not None
@@ -199,6 +239,9 @@ def load_input(
     statement_sources: dict[int, tuple[int, ...]] = {}
     evidence: dict[tuple[int, int], tuple[EvidenceRow, ...]] = {}
     proposals: dict[int, ProposalRow] = {}
+    candidatures: tuple[SnapshotRow, ...] = ()
+    constituency_rows: tuple[ConstituencyRowData, ...] = ()
+    constituency_statements: dict[str, tuple[tuple[int, int], ...]] = {}
     if generation is ModelGeneration.V2:
         party_ids = sorted({p.party_id for p, _ in positions})
         sources: dict[int, list[int]] = {}
@@ -235,6 +278,39 @@ def load_input(
                 p.id: ProposalRow(content_hash=p.content_hash, page=p.page, text=p.text)
                 for p in session.scalars(select(Proposal).where(Proposal.id.in_(cited)))
             }
+        candidatures = tuple(
+            SnapshotRow(c.party_id, c.constituency_code, c.excluded_reason)
+            for c in session.scalars(
+                select(DatasetVersionCandidature)
+                .where(DatasetVersionCandidature.dataset_version_id == version.id)
+                .order_by(
+                    DatasetVersionCandidature.party_id, DatasetVersionCandidature.constituency_code
+                )
+            )
+        )
+        constituency_rows = tuple(
+            ConstituencyRowData(
+                code=c.constituency_code,
+                available=c.available,
+                unavailable_reason=c.unavailable_reason,
+                valid_statement_count=c.valid_statement_count,
+                offered_lengths=tuple(c.offered_lengths),
+                detail=c.detail,
+            )
+            for c in session.scalars(
+                select(DatasetVersionConstituency)
+                .where(DatasetVersionConstituency.dataset_version_id == version.id)
+                .order_by(DatasetVersionConstituency.constituency_code)
+            )
+        )
+        ranked: dict[str, list[tuple[int, int]]] = {}
+        for c in session.scalars(
+            select(ConstituencyStatement)
+            .where(ConstituencyStatement.dataset_version_id == version.id)
+            .order_by(ConstituencyStatement.constituency_code, ConstituencyStatement.rank)
+        ):
+            ranked.setdefault(c.constituency_code, []).append((c.rank, c.statement_id))
+        constituency_statements = {code: tuple(items) for code, items in ranked.items()}
     return ValidationInput(
         statements=tuple(
             StatementRow(
@@ -276,4 +352,12 @@ def load_input(
         statement_sources=statement_sources,
         evidence=evidence,
         proposals=proposals,
+        constituency_settings=(
+            constituency_settings
+            if constituency_settings is not None and generation is ModelGeneration.V2
+            else ConstituencySettings()
+        ),
+        candidatures=candidatures,
+        constituency_rows=constituency_rows,
+        constituency_statements=constituency_statements,
     )

@@ -163,7 +163,8 @@ def db_check(app: AppContext) -> None:
 
     In order: no -journal/-wal/-shm file next to it, journal mode delete,
     integrity_check ok, schema at head, and every Election with a committed
-    bundle (ELECTIONS_DATA_DIR) matching it. Unfinished runs are listed as
+    bundle (ELECTIONS_DATA_DIR) matching it, and the Constituency rows of
+    every Dataset Version consistent. Unfinished runs are listed as
     information. Ends with "Safe to commit: yes" (exit 0) or one line per
     failed check and "Safe to commit: no" (exit 1).
     """
@@ -246,6 +247,7 @@ def _bundle_and_run_checks(session: Session) -> list[str]:
             if unfinished.status is PipelineRunStatus.RUNNING:
                 line += "; commit only if no ideology process is still running it"
             click.echo(line)
+    problems.extend(pipelines_v2.dataset_version_problems(session))
     for extraction in proposal_store.unfinished_extractions(session):
         click.echo(
             f"proposal extraction {extraction.content_hash[:12]}: in_progress, "
@@ -1548,12 +1550,6 @@ def pipeline_run(
     _echo_passed(outcome)
 
 
-V2_NOT_PUBLISHED = (
-    "Not published: v2 dataset versions are published from "
-    "constituency-selection-validation on"
-)
-
-
 @pipeline.command("run-v2")
 @click.argument("directory", type=click.Path(path_type=Path))
 @click.option(
@@ -1592,8 +1588,10 @@ def pipeline_run_v2(
     Refuses (exit 1, nothing written) unless every Party is Extracted or
     Excluded, no conflict is pending, the Ingestion Ledger is up to date, the
     Election is imported and the ledger counts match the stored Proposals.
-    The passed Dataset Version stays candidate (not published yet). Every LLM
-    call is recorded; --resume-from / --reuse-from work as for "pipeline run".
+    Each Constituency's Questionnaire, offered lengths and availability are
+    then fixed by deterministic rules (VALIDATION_V2_MIN_STATEMENTS,
+    VALIDATION_V2_MIN_PARTY_SIDES); a passed run is published. Every LLM call
+    is recorded; --resume-from / --reuse-from work as for "pipeline run".
     """
     if resume_from is not None and reuse_from is not None:
         raise click.UsageError("pass at most one of --resume-from or --reuse-from")
@@ -1603,6 +1601,7 @@ def pipeline_run_v2(
     try:
         mode = config.generation_mode()
         settings = config.validation_settings()
+        constituency_settings = config.constituency_settings()
     except config.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
     session = Session(app.engine)
@@ -1646,11 +1645,17 @@ def pipeline_run_v2(
                 f"Pipeline run {run_id}: reusing identical calls of run {reuse_from} "
                 f"({pipelines.count_recorded_calls(app.engine, reuse_from)} recorded calls)"
             )
-        outcome = pipelines_v2.execute_v2_run(app.engine, run_id, provider, directory, settings)
+        outcome = pipelines_v2.execute_v2_run(
+            app.engine, run_id, provider, directory, settings, constituency_settings
+        )
     finally:
         _close(provider)
     _raise_if_failed(outcome)
     _echo_passed(outcome)
+    if outcome.dataset_version_id is not None:
+        with session_scope(app.engine) as session:
+            summary = pipelines_v2.constituency_summary(session, outcome.dataset_version_id)
+        click.echo(f"Constituencies: {summary or NOT_RECORDED}")
     if outcome.statement_count < pipelines_v2.POOL_TARGET:
         click.echo(
             f"Warning: pool of {outcome.statement_count} statements is below the "
@@ -1719,11 +1724,6 @@ def _echo_publish(outcome: pipelines.RunOutcome) -> None:
     """Say whether a ``passed`` run's Dataset Version was published."""
     publish = outcome.publish
     if publish is None:
-        if (
-            outcome.status is PipelineRunStatus.PASSED
-            and outcome.model_generation is ModelGeneration.V2
-        ):
-            click.echo(V2_NOT_PUBLISHED)
         return
     if publish.published:
         line = (
@@ -1764,7 +1764,10 @@ def pipeline_validate(app: AppContext, run_id: int) -> None:
         settings = config.validation_settings()
     except config.ConfigError as exc:
         raise click.ClickException(str(exc)) from exc
-    outcome = pipelines.validate_run(app.engine, run_id, settings=settings)
+    try:
+        outcome = pipelines.validate_run(app.engine, run_id, settings=settings)
+    except config.ConfigError as exc:
+        raise click.ClickException(str(exc)) from exc
     _raise_if_failed(outcome)
     click.echo(f"Pipeline run {outcome.run_id}: {outcome.status.value}")
     _echo_publish(outcome)
@@ -2203,6 +2206,12 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
     with session_scope(app.engine) as session:
         report = pipelines.get_run_report(session, run_id)
         rows = _check_rows(report.results)
+        constituencies = (
+            None
+            if report.dataset_version_id is None
+            or report.model_generation is not ModelGeneration.V2
+            else pipelines_v2.constituency_summary(session, report.dataset_version_id)
+        )
     # Usage is stored as zeros until generation finishes; zeros would mislead.
     usage_recorded = report.generation_finished_at is not None
 
@@ -2252,7 +2261,8 @@ def pipeline_report(app: AppContext, run_id: int) -> None:
                 (
                     "statement_selection",
                     pipelines_v2.pool_summary(report.statement_selection) or NOT_RECORDED,
-                )
+                ),
+                ("constituencies", constituencies or NOT_RECORDED),
             ]
         ),
         ("publication", _publication(report)),

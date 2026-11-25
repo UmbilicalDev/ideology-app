@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ideology_app import config
 from ideology_app.bundle_import import candidatures_by_party
-from ideology_app.config import GenerationMode, ValidationSettings
+from ideology_app.config import ConstituencySettings, GenerationMode, ValidationSettings
 from ideology_app.db import session_scope
 from ideology_app.elections import InvalidInputError, NotFoundError
 from ideology_app.llm.base import LLMError, LLMProvider
@@ -545,6 +545,7 @@ def validate_run(
     run_id: int,
     checks: Sequence[Check] | None = None,
     settings: ValidationSettings | None = None,
+    constituency_settings: ConstituencySettings | None = None,
 ) -> RunOutcome:
     """Run every Validation check on a ``validating`` run and record the result. Commits.
 
@@ -564,19 +565,33 @@ def validate_run(
     raises ``ConfigError`` before any session and changes nothing. ``checks``
     ``None`` means ``validation.checks_for(run.model_generation)``, and a
     passed run publishes only when ``publishing.PUBLISH_ON_PASS`` says so for
-    its generation (v2: not yet; it stays ``candidate``). The
-    thresholds are recorded on the run (``validation_settings``) in the commit
-    that stores the results, on both outcomes; never on the rollback path.
+    its generation (both publish since constituency-selection-validation).
+    ``constituency_settings`` are the per-Constituency minimums of a v2 run;
+    when ``None`` for a v2 run they are read with
+    ``config.constituency_settings()`` after reading the run's generation
+    (read-only) and before the checking session; a legacy run never reads
+    them. The thresholds are recorded on the run (``validation_settings``:
+    ``asdict(settings)``, and for a v2 run also ``asdict(constituency_settings)``,
+    flat) in the commit that stores the results, on both outcomes; never on
+    the rollback path.
     """
     if settings is None:
         settings = config.validation_settings()
+    if constituency_settings is None:
+        with Session(engine) as probe:
+            generation_of_run = probe.scalar(
+                select(PipelineRun.model_generation).where(PipelineRun.id == run_id)
+            )
+        if generation_of_run is ModelGeneration.V2:
+            constituency_settings = config.constituency_settings()
     checking = False
     try:
         with session_scope(engine) as session:
             run = _validating_run(session, run_id)
             checking = True
             generation = run.model_generation
-            data = load_input(session, run, settings)
+            v2 = generation is ModelGeneration.V2
+            data = load_input(session, run, settings, constituency_settings if v2 else None)
             results = run_checks(
                 data, checks if checks is not None else checks_for(generation)
             )
@@ -597,7 +612,9 @@ def validate_run(
                     )
                 )
             failed = tuple(r.name for r in results if not r.passed)
-            run.validation_settings = asdict(settings)
+            run.validation_settings = (
+                asdict(settings) | asdict(data.constituency_settings) if v2 else asdict(settings)
+            )
             if failed:
                 run.status = PipelineRunStatus.FAILED
                 run.failure_reason = ("validation failed: " + ", ".join(failed))[:_REASON_MAX]

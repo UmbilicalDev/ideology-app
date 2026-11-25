@@ -8,15 +8,19 @@
 3. refuses on any ``proposals.store.ledger_count_problems``;
 4. for each Party of ``party_states`` with phase ``proposals_extracted``,
    matched by short name to its Party row with candidatures, reads its
-   Proposals only through ``proposals.conflicts.counted_proposals``.
+   Proposals only through ``proposals.conflicts.counted_proposals``;
+5. copies the candidatures of every Party in phase ``proposals_extracted`` or
+   ``excluded`` (``candidatures``) and each Excluded Party's ledger reason
+   (``excluded``): the snapshot the Dataset Version freezes
+   (constituency-selection-validation K9). The ledger's ``note`` is not copied.
 
 Every refusal raises ``Phase4Error`` (an ``InvalidInputError``) with the
 blocker lines kept, and nothing is written. The result is plain data (no ORM
 objects), so it can be used after the session closes.
 """
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy import select
@@ -76,13 +80,29 @@ class Phase4Party:
 
 
 @dataclass(frozen=True)
+class ExcludedParty:
+    """An Excluded Party of the manifest and its ledger reason (``ExclusionReason`` value)."""
+
+    party_id: int
+    short_name: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class Phase4Input:
-    """What a v2 run reads: the Election, and its non-Excluded Parties by id."""
+    """What a v2 run reads: the Election, and its non-Excluded Parties by id.
+
+    ``candidatures`` maps the id of every Extracted or Excluded Party to the
+    sorted Constituency codes it runs in; ``excluded`` lists the Excluded
+    Parties by id with their reason.
+    """
 
     election_id: int
     slug: str
     parties: tuple[Phase4Party, ...]
     document_ids: tuple[int, ...]
+    candidatures: Mapping[int, tuple[str, ...]] = field(default_factory=dict)
+    excluded: tuple[ExcludedParty, ...] = ()
 
 
 def load_phase4(session: Session, bundle_dir: Path) -> Phase4Input:
@@ -112,8 +132,10 @@ def load_phase4(session: Session, bundle_dir: Path) -> Phase4Input:
         if party.id in with_candidatures
     }
     parties: list[Phase4Party] = []
+    excluded: list[ExcludedParty] = []
+    snapshot: dict[int, tuple[str, ...]] = {}
     for state in ledgers.party_states(bundle, ledger):
-        if state.phase is not ledgers.Phase.PROPOSALS_EXTRACTED:
+        if state.phase not in (ledgers.Phase.PROPOSALS_EXTRACTED, ledgers.Phase.EXCLUDED):
             continue
         party = rows.get(state.short_name)
         if party is None:
@@ -121,6 +143,12 @@ def load_phase4(session: Session, bundle_dir: Path) -> Phase4Input:
                 f"party {state.short_name} has no candidatures in election {election.id}; "
                 f'run "ideology data import {bundle.path}"'
             )
+        snapshot[party.id] = with_candidatures[party.id]
+        if state.phase is ledgers.Phase.EXCLUDED:
+            if state.reason is None:
+                raise Phase4Error(f"party {state.short_name} is excluded without a reason")
+            excluded.append(ExcludedParty(party.id, state.short_name, state.reason.value))
+            continue
         try:
             counted = counted_proposals(session, bundle, ledger, state.short_name)
         except ElectionsError as exc:
@@ -155,8 +183,23 @@ def load_phase4(session: Session, bundle_dir: Path) -> Phase4Input:
             )
         )
     parties.sort(key=lambda p: p.party_id)
+    excluded.sort(key=lambda p: p.party_id)
     documents = sorted({d for p in parties for d in p.document_ids})
-    return Phase4Input(election.id, bundle.slug, tuple(parties), tuple(documents))
+    return Phase4Input(
+        election.id,
+        bundle.slug,
+        tuple(parties),
+        tuple(documents),
+        candidatures={party_id: snapshot[party_id] for party_id in sorted(snapshot)},
+        excluded=tuple(excluded),
+    )
 
 
-__all__ = ["Phase4Error", "Phase4Input", "Phase4Party", "PhaseProposal", "load_phase4"]
+__all__ = [
+    "ExcludedParty",
+    "Phase4Error",
+    "Phase4Input",
+    "Phase4Party",
+    "PhaseProposal",
+    "load_phase4",
+]
