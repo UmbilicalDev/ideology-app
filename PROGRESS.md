@@ -11,7 +11,7 @@
 - Integration branch (user decision 2026-11-21): the "Voter feedback round 1" features (`three-option-scale` and the rest planned in Session 099) are each developed on a `feature/*` branch cut from `v2` and merged into `v2` by PR, never into `main`. `v2` is merged into `main` (which deploys to production) only when all of them are accepted.
 - v2 round 2 (user decisions 2026-11-24, 'Constituency redesign' in `docs/risks-and-open-questions.md`): the remaining v2 work is re-planned around Constituencies, Proposals and guided ingestion (21 features, from `v2-domain-docs` to `e2e-2026-constituencies`; `e2e-2026-dataset-clarity` removed). Same integration rule: `feature/*` from `v2`, PR into `v2`. `v2-domain-docs` is `accepted` (Session 113, awaiting independent validation); the domain docs now state the v2 model with *Legacy* rules for Dataset Versions 1–5. Not released before the 29 November 2026 election.
 - Current blocker: none. `e2e-real-2026-election` is `accepted` (independent validator, 2026-11-20) on branch `feature/e2e-real-2026-election-junts`, PR #107: run 5 passed and published Dataset Version 5 for Election 2 (`Elecciones generales 2026`, 32 Statements, 12 Parties with Junts) in the committed `data/ideology.db`; the browser walk is done (Session 094). It supersedes the 11-Party Dataset Version of Session 093. Independent validation is still to do. Merging to `main` deploys to production. Earlier: `e2e-real-2023-election` is `accepted` (independent validator accept, 2026-10-22; the MVP success criterion is met) on branch `feature/e2e-real-2023-election-main`: run 3 (`--reuse-from 2` replay, 0 LLM calls) passed and published Dataset Version 3 for Election 1 (`Elecciones generales 2023`, 26 Statements, 9 Parties) in the committed `data/ideology.db` (commit `9c13392`). Runs 1 and 2 (the two fresh attempts) failed Validation and stay as history in the DB. Details in Session 060
-- Last verified at: 2026-11-25 (`CI=true ./init.sh` on `feature/v2-run-inspection`: pytest 2701 passed, Vitest 1102 passed, `vite build` ok; `data/ideology.db` unchanged (SHA-256 3c1bde4e…, head `0021`, `db check` safe); legacy CLI output byte-identical to 98640af on scratch copies except the intentional D1 missing-option message; previous: on `feature/public-dataset-api-v2`: pytest 2665 passed, Vitest 1102 passed, `vite build` ok; `data/ideology.db` upgraded to `0021` with the pre-existing tables identical, `db check` safe; 55 of 58 public API outputs byte-identical to 2e72fcf on scratch copies, the 3 Election bodies differing only by the appended `published_dataset_version_generation`; previous: Session 129 on `feature/statement-rewording`, pytest 2630).
+- Last verified at: 2026-11-27 (`CI=true ./init.sh` on `feature/ingestion-guide` (after the validator repair): pytest 2783 passed, Vitest 1102 passed, `vite build` ok; `data/ideology.db` unchanged (SHA-256 3c1bde4e…974); previous: 2026-11-25 (`CI=true ./init.sh` on `feature/v2-run-inspection`: pytest 2701 passed, Vitest 1102 passed, `vite build` ok; `data/ideology.db` unchanged (SHA-256 3c1bde4e…, head `0021`, `db check` safe); legacy CLI output byte-identical to 98640af on scratch copies except the intentional D1 missing-option message; previous: on `feature/public-dataset-api-v2`: pytest 2665 passed, Vitest 1102 passed, `vite build` ok; `data/ideology.db` upgraded to `0021` with the pre-existing tables identical, `db check` safe; 55 of 58 public API outputs byte-identical to 2e72fcf on scratch copies, the 3 Election bodies differing only by the appended `published_dataset_version_generation`; previous: Session 129 on `feature/statement-rewording`, pytest 2630).
 
 ## Session Log
 
@@ -1608,3 +1608,48 @@
 - Verification run: see `feature_list.json` -> `dev-dataset.evidence` (validator `CI=true ./init.sh` exit 0, pytest 2741, Vitest 1102).
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (D1-D9 for team review, D4 called out).
 - Next best step: PR into `v2` (after #129-#134); next ready feature in list order is `ingestion-guide`, then the web features starting with `constituency-picker` (needs the province SVG map from the user).
+
+### Session 137 (ingestion-guide, implementation)
+
+- Date: 2026-11-27
+- Goal: implement `ingestion-guide` per `docs/specs/ingestion-guide.md` (branch `feature/ingestion-guide` from `43ad557`, PR #135).
+- Completed: `src/ideology_app/ingestion_next.py` (`STEPS`, 23 codes; `NextStep`; `derive`, read-only: SQLite `mode=ro` after an existence check, no provider) and `ideology ingestion next DIR` in `cli.py`; `docs/templates/election-format-2.toml` (12 unquoted placeholders); `docs/ingestion-guide.md` (Spanish runbook with the Costes and step tables); `.agents/skills/ingestion-guide/SKILL.md` + `agents/openai.yaml`; `tests/test_ingestion_next.py` (41 tests, T1–T8); docs: ARCHITECTURE (Guided Ingestion + CLI), CONSTRAINTS (ledger-read exception, new Guided Ingestion section), AGENTS (optional doc), README ("Ingesta guiada (v2)"), technical-discovery (Guided ingestion bullet), risks (handoff settled, G1–G11 for team review with G4 and G6 called out, G10 open entry for `e2e-2026-constituencies`, hand-edit Low "revisited, unchanged"), spec Implementation Notes.
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 2782 = 2741 + 41, Vitest 1102, build ok); `tests/test_ingestion_next.py` 41 passed with `-W error`; `data/ideology.db` SHA-256 unchanged, nothing under `data/` in `git status`; manual `next` on the shared database (2026 bundle → `convert-to-format-2`, shared, read-only). No real LLM call. No browser check (no UI change).
+- Dry run B1 (dev seed copy in the session scratchpad `$S/b1`; implementer as agent and scripted Operator):
+
+  | # | Step | Agent asked | File written / asked | Format stated | Outcome |
+  |---|---|---|---|---|---|
+  | 0 | — | DIR and database | — | — | `ideology --database-url sqlite:///$S/b1/dev/dev.db dev seed` (the spec's `dev seed --database-url` is not an option) |
+  | 1 | `done` | "¿Reformular alguna afirmación?" | — | rewording file format | version 1, run 1, 1 applied; Operator: yes |
+  | 2 | `done` | which Statement, new text, reason | ran `pipeline statements --run 1`; Operator picked 6 | `ai_text` copied exactly, `text`/`reason` the Operator's | entry appended to `$S/b1/.../statement-rewordings.toml`, diff shown |
+  | 3 | `reword-statements` | "¿Apruebo el gasto?" (fake / dev-dataset-1, at most 1 call, band "Reformulación") | — | — | Operator: no → stopped, printed `LLM_PROVIDER=fake LLM_MODEL=dev-dataset-1 ideology pipeline run-v2 DIR --reuse-from 1` |
+
+- Dry run B2 (`DIR=$S/b2/elections/es-general-2030-06-02` absent, `DATABASE_URL=sqlite:///$S/b2/dry.db`, fictional data only):
+
+  | # | Step | Agent asked | File written / asked | Format stated | Outcome |
+  |---|---|---|---|---|---|
+  | 1 | `create-bundle-directory` | type and date (general, 2030-06-02) | ran `mkdir -p … && cp docs/templates/…` | `<country>-<type>-<date>` | directory + template |
+  | 2 | `fill-manifest-placeholders` | the 12 listed lines | `election.toml`: ES, general, 2030-06-02, name, "BOE ficticio" (no URL, line deleted), CUARZO 01–50, BASALTO ["08"] | quoted values, unquoted date, INE code lists | diff shown |
+  | 3 | `declare-candidatures` | candidature for 51 Ceuta, 52 Melilla | PIZARRA ["51","52"] appended | `[[parties]]` | diff shown |
+  | 4 | `provide-manifestos` (3) | PDF + URL per Party, or no-manifesto | `cuarzo.md` via `source extract` (PDF from `tests/pdf_factory.py` in `$S/b2/pdfs`, URL example.org), `basalto.md` copied from the B1 seed, two `[[documents]]` | `[[documents]]` file/parties | — |
+  | 5 | `provide-manifestos` (PIZARRA) | Operator's note | `ingestion no-manifesto … --note …` | — | ledger created (N = 30), up to date, so no `update-ledger` |
+  | 6 | `review-manifestos` | decision per file | showed `ingestion review` facts; Operator kept both | `--keep` / `--discard REASON` | 2 kept |
+  | 7 | `create-database` | scratch confirmed | `db upgrade` | DATABASE_URL | at head |
+  | 8 | `import-bundle` | — | `data import`, `data check` | — | 3 parties, 53 candidatures, 2 documents |
+  | 9 | `extract-proposals` | "¿Apruebo el gasto?" (anthropic / claude-sonnet-5-5, 2 calls) | — | — | Operator: no → stopped |
+
+  Neither dry run asked for unlisted data, invented a value, ran an LLM command, wrote outside `$S` or ran git.
+- Evidence captured: `feature_list.json` → `ingestion-guide.evidence` (status `passing`, ready for independent validation).
+- Deviations: 23 codes (the spec table); template `[[documents]]` examples commented out; `repair-ledger` before `provide-manifestos`; reword plan counts new or changed entries only (verified by a replay). Details in the spec's Implementation Notes.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (G1–G11 for team review, G4 and G6 called out; G10 open for `e2e-2026-constituencies`). The dev dataset's run uses the unregistered `fake` / `dev-dataset-1` provider, so a rewording replay on it cannot run from the CLI (B1 stops at approval anyway). Keep `ideologiapp-flyer.png` out of the commit.
+- Repair (validator REVISE, same session): M1 the rewording-replay figure is no bound when phases 1–3 changed after run R (G10); `next` now prints the low figure conditioned on "nothing changed since run R" and `up to plan_calls` otherwise, with a note, and the skill asks the Operator to confirm before an in-session replay (else full run in their terminal); regression test (re-decided conflict: replay made >1 calls, within the upper bound). L1 `--yes` only for `proposals extract` / `run-v2`; L2 `fix-manifest` command; L3 `proposals` as ledger writer; L4 risks entry + README note on the unreplayable `fake` dev run (and a `Note:` in `next`); L5 pluralisation and resume-run playbook. Rerun: `tests/test_ingestion_next.py` 42 passed; `CI=true ./init.sh` exit 0 (pytest 2783, Vitest 1102, build ok); `data/ideology.db` unchanged.
+- Next best step: independent validation of `ingestion-guide` with `$feature-validator` (rerun B1 and B2), then commit and PR into `v2`.
+
+### Session 138 (ingestion-guide, independent validation)
+
+- Date: 2026-11-27
+- Goal: independently validate `ingestion-guide`.
+- Completed: first verdict revise (M1: the rewording-replay call figure was not a bound when phases 1-3 changed since the source run; L1-L5 wording and a risks-doc gap). The implementer applied the repair; re-validation verdict accept. Status `accepted`.
+- Verification run: see `feature_list.json` -> `ingestion-guide.evidence` (validator `CI=true ./init.sh` exit 0, pytest 2783, Vitest 1102).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (G1-G11 for team review, G4 and G6 called out; G10 for `e2e-2026-constituencies`; rewording replay on the dev dataset not runnable from the CLI).
+- Next best step: PR into `v2` (after #129-#135). Backend work for v2 is complete; next ready feature in list order is `constituency-picker` (needs the province SVG map: the user supplies it or approves a licensed source).

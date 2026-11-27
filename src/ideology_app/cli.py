@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import os
 import re
+import shlex
 import sys
 import tempfile
 from collections.abc import Sequence
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 from ideology_app import bundle_import
 from ideology_app import elections as service
 from ideology_app import ingestion_ledger as ledgers
+from ideology_app import ingestion_next
 from ideology_app import config
 from ideology_app import party_logos
 from ideology_app.constituencies import CONSTITUENCIES
@@ -1075,6 +1077,42 @@ def ingestion_gate(directory: Path) -> None:
         f"Phase 4: ready ({phases.count(ledgers.Phase.PROPOSALS_EXTRACTED)} extracted, "
         f"{phases.count(ledgers.Phase.EXCLUDED)} excluded)"
     )
+
+
+@ingestion.command("next")
+@click.argument("directory", type=click.Path())
+@click.pass_obj
+def ingestion_next_command(app: AppContext, directory: str) -> None:
+    """Print the first pending step of an Election's ingestion. Read-only.
+
+    Looks at the bundle in DIRECTORY (which may not exist yet), its Ingestion
+    Ledger and the database (SQLite opened read-only, never created), and
+    prints the phase, the step code, what is missing, the file and format, the
+    command to run, its LLM spend and what it writes. Builds no LLM provider.
+    Exits 0 for every step, including done. See docs/ingestion-guide.md.
+    """
+    try:
+        step = ingestion_next.derive(Path(directory), app.url, shown=directory)
+    except ingestion_next.NextError as exc:
+        raise click.ClickException(str(exc)) from exc
+    database = _safe_url(app.url) + (" (shared, read-only)" if app.shared else " (read-only)")
+    click.echo(f"Bundle: {directory}")
+    click.echo(f"Database: {database}")
+    click.echo(f"Phase: {step.phase} ({ingestion_next.PHASES[step.phase]})")
+    click.echo(f"Step: {step.code}")
+    click.echo(f"Missing ({len(step.missing)}):")
+    for item in step.missing:
+        click.echo(f"  {item}")
+    click.echo(f"File: {step.file}")
+    for line in step.format:
+        click.echo(f"Format: {line}")
+    for line in step.command:
+        click.echo(f"Command: {line}")
+    click.echo(f"LLM: {step.llm}")
+    click.echo(f"Shared database: {step.shared}")
+    for note in step.notes:
+        click.echo(f"Note: {note}")
+    click.echo(f"Then: ideology ingestion next {shlex.quote(directory)}")
 
 
 @main.group()

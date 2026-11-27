@@ -14,6 +14,7 @@ Read optional docs only when relevant:
 - `docs/technical-discovery.md` — when touching stack, configuration, LLM providers, storage, deployment, or testing.
 - `DESIGN.md` — when touching any UI.
 - `docs/specs/` — per-feature implementation specs, once they exist.
+- `docs/ingestion-guide.md` — when ingesting an Election (v2 phases 1–4, rewording); an agent assisting the Operator uses `$ingestion-guide` (`.agents/skills/ingestion-guide/SKILL.md`).
 
 ## Startup Workflow
 

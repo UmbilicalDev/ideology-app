@@ -164,6 +164,8 @@ Contenido: todos los partidos tienen nombres de minerales y son inventados; ning
 
 La afirmación reformulada (`statement-rewordings.toml`, aplicada) está en 28 y 08. Hasta `constituency-picker`, la portada muestra la elección ficticia con "Realizar cuestionario", pero el cuestionario da el error genérico: el cliente actual pide la versión antigua y recibe `404 dataset_version_is_v2`. Es lo esperado.
 
+La ejecución de desarrollo usa el proveedor guionizado `fake` / `dev-dataset-1`, que no está registrado en la CLI: una reformulación nueva (o cualquier `pipeline run-v2 --reuse-from 1` / `--resume-from`) sobre estos datos no se puede ejecutar desde la CLI; falla y deja `ingestion next` en `resume-run` hasta volver a sembrar con `ideology dev seed`. Para ensayar la guía basta con llegar a la aprobación del gasto.
+
 ## Tests
 
 `CI=true ./init.sh` lo ejecuta todo. Pasos sueltos:
@@ -323,6 +325,12 @@ Todos son de solo lectura; usa el mismo prefijo `DATABASE_URL=sqlite:///data/ide
 - Una elección importada queda en `draft` hasta su primera ejecución publicada.
 - Tras una migración, ejecuta `db upgrade` sobre la base compartida. Un PR que añade una migración también versiona la base actualizada.
 - Ambas escrituras siguen el ciclo pull → escribir → `db check` → commit → push, y nunca mientras alguien está generando. `data import` sobre la base compartida no pide confirmación.
+
+### Ingesta guiada (v2)
+
+- `ideology ingestion next data/elections/<slug>` dice en cada momento el primer paso pendiente de una elección v2: fase, qué falta, en qué fichero y con qué formato, el comando siguiente, si gasta LLM (proveedor, modelo y llamadas previstas) y qué escribe en la base compartida. Es de solo lectura (abre SQLite en modo lectura, no crea la base y no llama al LLM) y funciona aunque el directorio aún no exista. Usa la misma `DATABASE_URL` que los comandos que te indica.
+- Guía completa, con la tabla de costes y de pasos: [`docs/ingestion-guide.md`](docs/ingestion-guide.md). Plantilla de `election.toml` formato 2: [`docs/templates/election-format-2.toml`](docs/templates/election-format-2.toml).
+- Con un agente: «Use $ingestion-guide on data/elections/<slug>». El agente pide solo los datos que faltan, nunca los inventa, pide aprobación antes de cada gasto de LLM y nunca ejecuta git.
 
 ### No hay ensayo gratis
 

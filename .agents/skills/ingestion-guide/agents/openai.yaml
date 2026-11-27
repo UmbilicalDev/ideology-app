@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ingestion Guide"
+  short_description: "Guide an Operator through the v2 ingestion of one Election."
+  default_prompt: "Use $ingestion-guide on data/elections/<slug>."
