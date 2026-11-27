@@ -226,6 +226,14 @@ Durable MUST / MUST NOT rules. Each has a short reason. Add a rule only when it 
 - `DONATION_URL` MUST NOT hold a real profile in git; tests and docs use `https://www.buymeacoffee.com/perfil_de_prueba`. Reason: the profile is server configuration, set in Coolify.
 - An unset, blank or invalid `DONATION_URL` MUST hide the link everywhere (sidebar, end of the results, `/legal` copy) and an invalid one MUST NOT stop startup: it logs one warning that names the variable but never echoes the value. Reason: the link is optional and not legal information; a typo must not take the site down.
 
+## Dev Dataset
+
+- `ideology dev seed` MUST refuse, before any write, a non-SQLite or in-memory URL, the shared database (also through a symbolic or hard link), any file named `ideology.db`, an existing file that is not a dev-seed database and a bundle directory holding anything but the dev bundle. Reason: the dev data must never overwrite shared or production data (`dev-dataset` D4).
+- The seed MUST read no environment configuration except the target URL, and MUST reach every row through the real services (no direct inserts of Proposals, Statements, Positions or Dataset Versions). Reason: the same command gives the same content on every machine, and the data stays a state the pipeline can produce.
+- Dev content MUST stay fictional and pass the denylist of `tests/test_dev_dataset.py` (no real party name or acronym). Reason: it is published inside the dev database and shown in browser checks and screenshots.
+- The scripted dev provider MUST NOT be registered in `llm.PROVIDERS`. Reason: no configuration may make a real run use scripted answers.
+- Dev data MUST NOT be imported into the shared database or any production database, and `data/dev/` MUST NOT be committed. Reason: its Election, Parties and Positions are invented.
+
 ## Shared Database
 
 - The committed `data/ideology.db` MUST stay in `delete` journal mode (no WAL) and MUST be committed only after `ideology db check` prints `Safe to commit: yes`. Reason: a WAL file or a leftover journal means the committed file alone is incomplete.

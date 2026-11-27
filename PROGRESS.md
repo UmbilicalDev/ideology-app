@@ -1588,3 +1588,23 @@
 - Verification run: see `feature_list.json` -> `v2-run-inspection.evidence` (validator `CI=true ./init.sh` exit 0, pytest 2701, Vitest 1102).
 - Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (D1-D11 for team review, D7 and D9 called out).
 - Next best step: PR into `v2` (after #129-#133); next ready feature in list order is `dev-dataset`.
+
+### Session 135 (dev-dataset, implementation)
+
+- Date: 2026-11-27
+- Goal: implement `dev-dataset` per `docs/specs/dev-dataset.md` (branch `feature/dev-dataset` from `17baae1`).
+- Completed: `src/ideology_app/dev_dataset/` (`content`, `bundle`, `logos`, `provider`, `guard`, `dump`, `seed()`), CLI `ideology dev seed` (the `main` group creates no engine for `dev`), tests `test_dev_dataset.py`, `test_dev_dataset_guard.py`, `test_dev_dataset_api.py` (+ `dev_dataset_fixtures.py`, session fixture `dev_seed` in `conftest.py`), `.gitignore` `data/dev/`, launch `web-dev-db` (8002), `init.sh` hint lines, docs (README "Datos de desarrollo", ARCHITECTURE, CONSTRAINTS, AGENTS, technical-discovery, build-brief, risks).
+- Verification run: `CI=true ./init.sh` exit 0 (pytest 2741 = 2701 + 40, Vitest 1102, build ok); two repo-root seeds with the same `Dump SHA-256` (e2ad6099…a825), same hash and bundle bytes in another directory with another hash seed; shared-URL refusal exit 1; `data/ideology.db` SHA-256 3c1bde4e…974 unchanged; API smoke with curl on port 8002 matched the pinned numbers (43 / 45 / 52 / 42 / 14, 52 unavailable, legacy route 404 `dataset_version_is_v2`).
+- Evidence captured: `feature_list.json` -> `dev-dataset.evidence` (status `passing`, ready for independent validation).
+- Deviation: the dump hash sorts the element lines of each `CREATE TABLE`, because migration `0003` writes `source_documents` constraints in an address-dependent order (no migration changed). No pipeline bug was found.
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (D1-D9 for team review, D4 called out; accepted Low on the `0003` schema text). Keep `ideologiapp-flyer.png` out of the commit.
+- Next best step: independent validation of `dev-dataset` with `$feature-validator`, then commit and PR into `v2`.
+
+### Session 136 (dev-dataset, independent validation)
+
+- Date: 2026-11-27
+- Goal: independently validate `dev-dataset`.
+- Completed: validator verdict accept; one pre-existing Low (`shared_db.py` in-memory URI check never matches) and a D4 note recorded as an Accepted Low. The implementer had been stopped once by the organisation's API spend limit and resumed. Status `accepted`.
+- Verification run: see `feature_list.json` -> `dev-dataset.evidence` (validator `CI=true ./init.sh` exit 0, pytest 2741, Vitest 1102).
+- Known risk or unresolved issue: see `docs/risks-and-open-questions.md` (D1-D9 for team review, D4 called out).
+- Next best step: PR into `v2` (after #129-#134); next ready feature in list order is `ingestion-guide`, then the web features starting with `constituency-picker` (needs the province SVG map from the user).

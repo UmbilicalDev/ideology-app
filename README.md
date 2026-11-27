@@ -127,6 +127,43 @@ DATABASE_URL=sqlite:///data/ideology.db .venv/bin/ideology election list
 # 1   ES       general  2023-07-23  active  Elecciones generales 2023
 ```
 
+## Datos de desarrollo
+
+`ideology dev seed` construye una elección ficticia en formato 2 (sin PDF ni LLM real) en `data/dev/dev.db`, con su paquete de textos en `data/dev/dev-bundle/es-general-2031-05-18/`. Es la base por defecto para comprobar en el navegador las funciones v2. Ejecuta las fases reales (importación, Ingestion Ledger, extracción de Proposals, conflictos, `run-v2` con una reformulación, Validación y publicación) con un proveedor guionizado. Da siempre el mismo contenido: la orden imprime `Dump SHA-256` y dos ejecuciones dan el mismo valor.
+
+```bash
+.venv/bin/ideology dev seed
+DATABASE_URL=sqlite:///data/dev/dev.db .venv/bin/uvicorn ideology_app.main:app --port 8002
+```
+
+(o la entrada `web-dev-db` de `.claude/launch.json`). Rechaza, sin escribir nada, una URL que no sea un fichero SQLite, `data/ideology.db` (también por enlace), cualquier fichero `ideology.db`, un fichero existente que no sea una base de desarrollo y un directorio de paquete con otra cosa. Si `DATABASE_URL` apunta a la base compartida, quítala o apúntala a `sqlite:///data/dev/dev.db`. `data/dev/` está en `.gitignore`. Si falla a mitad, los datos anteriores quedan intactos. Un servidor ya arrancado sigue leyendo el fichero anterior hasta reiniciarlo.
+
+Contenido: todos los partidos tienen nombres de minerales y son inventados; ningún partido real aparece. 56 afirmaciones en 16 categorías.
+
+| Partido | Dónde | Resultado |
+|---|---|---|
+| CUARZO | las 52 | extraído |
+| JADE | todas salvo Galicia, 51 y 52 | extraído (`jade.md`, compartido con TURQUESA) |
+| ONIX | todas salvo Cataluña y 52 | extraído (`onix.md`, compartido con ONIX-CAT) |
+| ONIX-CAT | 08, 17, 25, 43 | extraído; conflicto decidido por el Operador: `onix-cat.md` prevalece |
+| ZAFIRO (sin logo) | todas salvo 51 y 52 | extraído |
+| TURQUESA | 15, 27, 32, 36 | extraído; programa conjunto `turquesa.md` prevalece sobre `jade.md` |
+| BASALTO | 08 | extraído |
+| MICA | 28 | excluido `too_few_proposals` |
+| GRAFITO | 51, 52 | excluido `no_manifesto` |
+| PIZARRA | 52 | excluido `discarded_at_review` |
+
+| Circunscripción | Afirmaciones (n) | Longitudes |
+|---|---|---|
+| Típica (p. ej. 28, 01) | 43 | 20, 30, 40 |
+| Galicia (15, 27, 32, 36) | 45 | 20, 30, 40 |
+| 08 Barcelona | 52 | 20, 30, 40, 50 |
+| 17, 25, 43 | 42 | 20, 30, 40 |
+| 51 Ceuta | 14 | Todas (14) |
+| 52 Melilla | no disponible (`fewer_than_two_parties`) | — |
+
+La afirmación reformulada (`statement-rewordings.toml`, aplicada) está en 28 y 08. Hasta `constituency-picker`, la portada muestra la elección ficticia con "Realizar cuestionario", pero el cuestionario da el error genérico: el cliente actual pide la versión antigua y recibe `404 dataset_version_is_v2`. Es lo esperado.
+
 ## Tests
 
 `CI=true ./init.sh` lo ejecuta todo. Pasos sueltos:

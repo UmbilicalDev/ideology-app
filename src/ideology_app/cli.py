@@ -96,6 +96,9 @@ def _safe_url(url: str) -> str:
 @click.pass_context
 def main(ctx: click.Context, database_url: str | None) -> None:
     """Operator commands for the ideology VAA."""
+    if ctx.invoked_subcommand == "dev":
+        # dev seed applies its own default and guard before any engine exists (dev-dataset D4).
+        return
     url = database_url or config.database_url()
     try:
         engine = make_engine(url)
@@ -2748,3 +2751,53 @@ def admin_hash_password(username: str | None) -> None:
         )
     encoded = hash_password(password)
     click.echo(f"{username}:{encoded}" if username is not None else encoded)
+
+
+@main.group()
+def dev() -> None:
+    """Development data: the fictional dev dataset (never the shared database)."""
+
+
+@dev.command("seed")
+@click.pass_context
+def dev_seed(ctx: click.Context) -> None:
+    """Build the fictional dev dataset in a SQLite file, from scratch, deterministically.
+
+    The target is --database-url / DATABASE_URL when given, else
+    sqlite:///data/dev/dev.db; its bundle goes to <stem>-bundle/ beside it.
+    Refuses (exit 1, nothing written) a non-SQLite URL, the shared database
+    (also through a link), any file named ideology.db, an existing file that is
+    not a dev-seed database and a bundle directory holding anything else. Runs
+    the real v2 phases with a scripted provider (no network, no real LLM) and
+    replaces the previous dev data only when the new build passes its checks.
+    """
+    from ideology_app import dev_dataset
+
+    raw = ctx.find_root().params.get("database_url")
+    try:
+        report = dev_dataset.seed(raw)
+    except dev_dataset.GuardError as exc:
+        raise click.ClickException(str(exc)) from exc
+    except dev_dataset.SeedError as exc:
+        raise click.ClickException(f"dev seed failed at {exc}; the previous data is untouched") from exc
+    click.echo(f"Database: {report.database}")
+    click.echo(f"Bundle: {report.bundle}")
+    click.echo(f"Election {report.election_id}: {dev_dataset.content.ELECTION_NAME}")
+    click.echo(
+        f"Pipeline run {report.run_id}: passed; dataset version {report.dataset_version_id} "
+        "published"
+    )
+    click.echo(f"Pool: {report.pool_size} statements")
+    click.echo(
+        f"Constituencies: {report.available} available, {report.unavailable} unavailable"
+    )
+    click.echo(
+        "Statements per Constituency: "
+        + ", ".join(f"{code} {report.counts[code]}" for code in dev_dataset.REPORTED_CODES)
+    )
+    click.echo(f"Dump SHA-256: {report.dump_sha256}")
+    click.echo("Start the app on it with:")
+    click.echo(
+        f"  DATABASE_URL=sqlite:///{report.database} .venv/bin/uvicorn ideology_app.main:app "
+        "--port 8002"
+    )

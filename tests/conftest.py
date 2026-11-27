@@ -45,3 +45,19 @@ def migrated_engine(db_url: str) -> Iterator[Engine]:
 def session(migrated_engine: Engine) -> Iterator[Session]:
     with Session(migrated_engine) as s:
         yield s
+
+
+@pytest.fixture(scope="session")
+def dev_seed(tmp_path_factory: pytest.TempPathFactory) -> "object":
+    """One dev-dataset seed for the session (dev-dataset), offline, into absolute paths.
+
+    Returns the ``SeedReport``. Tests must not write to it; copy it first.
+    """
+    from pipeline_fixtures import offline_guard
+
+    from ideology_app.dev_dataset import seed
+
+    root = tmp_path_factory.mktemp("dev-seed")
+    with pytest.MonkeyPatch.context() as mp:
+        offline_guard(mp)
+        return seed(f"sqlite:///{root}/data/dev/dev.db")

@@ -247,6 +247,7 @@ Runbook (VPS with Coolify, user decision 2026-11-08):
 - Frontend: Vitest for `packages/core`, and Vitest + Testing Library for web components. Every UI feature also gets a real-browser check (`AGENTS.md`).
 - Pipeline tests with a recorded/fake LLM provider (deterministic fixtures).
 - One end-to-end test from the Source Documents fixture to the shared result.
+- Dev dataset (`dev-dataset`): `ideology dev seed` builds a fictional format-2 Election in `data/dev/dev.db` (bundle in `data/dev/dev-bundle/`) by driving the real v2 phases with a scripted `FakeProvider` (`dev_dataset/provider.py`, model `dev-dataset-1`, never in `PROVIDERS`). It is the default data for v2 browser checks; launch `web-dev-db` (port 8002). Deterministic: no environment configuration but the target, every `DateTime` fixed to 2031-05-01T10:00:00Z, and the printed `Dump SHA-256` (Python `iterdump`, each `CREATE TABLE` with its element lines sorted, because migration `0003`'s batch recreate of `source_documents` writes its constraints in an address-dependent order) equal across runs and directories. `tests/test_dev_dataset*.py` seed it three times (about 7 s); `init.sh` does not seed. Realised numbers in README, "Datos de desarrollo".
 
 ## Observability
 
