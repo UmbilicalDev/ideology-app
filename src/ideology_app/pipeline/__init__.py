@@ -1,7 +1,10 @@
 """The AI pipeline: Pipeline Runs that turn Source Documents into a Dataset Version.
 
-Depends on ``models``, ``elections`` (errors), ``llm.base`` and ``validation``
-only; a provider is always injected, never built here.
+Depends on ``models``, ``elections`` (errors), ``llm.base``, ``validation`` and
+``bundle_import`` (candidatures) only; a provider is always injected, never
+built here. The v2 run (``pipeline.v2``, statements-from-proposals) is
+imported from its own package, not re-exported here, because it reads
+Proposals through ``proposals`` (which imports ``pipeline.checkpoint``).
 """
 
 from ideology_app.pipeline.agenda import (
@@ -65,6 +68,7 @@ from ideology_app.pipeline.prompts import (
     statement_set_schema,
 )
 from ideology_app.pipeline.publishing import (
+    PUBLISH_ON_PASS,
     PublishOutcome,
     get_published_dataset_version,
     publish_dataset_version,
@@ -80,6 +84,7 @@ from ideology_app.pipeline.selection import (
 )
 from ideology_app.pipeline.runs import (
     INTERRUPTED_REASON,
+    LEGACY_REFUSED_REASON,
     RunOutcome,
     UnfinishedRun,
     execute_run,
@@ -109,6 +114,7 @@ __all__ = [
     "FINDINGS_MAX",
     "GENERATE_STATEMENTS",
     "INTERRUPTED_REASON",
+    "LEGACY_REFUSED_REASON",
     "MAX_LLM_CALLS_PER_RUN",
     "MAX_POSITION_CALLS_PER_RUN",
     "NO_CANDIDATES_REASON",
@@ -119,6 +125,7 @@ __all__ = [
     "POOL_TARGET_STATEMENTS",
     "POSITION_FINDINGS",
     "PROMPTS",
+    "PUBLISH_ON_PASS",
     "PROMPT_VERSIONS",
     "QUEUE_ON_SOURCE_CHANGE",
     "SELECTION_VERSION",

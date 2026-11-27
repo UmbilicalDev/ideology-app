@@ -39,6 +39,7 @@ Before writing code:
 A feature that adds or changes anything a user sees in a browser (pages, forms, navigation, client-side behavior) is not `passing` or `accepted` until it has been checked in a real browser. Automated tests and rendered-HTML assertions do not replace this.
 
 - Start the app with the documented start command and open it in a real browser. Any browser automation tool is fine.
+- For v2 features, the default data is the fictional dev dataset unless the spec says otherwise: `.venv/bin/ideology dev seed`, then launch `web-dev-db` (port 8002). See README, "Datos de desarrollo".
 - Walk through every acceptance scenario of the feature's spec as a user would: click, type, navigate, go back.
 - Check at a mobile width (375px) and at desktop width, following `DESIGN.md`.
 - Check that the browser console has no errors and no request failed unexpectedly.
