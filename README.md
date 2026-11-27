@@ -110,7 +110,10 @@ API pública (solo lectura, GET):
 - `/api/v1/elections`
 - `/api/v1/elections/{id}`
 - `/api/v1/elections/{id}/published-dataset-version`
-- `/api/v1/dataset-versions/{id}`
+- `/api/v1/dataset-versions/{id}` (versiones antiguas, 1–5; una versión v2 responde 404 `dataset_version_is_v2`)
+- `/api/v1/dataset-versions/{id}/constituencies` (versión v2: las 52 circunscripciones, disponibles o no y por qué)
+- `/api/v1/dataset-versions/{id}/constituencies/{code}` (versión v2: afirmaciones, partidos con su posición y Evidencia allí, y partidos excluidos)
+- `/api/v1/dataset-versions/{id}/constituencies/{code}/proposals/{category}` (versión v2: propuestas de cada partido en una categoría, para el Comparador)
 
 Comprobaciones de solo lectura con la CLI:
 
@@ -123,6 +126,45 @@ DATABASE_URL=sqlite:///data/ideology.db .venv/bin/ideology election list
 # id  country  type     date        status  name
 # 1   ES       general  2023-07-23  active  Elecciones generales 2023
 ```
+
+## Datos de desarrollo
+
+`ideology dev seed` construye una elección ficticia en formato 2 (sin PDF ni LLM real) en `data/dev/dev.db`, con su paquete de textos en `data/dev/dev-bundle/es-general-2031-05-18/`. Es la base por defecto para comprobar en el navegador las funciones v2. Ejecuta las fases reales (importación, Ingestion Ledger, extracción de Proposals, conflictos, `run-v2` con una reformulación, Validación y publicación) con un proveedor guionizado. Da siempre el mismo contenido: la orden imprime `Dump SHA-256` y dos ejecuciones dan el mismo valor.
+
+```bash
+.venv/bin/ideology dev seed
+DATABASE_URL=sqlite:///data/dev/dev.db .venv/bin/uvicorn ideology_app.main:app --port 8002
+```
+
+(o la entrada `web-dev-db` de `.claude/launch.json`). Rechaza, sin escribir nada, una URL que no sea un fichero SQLite, `data/ideology.db` (también por enlace), cualquier fichero `ideology.db`, un fichero existente que no sea una base de desarrollo y un directorio de paquete con otra cosa. Si `DATABASE_URL` apunta a la base compartida, quítala o apúntala a `sqlite:///data/dev/dev.db`. `data/dev/` está en `.gitignore`. Si falla a mitad, los datos anteriores quedan intactos. Un servidor ya arrancado sigue leyendo el fichero anterior hasta reiniciarlo.
+
+Contenido: todos los partidos tienen nombres de minerales y son inventados; ningún partido real aparece. 56 afirmaciones en 16 categorías.
+
+| Partido | Dónde | Resultado |
+|---|---|---|
+| CUARZO | las 52 | extraído |
+| JADE | todas salvo Galicia, 51 y 52 | extraído (`jade.md`, compartido con TURQUESA) |
+| ONIX | todas salvo Cataluña y 52 | extraído (`onix.md`, compartido con ONIX-CAT) |
+| ONIX-CAT | 08, 17, 25, 43 | extraído; conflicto decidido por el Operador: `onix-cat.md` prevalece |
+| ZAFIRO (sin logo) | todas salvo 51 y 52 | extraído |
+| TURQUESA | 15, 27, 32, 36 | extraído; programa conjunto `turquesa.md` prevalece sobre `jade.md` |
+| BASALTO | 08 | extraído |
+| MICA | 28 | excluido `too_few_proposals` |
+| GRAFITO | 51, 52 | excluido `no_manifesto` |
+| PIZARRA | 52 | excluido `discarded_at_review` |
+
+| Circunscripción | Afirmaciones (n) | Longitudes |
+|---|---|---|
+| Típica (p. ej. 28, 01) | 43 | 20, 30, 40 |
+| Galicia (15, 27, 32, 36) | 45 | 20, 30, 40 |
+| 08 Barcelona | 52 | 20, 30, 40, 50 |
+| 17, 25, 43 | 42 | 20, 30, 40 |
+| 51 Ceuta | 14 | Todas (14) |
+| 52 Melilla | no disponible (`fewer_than_two_parties`) | — |
+
+La afirmación reformulada (`statement-rewordings.toml`, aplicada) está en 28 y 08. Hasta `constituency-picker`, la portada muestra la elección ficticia con "Realizar cuestionario", pero el cuestionario da el error genérico: el cliente actual pide la versión antigua y recibe `404 dataset_version_is_v2`. Es lo esperado.
+
+La ejecución de desarrollo usa el proveedor guionizado `fake` / `dev-dataset-1`, que no está registrado en la CLI: una reformulación nueva (o cualquier `pipeline run-v2 --reuse-from 1` / `--resume-from`) sobre estos datos no se puede ejecutar desde la CLI; falla y deja `ingestion next` en `resume-run` hasta volver a sembrar con `ideology dev seed`. Para ensayar la guía basta con llegar a la aprobación del gasto.
 
 ## Tests
 
@@ -247,10 +289,11 @@ Para reanudar una ejecución hay que usar el mismo proveedor y el mismo modelo.
 Todos son de solo lectura; usa el mismo prefijo `DATABASE_URL=sqlite:///data/ideology.db .venv/bin/ideology`:
 
 - `pipeline list --election E`: las ejecuciones de una elección.
-- `pipeline report --run R`: estado, proveedor y modelo, `prompt_versions`, llamadas y tokens, `resumed_from`/`reused_calls`, `validation_settings`, `statement_selection`, `selection_coverage` (cobertura por partido), `findings_check`, `publication` y el informe de Validación.
+- `pipeline report --run R`: estado, proveedor y modelo, `prompt_versions`, llamadas y tokens, `resumed_from`/`reused_calls`, `validation_settings`, `statement_selection`, `selection_coverage` (cobertura por partido), `findings_check`, `publication` y el informe de Validación. En una ejecución v2 añade la línea `positions:` y, tras el informe, las secciones `parties:` (propuestas contadas, alcance parcial, posiciones con lado y sin postura por partido, y los partidos excluidos con su motivo), `categories:`, `filtered statements:`, `slice disagreements:`, `source parties with no stance:` (estas tres solo si no están vacías) y la tabla `constituencies:` con las 52 circunscripciones (disponibilidad y motivo, partidos, afirmaciones válidas, longitudes, lados por partido y reparto por tema).
 - `pipeline checks --run R`: los resultados de la Validación.
-- `pipeline statements --dataset-version V`: las afirmaciones de una versión.
-- `pipeline positions --dataset-version V [--party P]`: las posiciones con su Evidencia.
+- `pipeline statements --dataset-version V` (o `--run R`, la versión de esa ejecución; pasa exactamente uno de los dos): las afirmaciones de una versión. Con `--sources` (solo v2) lista las propuestas de origen de cada afirmación (archivo, página y un extracto de 120 caracteres).
+- `pipeline positions --dataset-version V` (o `--run R`) `[--party P]`: las posiciones con su Evidencia. Con `--evidence` (solo v2) lista cada propuesta de Evidencia con sus circunscripciones (`all` si son todas las del partido).
+- `pipeline run-queued` omite las ejecuciones v2 encoladas con un aviso (siguen en `queued`; lanza una nueva con `pipeline run-v2 DIR`), y `pipeline validate --run R` valida una ejecución v2 con los mínimos por circunscripción que registró, no con los del entorno.
 - `party list --election E`: los partidos y sus ids (`P` es un id de partido).
 - `source list --party P`: los documentos fuente (*Source Documents*) de un partido.
 - `source text --document D [--page N]`: el texto extraído de un documento.
@@ -274,11 +317,20 @@ Todos son de solo lectura; usa el mismo prefijo `DATABASE_URL=sqlite:///data/ide
   Sin `--url` la Evidencia no muestra enlace. Nunca versiones un PDF ni edites un `.md`.
 - Añade el fichero a `election.toml` (sigue el formato de [`data/elections/es-general-2023-07-23/election.toml`](data/elections/es-general-2023-07-23/election.toml)). Una elección nueva es un directorio `<slug>/` nuevo con su propio `election.toml`.
 - Luego `db upgrade` y `data import data/elections/<slug>`, y comprueba con `data check data/elections/<slug>`. La importación es idempotente; un `.md` cambiado registra un documento que sustituye al anterior.
+- Candidaturas por circunscripción (formato 2 de `election.toml`, `constituencies-and-candidatures`): `format = 2`, una tabla `[candidatures]` con la fuente del BOE (`source`, `url` opcional), cada `[[parties]]` con `constituencies = "all"` o una lista de códigos INE (`["08", "17"]`) y sin `file`, y los programas en `[[documents]]` (`file`, `parties` a los que se aplica y, opcional, `constituencies`). `ideology constituency list` imprime las 52 circunscripciones con su código (no necesita base de datos). `data import` carga candidaturas y ámbitos y `data check` / `db check` informan de códigos desconocidos, diferencias y circunscripciones sin candidatura. Los dos bundles versionados siguen en formato 1. Guía completa en `docs/technical-discovery.md`.
+- Registro de ingesta (`ingestion-ledger`, solo formato 2): `ideology ingestion status|update|review|no-manifesto|gate data/elections/<slug>` mantiene `data/elections/<slug>/ingestion-ledger.json` (se versiona con el bundle y nunca se edita a mano): por partido, la fase alcanzada o el motivo de exclusión, y la revisión de cada programa (`review DIR FICHERO --keep` o `--discard no-text-layer|not-a-manifesto|incomplete`). `gate` sale con 1 mientras quede algún partido pendiente. No necesita base de datos. Detalles en [`docs/technical-discovery.md`](docs/technical-discovery.md) (Ingestion Ledger).
+- Extracción de propuestas (`proposal-extraction`, fase 3, solo formato 2): `ideology proposals extract data/elections/<slug>` pide al LLM configurado todas las propuestas de cada programa revisado como `kept`, guarda solo las que aparecen literalmente en su página y anota el recuento en el registro de ingesta. Se puede repetir: cada llamada se guarda al volver, `--max-calls K` (300 por defecto) para por presupuesto y un fichero ya extraído (o compartido por varios partidos) no se vuelve a pagar. `proposals status` muestra el avance y `proposals list --file F [--dropped]` las propuestas o las descartadas. Detalles en [`docs/technical-discovery.md`](docs/technical-discovery.md) (Proposal extraction).
 - Logos de partido (opcional): guarda el fichero del usuario en `data/elections/<slug>/logos/<partido>.svg` (o `.png` / `.webp`) y añade `logo = "logos/<partido>.svg"` a ese partido en `election.toml`. Solo PNG, WebP o SVG (por contenido), hasta 256 KiB, y un SVG sin scripts ni referencias externas. `data import` guarda el logo y `data check` lo compara; si un fichero se rechaza, no lo edites: devuélveselo al usuario.
 - Fuera de un bundle: `party logo SHORT --election E --file F` o `--clear` (escribe en la base; en una elección con bundle, `data check` lo señalará hasta que `election.toml` declare el mismo fichero).
 - Una elección importada queda en `draft` hasta su primera ejecución publicada.
 - Tras una migración, ejecuta `db upgrade` sobre la base compartida. Un PR que añade una migración también versiona la base actualizada.
 - Ambas escrituras siguen el ciclo pull → escribir → `db check` → commit → push, y nunca mientras alguien está generando. `data import` sobre la base compartida no pide confirmación.
+
+### Ingesta guiada (v2)
+
+- `ideology ingestion next data/elections/<slug>` dice en cada momento el primer paso pendiente de una elección v2: fase, qué falta, en qué fichero y con qué formato, el comando siguiente, si gasta LLM (proveedor, modelo y llamadas previstas) y qué escribe en la base compartida. Es de solo lectura (abre SQLite en modo lectura, no crea la base y no llama al LLM) y funciona aunque el directorio aún no exista. Usa la misma `DATABASE_URL` que los comandos que te indica.
+- Guía completa, con la tabla de costes y de pasos: [`docs/ingestion-guide.md`](docs/ingestion-guide.md). Plantilla de `election.toml` formato 2: [`docs/templates/election-format-2.toml`](docs/templates/election-format-2.toml).
+- Con un agente: «Use $ingestion-guide on data/elections/<slug>». El agente pide solo los datos que faltan, nunca los inventa, pide aprobación antes de cada gasto de LLM y nunca ejecuta git.
 
 ### No hay ensayo gratis
 

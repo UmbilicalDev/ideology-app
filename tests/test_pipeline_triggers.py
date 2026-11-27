@@ -16,6 +16,7 @@ from ideology_app.elections import DuplicateError
 from ideology_app.http_fetch import FetchError
 from ideology_app.models import (
     DatasetVersion,
+    ModelGeneration,
     PipelineRun,
     PipelineRunStatus,
     SourceDocument,
@@ -282,6 +283,30 @@ def test_queued_run_of_another_election_does_not_coalesce(
         assert list_queued_run_ids(s, setup["e2"]) == [other.run_id]
 
 
+def test_queued_run_ids_filter_by_model_generation(
+    migrated_engine: Engine, setup: dict[str, int], files_dir: Path, tmp_path: Path
+) -> None:
+    legacy = _add(
+        migrated_engine, setup["a"], _pdf(tmp_path, "a.pdf", "Programa A."), files_dir, LIVE
+    )
+    with session_scope(migrated_engine) as session:
+        v2 = PipelineRun(
+            election_id=setup["e2"], status=PipelineRunStatus.QUEUED, llm_provider="fake",
+            llm_model="fake-model", generation_mode=GenerationMode.LIVE, prompt_versions={},
+            llm_calls=0, input_tokens=0, output_tokens=0, model_generation=ModelGeneration.V2,
+        )
+        session.add(v2)
+        session.flush()
+        v2_id = v2.id
+
+    with Session(migrated_engine) as s:
+        assert list_queued_run_ids(s) == [legacy.run_id, v2_id]
+        assert list_queued_run_ids(s, generation=ModelGeneration.LEGACY) == [legacy.run_id]
+        assert list_queued_run_ids(s, generation=ModelGeneration.V2) == [v2_id]
+        assert list_queued_run_ids(s, setup["e1"], ModelGeneration.V2) == []
+        assert list_queued_run_ids(s, setup["e2"], ModelGeneration.V2) == [v2_id]
+
+
 @pytest.mark.parametrize(
     "in_flight", [PipelineRunStatus.RUNNING, PipelineRunStatus.VALIDATING]
 )
@@ -415,3 +440,26 @@ def test_mode_table_covers_every_generation_mode() -> None:
 def test_list_queued_run_ids_unknown_election(session: Session) -> None:
     with pytest.raises(elections.NotFoundError):
         list_queued_run_ids(session, 999)
+
+
+# statements-from-proposals S11: an Election with candidatures never queues.
+
+
+def test_live_format_2_import_queues_nothing(migrated_engine: Engine, tmp_path: Path) -> None:
+    from proposal_fixtures import write_v2
+    from v2_fixtures import P, R, documents
+
+    from ideology_app.bundle_import import import_bundle
+    from ideology_app.source_bundle import read_bundle
+
+    directory = write_v2(tmp_path, [P, R], documents())
+    with session_scope(migrated_engine) as session:
+        report = import_bundle(session, read_bundle(directory))
+        assert report.new_documents
+        # Same transaction as the CLI: candidatures are flushed before the read.
+        outcomes = [
+            queue_run_for_source_change(session, d, generation_mode=LIVE, llm=SETTINGS)
+            for d in report.new_documents
+        ]
+    assert outcomes == [SourceChangeOutcome(1, None, False)] * len(outcomes)
+    assert _runs(migrated_engine) == []

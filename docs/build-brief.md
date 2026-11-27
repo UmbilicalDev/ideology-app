@@ -63,7 +63,7 @@ Three-option rule (user decision 2026-11-21, `three-option-scale`; it replaces t
 
 ## Validation Plan
 
-- Automated tests for the matching rule, Share Link encode/decode, and every Validation check. Tests use the fake provider and the fictional dev dataset (`dev-dataset`: no real Party names, never published, refused on the shared database).
+- Automated tests for the matching rule, Share Link encode/decode, and every Validation check. Tests use the fake provider and the fictional dev dataset (`dev-dataset`: no real Party names, published only inside its own dev database, refused on the shared database).
 - The end-to-end run is the 2026 re-ingestion with the v2 model (`e2e-2026-constituencies`): ingestion → pipeline → validation → publish → questionnaire → share. *Legacy:* the end-to-end run over the 2023 manifestos.
 - A manual sanity read of the published output by the team (an observation, not an editing step).
 

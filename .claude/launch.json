@@ -23,6 +23,19 @@
         "DATABASE_URL": "sqlite:///data/ideology.db"
       },
       "port": 8001
+    },
+    {
+      "name": "web-dev-db",
+      "runtimeExecutable": ".venv/bin/uvicorn",
+      "runtimeArgs": [
+        "ideology_app.main:app",
+        "--port",
+        "8002"
+      ],
+      "env": {
+        "DATABASE_URL": "sqlite:///data/dev/dev.db"
+      },
+      "port": 8002
     }
   ]
 }

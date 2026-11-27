@@ -161,7 +161,12 @@ def published(migrated_engine: Engine) -> int:
 
 
 def election_1(version_id: int | None) -> dict[str, Any]:
-    return {**ELECTION_1, "published_dataset_version_id": version_id}
+    # public-dataset-api-v2 A3: the generation is appended last (legacy here).
+    return {
+        **ELECTION_1,
+        "published_dataset_version_id": version_id,
+        "published_dataset_version_generation": None if version_id is None else "legacy",
+    }
 
 
 # --- Scenario 1 ------------------------------------------------------------
@@ -245,7 +250,11 @@ def test_get_one_election_including_draft_and_unknown(
         "name": "Generales 2027",
         "status": "draft",
         "published_dataset_version_id": None,
+        "published_dataset_version_generation": None,
     }
+    assert list(first.json())[-2:] == [
+        "published_dataset_version_id", "published_dataset_version_generation"
+    ]
     assert unknown.status_code == 404
     assert unknown.json() == {
         "error": {"code": "election_not_found", "message": "election 999 not found"}
@@ -697,6 +706,9 @@ def test_api_routes_are_get_only_without_query_or_body() -> None:
         "/api/v1/elections/{election_id}",
         "/api/v1/elections/{election_id}/published-dataset-version",
         "/api/v1/dataset-versions/{dataset_version_id}",
+        "/api/v1/dataset-versions/{dataset_version_id}/constituencies",
+        "/api/v1/dataset-versions/{dataset_version_id}/constituencies/{code}",
+        "/api/v1/dataset-versions/{dataset_version_id}/constituencies/{code}/proposals/{category}",
         "/api/v1/parties/{party_id}/logo",
         "/api/v1/legal-notice",
         "/api/v1/donation",
@@ -765,6 +777,18 @@ def test_openapi_is_exposed_under_api(client_for: Callable[[], TestClient]) -> N
         "/api/v1/dataset-versions/{dataset_version_id}": (
             "getDatasetVersion",
             "DatasetVersionOut",
+        ),
+        "/api/v1/dataset-versions/{dataset_version_id}/constituencies": (
+            "listDatasetVersionConstituencies",
+            "ConstituencyListOut",
+        ),
+        "/api/v1/dataset-versions/{dataset_version_id}/constituencies/{code}": (
+            "getConstituencyQuestionnaire",
+            "ConstituencyQuestionnaireOut",
+        ),
+        "/api/v1/dataset-versions/{dataset_version_id}/constituencies/{code}/proposals/{category}": (
+            "getConstituencyProposals",
+            "ConstituencyProposalsOut",
         ),
     }
     for path, (operation_id, model) in expected.items():
@@ -1129,3 +1153,59 @@ def test_openapi_documents_questionnaire_lengths(client_for: Callable[[], TestCl
         "before lengths existed offer only their full length."
     )
     assert "questionnaire_lengths" in out["required"]
+
+
+# --- statement-rewording R12: a reworded v2 version serves only the final text ---------------
+
+
+def test_reworded_statement_is_served_as_the_final_text_only(
+    tmp_path: Path, migrated_engine: Engine, client_for: Callable[[], TestClient]
+) -> None:
+    from v2_fixtures import STATEMENTS, setup, v2_fake
+
+    from ideology_app.config import ConstituencySettings
+    from ideology_app.pipeline.v2 import REWORDINGS_NAME, execute_v2_run, queue_v2_run
+
+    ai_text = STATEMENTS["Vivienda"][0]
+    new_text = "Debe ponerse un tope al precio del alquiler de las viviendas."
+    reason = "MOTIVO-DEL-OPERADOR"
+    directory = setup(tmp_path / "bundles", migrated_engine)
+    (directory / REWORDINGS_NAME).write_text(
+        f'format = 1\n\n[[rewordings]]\nai_text = "{ai_text}"\ntext = "{new_text}"\n'
+        f'reason = "{reason}"\n',
+        encoding="utf-8",
+    )
+    with session_scope(migrated_engine) as session:
+        run_id = queue_v2_run(
+            session, 1, llm_provider="fake", llm_model="fake-model",
+            generation_mode=GenerationMode.PRECOMPUTED,
+        ).id
+    outcome = execute_v2_run(
+        migrated_engine, run_id, v2_fake(), directory,
+        constituency_settings=ConstituencySettings(1, 1),
+    )
+    assert outcome.dataset_version_id is not None and outcome.publish is not None
+
+    version = outcome.dataset_version_id
+    client = client_for()
+
+    # public-dataset-api-v2 A2: a v2 version is never served in the legacy shape.
+    legacy = client.get(f"/api/v1/dataset-versions/{version}")
+    assert legacy.status_code == 404
+    assert legacy.json()["error"]["code"] == "dataset_version_is_v2"
+    response = client.get(f"/api/v1/dataset-versions/{version}/constituencies/28")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [s["text"] for s in body["statements"]] == [new_text, STATEMENTS["Economía"][0]]
+    assert all(
+        list(s) == ["id", "rank", "text", "topic", "context_note"] for s in body["statements"]
+    )
+    raw = response.text
+    explanation = "Misma medida con palabras más sencillas."
+    for hidden in (ai_text, reason, explanation, "ai_text", "explanation", "rewording"):
+        assert hidden not in raw, hidden
+    # The only "reason" keys are the Excluded Parties' codes (A5), never a rewording's.
+    assert all("reason" not in s for s in body["statements"])
+    assert [p["reason"] for p in body["excluded_parties"]] == ["no_manifesto"]
+    assert raw.count('"reason":') == len(body["excluded_parties"])

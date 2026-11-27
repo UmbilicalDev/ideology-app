@@ -13,7 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ideology_app.models import Election, ElectionStatus, ElectionType, Party
+from ideology_app.constituencies import CONSTITUENCIES
+from ideology_app.models import Constituency, Election, ElectionStatus, ElectionType, Party
 
 if TYPE_CHECKING:  # party_logos imports InvalidInputError from this module.
     from ideology_app.party_logos import Logo, LogoChange
@@ -163,3 +164,30 @@ def set_party_logo(party: Party, logo: "Logo | None") -> "LogoChange":
     party.logo_media_type = logo.media_type
     party.logo_sha256 = logo.sha256
     return LogoChange.REPLACED if had_logo else LogoChange.SET
+
+
+def constituency_seed_problems(session: Session) -> list[str]:
+    """How the ``constituencies`` table differs from ``CONSTITUENCIES`` (empty: equal). Read-only.
+
+    The table is seeded by migration 0016 and changes only by migration.
+    """
+    stored = {
+        code: name
+        for code, name in session.execute(select(Constituency.code, Constituency.name))
+    }
+    expected = dict(CONSTITUENCIES)
+    problems: list[str] = []
+    for code, name in CONSTITUENCIES:
+        if code not in stored:
+            problems.append(f"Constituency {code} ({name}) is missing from the constituencies table")
+        elif stored[code] != name:
+            problems.append(
+                f"Constituency {code} is named {stored[code]!r} in the constituencies table, "
+                f"not {name!r}"
+            )
+    for code in sorted(set(stored) - set(expected)):
+        problems.append(
+            f"Constituency {code} ({stored[code]}) in the constituencies table is not a "
+            "Congreso Constituency"
+        )
+    return problems

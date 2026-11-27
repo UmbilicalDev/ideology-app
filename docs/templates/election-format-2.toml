@@ -1,0 +1,57 @@
+# Plantilla de election.toml, formato 2 (v2: candidaturas por circunscripción).
+# Guía: docs/ingestion-guide.md. Siguiente paso en cada momento:
+#   ideology ingestion next DIR
+#
+# Cópiala en el directorio del bundle (data/elections/<pais>-<tipo>-<fecha>/):
+#   mkdir -p DIR && cp docs/templates/election-format-2.toml DIR/election.toml
+#
+# Cada marcador entre ángulos dobles se sustituye por un valor ENTRE COMILLAS
+# ("PP", "Partido Popular"), salvo la fecha, que es una fecha TOML sin comillas
+# (2030-06-02), y las circunscripciones, que son "all" o una lista de códigos INE
+# entre comillas (["08", "17"]; ideology constituency list). Mientras quede un
+# marcador, el fichero no es TOML válido y ningún comando lo acepta.
+# Solo datos que el Operador da o que vienen de un fichero que él indica
+# (la proclamación de candidaturas del BOE): nunca datos inventados.
+
+format = 2
+
+[election]
+country = <<PAIS>>  # ej. "ES"
+type = <<TIPO>>  # ej. "general"
+date = <<FECHA>>  # ej. 2030-06-02 (fecha TOML, sin comillas; igual que en el nombre del directorio)
+name = <<NOMBRE_ELECCION>>  # ej. "Elecciones generales 2030"
+
+# Fuente de las candidaturas: la proclamación del BOE.
+[candidatures]
+source = <<FUENTE_BOE>>  # ej. "BOE núm. N, de D de mes de AAAA: candidaturas proclamadas"
+url = <<URL_BOE>>  # ej. "https://www.boe.es/..." (opcional: borra la línea si no hay URL)
+
+# Una entrada [[parties]] por candidatura. Cada circunscripción (01..52) debe
+# tener al menos una. Logo opcional: logo = "logos/siglas.svg" (PNG, WebP o SVG).
+
+# Candidatura que se presenta en todas las circunscripciones.
+[[parties]]
+short_name = <<SIGLAS_1>>  # ej. "SIGLAS1"
+name = <<NOMBRE_1>>  # nombre completo de la papeleta
+constituencies = <<CIRCUNSCRIPCIONES_1>>  # ej. "all"
+
+# Candidatura que se presenta solo en algunas circunscripciones.
+[[parties]]
+short_name = <<SIGLAS_2>>  # ej. "SIGLAS2"
+name = <<NOMBRE_2>>  # nombre completo de la papeleta
+constituencies = <<CIRCUNSCRIPCIONES_2>>  # ej. ["08", "17", "25", "43"]
+
+# --- Fase 2: los programas ([[documents]]) ---
+# Un bloque por fichero .md, añadido después de
+#   ideology source extract PDF --party SIGLAS --out DIR/siglas.md --url URL
+# (el PDF se queda fuera de data/; nunca se sube un PDF). Descomenta y rellena:
+#
+# [[documents]]
+# file = "siglas1.md"
+# parties = ["SIGLAS1", "SIGLAS2"]  # un programa compartido por varias candidaturas
+#
+# [[documents]]
+# file = "siglas2-regional.md"
+# parties = ["SIGLAS2"]
+# constituencies = ["08", "17", "25", "43"]  # opcional: dónde se aplica
+# joint_for = ["SIGLAS2"]  # opcional: es el programa conjunto de la coalición
